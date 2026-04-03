@@ -11,78 +11,89 @@ Verzamelt alle geplaatste recensies van [instagram.com/snackspert](https://insta
   - Volledige recensietekst
   - Hashtags
   - Link naar de originele post en afbeelding
-- Slaat alle documenten op in een gedeelde Google Drive-map
+- Slaat alle documenten op in een Google Drive-map
 
-## Vereisten
+---
+
+## Chromebook / Google Colab (aanbevolen)
+
+De makkelijkste manier om dit te gebruiken is via **Google Colab** - werkt direct in je browser, geen installatie nodig.
+
+### Stappen
+
+1. Open het bestand `snackspert_recensies.ipynb` in Google Colab:
+   - Ga naar [colab.research.google.com](https://colab.research.google.com)
+   - Klik op **Bestand > Uploaden** en upload `snackspert_recensies.ipynb`
+   - Of open het direct vanuit GitHub via **Bestand > Openen vanuit GitHub**
+
+2. Voer de cellen stap voor stap uit (klik op het play-knopje of druk `Shift+Enter`):
+   - **Stap 1**: Installeert automatisch de benodigde packages
+   - **Stap 2**: Log in met je Google-account (pop-up)
+   - **Stap 3**: Pas eventueel de instellingen aan
+   - **Stap 4**: Haalt de recensies op van Instagram
+   - **Stap 5**: Maakt de Google Docs-bestanden aan
+   - **Stap 6**: Toont een overzicht van alle documenten
+
+3. De documenten verschijnen automatisch in een map **"Snackspert Recensies"** op je Google Drive
+
+### Voordelen van Colab
+- Geen Python-installatie nodig
+- Geen service account nodig (je logt in met je eigen Google-account)
+- Werkt op elk apparaat met een browser (Chromebook, tablet, etc.)
+- Google Drive-map wordt automatisch aangemaakt
+
+---
+
+## Lokale installatie (geavanceerd)
+
+Voor wie het liever lokaal draait (Linux, Mac, Windows).
+
+### Vereisten
 
 - Python 3.11+
 - Een Google Cloud project met de **Google Docs API** en **Google Drive API** ingeschakeld
 - Een **service account** met een JSON-sleutelbestand
-- De Google Drive-map moet gedeeld zijn met het e-mailadres van het service account
 
-## Installatie
+### Installatie
 
 ```bash
-# Clone de repository
 git clone https://github.com/EkeBosman/snackspert.git
 cd snackspert
-
-# Maak een virtuele omgeving aan
 python -m venv venv
-source venv/bin/activate  # Linux/Mac
-# of: venv\Scripts\activate  # Windows
-
-# Installeer dependencies
+source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Configuratie
+### Configuratie
 
-1. **Kopieer het voorbeeld-configuratiebestand:**
-   ```bash
-   cp .env.example .env
-   ```
-
-2. **Google Cloud instellen:**
-   - Ga naar [Google Cloud Console](https://console.cloud.google.com/)
-   - Maak een nieuw project aan (of gebruik een bestaand project)
-   - Schakel de **Google Docs API** en **Google Drive API** in
+1. `cp .env.example .env`
+2. Google Cloud instellen:
+   - Schakel de **Google Docs API** en **Google Drive API** in via [Google Cloud Console](https://console.cloud.google.com/)
    - Maak een **service account** aan en download het JSON-sleutelbestand
-   - Plaats het bestand in `credentials/service_account.json`
+   - Plaats het in `credentials/service_account.json`
+3. Maak een Google Drive-map aan en deel deze met het service account e-mailadres
+4. Vul `GOOGLE_DRIVE_FOLDER_ID` in het `.env`-bestand in
 
-3. **Google Drive-map aanmaken:**
-   - Maak een nieuwe map aan in Google Drive (bijv. "Snackspert Recensies")
-   - Deel de map met het e-mailadres van het service account (te vinden in het JSON-bestand onder `client_email`)
-   - Kopieer het map-ID uit de URL (het deel na `/folders/`)
-   - Vul dit ID in bij `GOOGLE_DRIVE_FOLDER_ID` in het `.env`-bestand
-
-4. **Vul het `.env`-bestand in** met de juiste waarden.
-
-## Gebruik
+### Gebruik
 
 ```bash
-# Alle recensies ophalen en naar Google Docs schrijven
-python main.py
-
-# Maximaal 10 recensies ophalen
-python main.py --max-posts 10
-
-# Alleen ophalen zonder naar Google Docs te schrijven (dry-run)
-python main.py --dry-run
-
-# Resultaten ook als JSON opslaan
-python main.py --output-json recensies.json
+python main.py                  # Alle recensies
+python main.py --max-posts 10   # Maximaal 10
+python main.py --dry-run        # Test zonder Google Docs
+python main.py --output-json recensies.json  # Export als JSON
 ```
+
+---
 
 ## Projectstructuur
 
 ```
 snackspert/
-├── main.py                  # Hoofdscript - start hier
-├── instagram_scraper.py     # Haalt recensies op van Instagram
-├── google_docs_writer.py    # Schrijft recensies naar Google Docs
-├── requirements.txt         # Python dependencies
-├── .env.example             # Voorbeeld configuratie
-├── .gitignore               # Git ignore regels
-└── credentials/             # Service account sleutelbestanden (niet in git)
+├── snackspert_recensies.ipynb  # Google Colab notebook (aanbevolen)
+├── main.py                     # Lokaal hoofdscript
+├── instagram_scraper.py        # Instagram scraper module
+├── google_docs_writer.py       # Google Docs writer module
+├── requirements.txt            # Python dependencies
+├── .env.example                # Voorbeeld configuratie (lokaal)
+└── .gitignore                  # Git ignore regels
 ```
