@@ -1,0 +1,40 @@
+{
+  "expo": {
+    "name": "Snackspert",
+    "slug": "snackspert",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "snackspert",
+    "userInterfaceStyle": "light",
+    "newArchEnabled": true,
+    "splash": {
+      "backgroundColor": "#FF6B00"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "nl.snackspert.app",
+      "config": {
+        "googleMapsApiKey": "JOUW_GOOGLE_MAPS_API_KEY"
+      },
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Snackspert gebruikt je locatie om restaurants bij jou in de buurt te tonen."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "backgroundColor": "#FF6B00"
+      },
+      "package": "nl.snackspert.app",
+      "config": {
+        "googleMaps": {
+          "apiKey": "JOUW_GOOGLE_MAPS_API_KEY"
+        }
+      }
+    },
+    "plugins": [
+      "expo-router",
+      "expo-location"
+    ]
+  }
+}

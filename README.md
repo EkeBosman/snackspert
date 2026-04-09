@@ -33,6 +33,16 @@ Verzamelt alle recensies van [snackspert.nl/restaurant](https://snackspert.nl/re
 - Stap 4 kan 10-30 minuten duren (er zijn ~700 restaurants)
 - Je kunt `MAX_RECENSIES` instellen op bijv. `10` om eerst te testen
 
+## iPhone App
+
+In de map `snackspert-app/` staat een React Native (Expo) app voor de iPhone. Zie [snackspert-app/README.md](snackspert-app/README.md) voor installatie-instructies.
+
+Functies:
+- Interactieve kaart met alle ~700 restaurants
+- Filteren op eetcategorie (Pizza, Shoarma, Frietpatat, etc.)
+- Zoeken op naam of adres
+- Restaurant detail met recensie, sterren en navigatie
+
 ## Projectstructuur
 
 ```
@@ -40,5 +50,10 @@ snackspert/
 ├── snackspert_recensies.ipynb  # Google Colab notebook
 ├── requirements.txt            # Python dependencies
 ├── README.md                   # Dit bestand
-└── .gitignore                  # Git ignore regels
+├── .gitignore                  # Git ignore regels
+└── snackspert-app/             # iPhone app (React Native / Expo)
+    ├── app/                    # Schermen
+    ├── components/             # UI componenten
+    ├── services/               # API communicatie
+    └── ...
 ```

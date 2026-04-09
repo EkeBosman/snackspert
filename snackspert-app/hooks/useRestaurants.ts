@@ -1,0 +1,186 @@
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Restaurant, RestaurantSummary, FilterState } from '../types';
+import { fetchAlleRestaurants, fetchRestaurantDetail, fetchAlleLocaties } from '../services/api';
+
+interface UseRestaurantsReturn {
+  restaurants: Restaurant[];
+  filteredRestaurants: Restaurant[];
+  isLoading: boolean;
+  loadingProgress: { loaded: number; total: number };
+  error: string | null;
+  filters: FilterState;
+  setFilters: (filters: FilterState) => void;
+  toggleCategory: (category: string) => void;
+  setZoekterm: (term: string) => void;
+  beschikbareCategorieen: string[];
+  refresh: () => void;
+}
+
+export function useRestaurants(): UseRestaurantsReturn {
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadingProgress, setLoadingProgress] = useState({ loaded: 0, total: 0 });
+  const [error, setError] = useState<string | null>(null);
+  const [filters, setFilters] = useState<FilterState>({
+    categorieen: [],
+    zoekterm: '',
+    minimumSterren: 0,
+  });
+
+  const loadRestaurants = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      // Stap 1: Haal de lijst op via REST API
+      const summaries = await fetchAlleRestaurants((loaded, total) => {
+        setLoadingProgress({ loaded, total });
+      });
+
+      // Stap 2: Haal alle locaties op van de overzichtspagina
+      const locaties = await fetchAlleLocaties();
+
+      // Stap 3: Combineer data - locaties matchen op URL
+      const fullRestaurants: Restaurant[] = summaries.map(summary => {
+        // Zoek locatie op basis van URL
+        let lat: number | null = null;
+        let lng: number | null = null;
+
+        for (const [key, loc] of locaties.entries()) {
+          if (key.includes(summary.slug) || summary.paginaUrl.includes(key)) {
+            lat = loc.lat;
+            lng = loc.lng;
+            break;
+          }
+        }
+
+        return {
+          id: summary.id,
+          naam: summary.naam,
+          slug: summary.slug,
+          adres: '',
+          tekst: '',
+          sterren: 0,
+          sterrenTekst: '',
+          afbeeldingUrl: '',
+          paginaUrl: summary.paginaUrl,
+          categorieen: summary.categorieen,
+          latitude: lat,
+          longitude: lng,
+        };
+      });
+
+      setRestaurants(fullRestaurants);
+
+      // Stap 4: Op de achtergrond details ophalen per restaurant
+      // (in batches om de server niet te overbelasten)
+      const batchSize = 5;
+      for (let i = 0; i < fullRestaurants.length; i += batchSize) {
+        const batch = fullRestaurants.slice(i, i + batchSize);
+        const details = await Promise.allSettled(
+          batch.map(r => fetchRestaurantDetail(r.paginaUrl))
+        );
+
+        setRestaurants(prev => {
+          const updated = [...prev];
+          for (let j = 0; j < batch.length; j++) {
+            const result = details[j];
+            if (result.status === 'fulfilled') {
+              const idx = updated.findIndex(r => r.id === batch[j].id);
+              if (idx >= 0) {
+                updated[idx] = {
+                  ...updated[idx],
+                  ...result.value,
+                  // Behoud bestaande waarden als de nieuwe leeg zijn
+                  naam: result.value.naam || updated[idx].naam,
+                  latitude: result.value.latitude || updated[idx].latitude,
+                  longitude: result.value.longitude || updated[idx].longitude,
+                };
+              }
+            }
+          }
+          return updated;
+        });
+
+        // Pauze tussen batches
+        await new Promise(r => setTimeout(r, 500));
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Er ging iets mis bij het laden');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRestaurants();
+  }, [loadRestaurants]);
+
+  const toggleCategory = useCallback((category: string) => {
+    setFilters(prev => ({
+      ...prev,
+      categorieen: prev.categorieen.includes(category)
+        ? prev.categorieen.filter(c => c !== category)
+        : [...prev.categorieen, category],
+    }));
+  }, []);
+
+  const setZoekterm = useCallback((term: string) => {
+    setFilters(prev => ({ ...prev, zoekterm: term }));
+  }, []);
+
+  // Alle unieke categorieën uit de data
+  const beschikbareCategorieen = useMemo(() => {
+    const cats = new Set<string>();
+    for (const r of restaurants) {
+      for (const c of r.categorieen) {
+        cats.add(c);
+      }
+    }
+    return Array.from(cats).sort();
+  }, [restaurants]);
+
+  // Gefilterde restaurants
+  const filteredRestaurants = useMemo(() => {
+    return restaurants.filter(r => {
+      // Zoekterm filter
+      if (filters.zoekterm) {
+        const term = filters.zoekterm.toLowerCase();
+        if (
+          !r.naam.toLowerCase().includes(term) &&
+          !r.adres.toLowerCase().includes(term)
+        ) {
+          return false;
+        }
+      }
+
+      // Categorie filter (restaurant moet minstens 1 geselecteerde categorie hebben)
+      if (filters.categorieen.length > 0) {
+        if (!filters.categorieen.some(c => r.categorieen.includes(c))) {
+          return false;
+        }
+      }
+
+      // Sterren filter
+      if (filters.minimumSterren > 0 && r.sterren < filters.minimumSterren) {
+        return false;
+      }
+
+      return true;
+    });
+  }, [restaurants, filters]);
+
+  return {
+    restaurants,
+    filteredRestaurants,
+    isLoading,
+    loadingProgress,
+    error,
+    filters,
+    setFilters,
+    toggleCategory,
+    setZoekterm,
+    beschikbareCategorieen,
+    refresh: loadRestaurants,
+  };
+}
