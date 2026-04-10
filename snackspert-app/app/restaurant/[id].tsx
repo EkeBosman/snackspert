@@ -33,9 +33,17 @@ export default function RestaurantDetailScreen() {
     setIsLoading(true);
     try {
       // Haal eerst de basis-URL op via de WP REST API
-      const resp = await fetch(
-        `https://snackspert.nl/wp-json/wp/v2/restaurant/${id}`
-      );
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 15000);
+      let resp: Response;
+      try {
+        resp = await fetch(
+          `https://snackspert.nl/wp-json/wp/v2/restaurant/${id}`,
+          { signal: controller.signal }
+        );
+      } finally {
+        clearTimeout(timer);
+      }
       if (!resp.ok) throw new Error('Restaurant niet gevonden');
 
       const wpData = await resp.json();

@@ -3,6 +3,21 @@ import { Restaurant, RestaurantSummary, WPRestaurant } from '../types';
 
 const BASE_URL = 'https://snackspert.nl';
 const API_URL = `${BASE_URL}/wp-json/wp/v2`;
+const FETCH_TIMEOUT = 15000; // 15 seconden timeout per request
+
+/**
+ * Fetch met timeout - voorkomt eindeloos wachten.
+ */
+async function fetchMetTimeout(url: string, timeout = FETCH_TIMEOUT): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+  try {
+    const resp = await fetch(url, { signal: controller.signal });
+    return resp;
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 /**
  * Haal alle restaurants op via de WordPress REST API.
@@ -17,7 +32,7 @@ export async function fetchAlleRestaurants(
 
   while (true) {
     const url = `${API_URL}/restaurant?per_page=100&page=${pagina}`;
-    const resp = await fetch(url);
+    const resp = await fetchMetTimeout(url);
 
     if (!resp.ok) break;
 
@@ -66,7 +81,7 @@ function telSterren(tekst: string): { sterren: number; sterrenTekst: string } {
  * Haalt naam, adres, afbeelding, recensietekst, sterren, en coördinaten op.
  */
 export async function fetchRestaurantDetail(url: string): Promise<Partial<Restaurant>> {
-  const resp = await fetch(url);
+  const resp = await fetchMetTimeout(url);
   const html = await resp.text();
 
   // Simpele HTML-parsing zonder DOM (React Native heeft geen DOMParser)
@@ -159,7 +174,7 @@ export async function fetchAlleLocaties(): Promise<Map<string, { lat: number; ln
 
   // Probeer de hoofdpagina met alle locaties
   try {
-    const resp = await fetch(`${BASE_URL}/restaurant/`);
+    const resp = await fetchMetTimeout(`${BASE_URL}/restaurant/`, 20000);
     const html = await resp.text();
 
     // restaurantLocations array parsen
@@ -197,7 +212,7 @@ export async function fetchAlleLocaties(): Promise<Map<string, { lat: number; ln
 export async function fetchCategorieen(): Promise<string[]> {
   try {
     // Probeer de custom taxonomy
-    const resp = await fetch(`${API_URL}/restaurant-categorie?per_page=100`);
+    const resp = await fetchMetTimeout(`${API_URL}/restaurant-categorie?per_page=100`);
     if (resp.ok) {
       const terms = await resp.json();
       return terms.map((t: { name: string }) => he.decode(t.name));

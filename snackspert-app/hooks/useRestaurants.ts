@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Restaurant, RestaurantSummary, FilterState } from '../types';
-import { fetchAlleRestaurants, fetchRestaurantDetail, fetchAlleLocaties } from '../services/api';
+import { fetchAlleRestaurants, fetchAlleLocaties } from '../services/api';
 
 interface UseRestaurantsReturn {
   restaurants: Restaurant[];
@@ -35,17 +35,16 @@ export function useRestaurants(): UseRestaurantsReturn {
     setError(null);
 
     try {
-      // Stap 1: Haal de lijst op via REST API
+      // Stap 1: Haal de lijst op via REST API (snel: ~8 requests)
       const summaries = await fetchAlleRestaurants((loaded, total) => {
         setLoadingProgress({ loaded, total });
       });
 
-      // Stap 2: Haal alle locaties op van de overzichtspagina
+      // Stap 2: Haal alle locaties op van de overzichtspagina (1 request)
       const locaties = await fetchAlleLocaties();
 
       // Stap 3: Combineer data - locaties matchen op URL
       const fullRestaurants: Restaurant[] = summaries.map(summary => {
-        // Zoek locatie op basis van URL
         let lat: number | null = null;
         let lng: number | null = null;
 
@@ -76,39 +75,9 @@ export function useRestaurants(): UseRestaurantsReturn {
 
       setRestaurants(fullRestaurants);
 
-      // Stap 4: Op de achtergrond details ophalen per restaurant
-      // (in batches om de server niet te overbelasten)
-      const batchSize = 5;
-      for (let i = 0; i < fullRestaurants.length; i += batchSize) {
-        const batch = fullRestaurants.slice(i, i + batchSize);
-        const details = await Promise.allSettled(
-          batch.map(r => fetchRestaurantDetail(r.paginaUrl))
-        );
-
-        setRestaurants(prev => {
-          const updated = [...prev];
-          for (let j = 0; j < batch.length; j++) {
-            const result = details[j];
-            if (result.status === 'fulfilled') {
-              const idx = updated.findIndex(r => r.id === batch[j].id);
-              if (idx >= 0) {
-                updated[idx] = {
-                  ...updated[idx],
-                  ...result.value,
-                  // Behoud bestaande waarden als de nieuwe leeg zijn
-                  naam: result.value.naam || updated[idx].naam,
-                  latitude: result.value.latitude || updated[idx].latitude,
-                  longitude: result.value.longitude || updated[idx].longitude,
-                };
-              }
-            }
-          }
-          return updated;
-        });
-
-        // Pauze tussen batches
-        await new Promise(r => setTimeout(r, 500));
-      }
+      // Details worden NIET meer bij opstarten geladen.
+      // Pas als de gebruiker op een restaurant tikt, wordt de
+      // detailpagina opgehaald (in het [id].tsx scherm).
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Er ging iets mis bij het laden');
     } finally {
