@@ -7,6 +7,7 @@ export interface Restaurant {
   naam: string;
   slug: string;
   adres: string;
+  stad: string;
   tekst: string;
   sterren: number;
   sterrenTekst: string;
@@ -60,5 +61,6 @@ export type DietFilter = typeof import('../constants/theme').DIET_FILTERS[number
 export interface FilterState {
   categorieen: string[];
   zoekterm: string;
+  locatie: string;
   minimumSterren: number;
 }

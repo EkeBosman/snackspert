@@ -12,7 +12,9 @@ interface UseRestaurantsReturn {
   setFilters: (filters: FilterState) => void;
   toggleCategory: (category: string) => void;
   setZoekterm: (term: string) => void;
+  setLocatie: (locatie: string) => void;
   beschikbareCategorieen: string[];
+  beschikbareSteden: string[];
   refresh: () => void;
 }
 
@@ -24,6 +26,7 @@ export function useRestaurants(): UseRestaurantsReturn {
   const [filters, setFilters] = useState<FilterState>({
     categorieen: [],
     zoekterm: '',
+    locatie: '',
     minimumSterren: 0,
   });
 
@@ -59,6 +62,7 @@ export function useRestaurants(): UseRestaurantsReturn {
           naam: summary.naam,
           slug: summary.slug,
           adres: '',
+          stad: '',
           tekst: '',
           sterren: 0,
           sterrenTekst: '',
@@ -129,6 +133,10 @@ export function useRestaurants(): UseRestaurantsReturn {
     setFilters(prev => ({ ...prev, zoekterm: term }));
   }, []);
 
+  const setLocatie = useCallback((locatie: string) => {
+    setFilters(prev => ({ ...prev, locatie }));
+  }, []);
+
   // Alle unieke categorieën uit de data
   const beschikbareCategorieen = useMemo(() => {
     const cats = new Set<string>();
@@ -140,6 +148,19 @@ export function useRestaurants(): UseRestaurantsReturn {
     return Array.from(cats).sort();
   }, [restaurants]);
 
+  // Alle unieke steden uit de data (gesorteerd op aantal restaurants)
+  const beschikbareSteden = useMemo(() => {
+    const stadCount = new Map<string, number>();
+    for (const r of restaurants) {
+      if (r.stad) {
+        stadCount.set(r.stad, (stadCount.get(r.stad) || 0) + 1);
+      }
+    }
+    return Array.from(stadCount.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([stad]) => stad);
+  }, [restaurants]);
+
   // Gefilterde restaurants
   const filteredRestaurants = useMemo(() => {
     return restaurants.filter(r => {
@@ -149,6 +170,17 @@ export function useRestaurants(): UseRestaurantsReturn {
         if (
           !r.naam.toLowerCase().includes(term) &&
           !r.adres.toLowerCase().includes(term)
+        ) {
+          return false;
+        }
+      }
+
+      // Locatie filter
+      if (filters.locatie) {
+        const loc = filters.locatie.toLowerCase();
+        if (
+          !r.stad.toLowerCase().includes(loc) &&
+          !r.adres.toLowerCase().includes(loc)
         ) {
           return false;
         }
@@ -180,7 +212,9 @@ export function useRestaurants(): UseRestaurantsReturn {
     setFilters,
     toggleCategory,
     setZoekterm,
+    setLocatie,
     beschikbareCategorieen,
+    beschikbareSteden,
     refresh: loadRestaurants,
   };
 }

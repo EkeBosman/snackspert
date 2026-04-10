@@ -78,7 +78,21 @@ export async function fetchRestaurantDetail(url: string): Promise<Partial<Restau
 
   // Adres
   const adresMatch = html.match(/class="innerAddress"[^>]*>([\s\S]*?)<\//);
-  if (adresMatch) result.adres = he.decode(adresMatch[1].trim());
+  if (adresMatch) {
+    result.adres = he.decode(adresMatch[1].trim());
+    // Stad extraheren: meestal het laatste deel van het adres na de postcode
+    // Bijv. "Straatnaam 1, 1234 AB Amsterdam" → "Amsterdam"
+    const stadMatch = result.adres.match(/\d{4}\s*[A-Z]{2}\s+(.+?)$/);
+    if (stadMatch) {
+      result.stad = stadMatch[1].trim();
+    } else {
+      // Fallback: laatste woord na komma
+      const delen = result.adres.split(',');
+      if (delen.length > 1) {
+        result.stad = delen[delen.length - 1].trim();
+      }
+    }
+  }
 
   // Afbeelding
   const imgMatch = html.match(/class="innerImage"[^>]*style="[^"]*url\('([^']+)'\)/);

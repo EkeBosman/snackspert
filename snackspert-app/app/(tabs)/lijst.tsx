@@ -11,6 +11,7 @@ import {
 import { useRestaurants } from '../../hooks/useRestaurants';
 import { RestaurantCard } from '../../components/RestaurantCard';
 import { CategoryFilter } from '../../components/CategoryFilter';
+import { LocationFilter } from '../../components/LocationFilter';
 import { Colors, Spacing, BorderRadius, FontSize, Shadow } from '../../constants/theme';
 import { Restaurant } from '../../types';
 
@@ -22,7 +23,9 @@ export default function LijstScreen() {
     filters,
     toggleCategory,
     setZoekterm,
+    setLocatie,
     beschikbareCategorieen,
+    beschikbareSteden,
     refresh,
   } = useRestaurants();
   const [refreshing, setRefreshing] = useState(false);
@@ -55,7 +58,14 @@ export default function LijstScreen() {
         />
       </View>
 
-      {/* Categorie filters */}
+      {/* Locatie + categorie filters */}
+      <View style={styles.filterRow}>
+        <LocationFilter
+          value={filters.locatie}
+          onSelect={setLocatie}
+          beschikbareSteden={beschikbareSteden}
+        />
+      </View>
       <CategoryFilter
         selected={filters.categorieen}
         onToggle={toggleCategory}
@@ -66,7 +76,7 @@ export default function LijstScreen() {
       <View style={styles.resultBar}>
         <Text style={styles.resultText}>
           {filteredRestaurants.length} restaurants
-          {filters.categorieen.length > 0 || filters.zoekterm
+          {filters.categorieen.length > 0 || filters.zoekterm || filters.locatie
             ? ' gevonden'
             : ''}
         </Text>
@@ -141,6 +151,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.lg,
     paddingBottom: Spacing.sm,
+  },
+  filterRow: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.xs,
+    gap: Spacing.sm,
   },
   searchInput: {
     backgroundColor: Colors.surface,

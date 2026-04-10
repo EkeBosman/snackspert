@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Dimensions,
 } from 'react-native';
-import MapView, { Marker, Callout, Region } from 'react-native-maps';
+import MapView, { Marker, Callout, Region, PROVIDER_GOOGLE } from 'react-native-maps';
 import { router } from 'expo-router';
 import { useRestaurants } from '../../hooks/useRestaurants';
 import { CategoryFilter } from '../../components/CategoryFilter';
@@ -85,6 +85,7 @@ export default function MapScreen() {
       {/* Kaart */}
       <MapView
         ref={mapRef}
+        provider={PROVIDER_GOOGLE}
         style={styles.map}
         initialRegion={MAP_INITIAL_REGION}
         showsUserLocation

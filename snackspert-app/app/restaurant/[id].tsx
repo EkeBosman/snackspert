@@ -11,7 +11,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { useLocalSearchParams, Stack } from 'expo-router';
-import MapView, { Marker } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { Restaurant } from '../../types';
 import { fetchRestaurantDetail } from '../../services/api';
 import { StarRating } from '../../components/StarRating';
@@ -73,10 +73,10 @@ export default function RestaurantDetailScreen() {
 
   const openMaps = () => {
     if (restaurant?.latitude && restaurant?.longitude) {
-      const url = `https://maps.apple.com/?q=${encodeURIComponent(restaurant.naam)}&ll=${restaurant.latitude},${restaurant.longitude}`;
+      const url = `https://www.google.com/maps/search/?api=1&query=${restaurant.latitude},${restaurant.longitude}&query_place_id=${encodeURIComponent(restaurant.naam)}`;
       Linking.openURL(url);
     } else if (restaurant?.adres) {
-      const url = `https://maps.apple.com/?q=${encodeURIComponent(restaurant.adres)}`;
+      const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(restaurant.adres)}`;
       Linking.openURL(url);
     }
   };
@@ -141,7 +141,7 @@ export default function RestaurantDetailScreen() {
               <View style={styles.infoCard}>
                 <Text style={styles.infoLabel}>Adres</Text>
                 <Text style={styles.infoValue}>{restaurant.adres}</Text>
-                <Text style={styles.infoAction}>Open in Kaarten →</Text>
+                <Text style={styles.infoAction}>Open in Google Maps →</Text>
               </View>
             </TouchableOpacity>
           ) : null}
@@ -151,6 +151,7 @@ export default function RestaurantDetailScreen() {
             <TouchableOpacity onPress={openMaps} activeOpacity={0.9}>
               <View style={styles.miniMapContainer}>
                 <MapView
+                  provider={PROVIDER_GOOGLE}
                   style={styles.miniMap}
                   initialRegion={{
                     latitude: restaurant.latitude,
