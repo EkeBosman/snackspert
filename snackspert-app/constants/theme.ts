@@ -3,30 +3,30 @@
  */
 
 export const Colors = {
-  // Primaire kleuren
-  primary: '#FF6B00',        // Snackspert oranje
-  primaryLight: '#FF8F3F',
-  primaryDark: '#CC5500',
+  // Primaire kleuren (Snackspert huisstijl - warm goud/amber)
+  primary: '#EDAA2D',        // Snackspert goud
+  primaryLight: '#F2BD55',
+  primaryDark: '#D4921A',
 
   // Achtergronden
-  background: '#FFF8F0',     // Warme witte achtergrond
+  background: '#FFFBF2',     // Warme crème achtergrond
   surface: '#FFFFFF',
   surfaceElevated: '#FFFFFF',
 
   // Tekst
-  text: '#1A1A2E',           // Donker navy
-  textSecondary: '#6B7280',
-  textLight: '#9CA3AF',
+  text: '#2D2013',           // Donker warm bruin
+  textSecondary: '#6B5D4F',
+  textLight: '#9C8E80',
   textOnPrimary: '#FFFFFF',
 
   // Sterren
-  star: '#FFB800',
-  starEmpty: '#E5E7EB',
+  star: '#EDAA2D',
+  starEmpty: '#E5E0D8',
 
   // Categorieën
-  categoryBg: '#FFF0E0',
-  categoryText: '#CC5500',
-  categoryActiveBg: '#FF6B00',
+  categoryBg: '#FFF3DC',
+  categoryText: '#A67612',
+  categoryActiveBg: '#EDAA2D',
   categoryActiveText: '#FFFFFF',
 
   // Status
@@ -34,9 +34,9 @@ export const Colors = {
   error: '#EF4444',
 
   // Overig
-  border: '#E5E7EB',
+  border: '#E8E0D5',
   shadow: '#000000',
-  mapMarker: '#FF6B00',
+  mapMarker: '#EDAA2D',
 };
 
 export const Spacing = {

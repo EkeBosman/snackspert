@@ -9,7 +9,7 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "splash": {
-      "backgroundColor": "#FF6B00"
+      "backgroundColor": "#EDAA2D"
     },
     "ios": {
       "supportsTablet": true,
@@ -23,7 +23,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#FF6B00"
+        "backgroundColor": "#EDAA2D"
       },
       "package": "nl.snackspert.app",
       "config": {
