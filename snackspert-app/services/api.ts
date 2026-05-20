@@ -121,10 +121,9 @@ export async function fetchRestaurantDetail(url: string): Promise<Partial<Restau
   const imgMatch = html.match(/class="innerImage"[^>]*style="[^"]*url\('([^']+)'\)/);
   if (imgMatch) result.afbeeldingUrl = imgMatch[1];
 
-  // Recensietekst - zoek de .text div
-  const tekstMatch = html.match(/class="text"[^>]*>([\s\S]*?)<\/div>/);
+  // Recensietekst - zoek de .text div (greedy match om geneste divs mee te pakken)
+  const tekstMatch = html.match(/class="text"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/);
   if (tekstMatch) {
-    // Verwijder HTML tags, houd tekst over
     const rawText = tekstMatch[1]
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/p>/gi, '\n\n')
@@ -132,25 +131,25 @@ export async function fetchRestaurantDetail(url: string): Promise<Partial<Restau
       .replace(/\n{3,}/g, '\n\n')
       .trim();
     result.tekst = he.decode(rawText);
+  }
 
-    // Sterren uit de tekst halen (eerste <p> met sterren)
-    const pMatches = tekstMatch[1].match(/<p[^>]*>([\s\S]*?)<\/p>/g);
-    if (pMatches) {
-      const ratings: number[] = [];
-      for (const p of pMatches) {
-        const pText = p.replace(/<[^>]+>/g, '');
-        const { sterren } = telSterren(pText);
-        if (sterren > 0 && sterren <= 5) {
-          ratings.push(sterren);
-        }
+  // Sterren zoeken in ALLE <p> tags van de pagina (robuuster dan alleen .text div)
+  const allPTags = html.match(/<p[^>]*>([\s\S]*?)<\/p>/g);
+  if (allPTags) {
+    const ratings: number[] = [];
+    for (const p of allPTags) {
+      const pText = he.decode(p.replace(/<[^>]+>/g, ''));
+      const { sterren } = telSterren(pText);
+      if (sterren > 0 && sterren <= 5) {
+        ratings.push(sterren);
       }
-      if (ratings.length > 0) {
-        const avg = ratings.reduce((a, b) => a + b, 0) / ratings.length;
-        result.sterren = Math.round(avg * 2) / 2;
-        const volle = Math.floor(result.sterren);
-        const halve = result.sterren % 1 !== 0;
-        result.sterrenTekst = '⭐'.repeat(volle) + (halve ? '½' : '');
-      }
+    }
+    if (ratings.length > 0) {
+      const avg = ratings.reduce((a, b) => a + b, 0) / ratings.length;
+      result.sterren = Math.round(avg * 2) / 2;
+      const volle = Math.floor(result.sterren);
+      const halve = result.sterren % 1 !== 0;
+      result.sterrenTekst = '⭐'.repeat(volle) + (halve ? '½' : '');
     }
   }
 
