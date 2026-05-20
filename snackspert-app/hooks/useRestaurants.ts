@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Restaurant, RestaurantSummary, FilterState } from '../types';
-import { fetchAlleRestaurants, fetchAlleLocaties } from '../services/api';
+import { fetchAlleRestaurants, fetchRestaurantDetail, fetchAlleLocaties } from '../services/api';
 
 interface UseRestaurantsReturn {
   restaurants: Restaurant[];
@@ -23,6 +23,7 @@ export function useRestaurants(): UseRestaurantsReturn {
   const [isLoading, setIsLoading] = useState(true);
   const [loadingProgress, setLoadingProgress] = useState({ loaded: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
+  const stopBackgroundRef = useRef(false);
   const [filters, setFilters] = useState<FilterState>({
     categorieen: [],
     zoekterm: '',
@@ -74,13 +75,45 @@ export function useRestaurants(): UseRestaurantsReturn {
       });
 
       setRestaurants(fullRestaurants);
+      setIsLoading(false);
 
-      // Details worden NIET meer bij opstarten geladen.
-      // Pas als de gebruiker op een restaurant tikt, wordt de
-      // detailpagina opgehaald (in het [id].tsx scherm).
+      // Stap 4: Op de achtergrond details laden (afbeeldingen + sterren)
+      // Dit blokkeert de UI niet - restaurants verschijnen direct,
+      // afbeeldingen en sterren vullen geleidelijk aan.
+      stopBackgroundRef.current = false;
+      const batchSize = 3;
+      for (let i = 0; i < fullRestaurants.length; i += batchSize) {
+        if (stopBackgroundRef.current) break;
+
+        const batch = fullRestaurants.slice(i, i + batchSize);
+        const details = await Promise.allSettled(
+          batch.map(r => fetchRestaurantDetail(r.paginaUrl))
+        );
+
+        setRestaurants(prev => {
+          const updated = [...prev];
+          for (let j = 0; j < batch.length; j++) {
+            const result = details[j];
+            if (result.status === 'fulfilled') {
+              const idx = updated.findIndex(r => r.id === batch[j].id);
+              if (idx >= 0) {
+                updated[idx] = {
+                  ...updated[idx],
+                  ...result.value,
+                  naam: result.value.naam || updated[idx].naam,
+                  latitude: result.value.latitude || updated[idx].latitude,
+                  longitude: result.value.longitude || updated[idx].longitude,
+                };
+              }
+            }
+          }
+          return updated;
+        });
+
+        await new Promise(r => setTimeout(r, 1500));
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Er ging iets mis bij het laden');
-    } finally {
       setIsLoading(false);
     }
   }, []);
