@@ -76,7 +76,8 @@ export async function fetchAlleRestaurants(
  * Parse het sterren-aantal uit een tekst met ster-emoji's.
  */
 function telSterren(tekst: string): { sterren: number; sterrenTekst: string } {
-  const volleMatch = tekst.match(/\u2b50\ufe0f?/g);
+  // Match diverse ster-emoji's: \u2b50 (U+2B50), \u2605 (U+2605), \ud83c\udf1f (U+1F31F)
+  const volleMatch = tekst.match(/[\u2b50\u2605]\ufe0f?/g);
   const volle = volleMatch ? volleMatch.length : 0;
   const halve = tekst.includes('\u00bd') || tekst.includes('1/2') ? 0.5 : 0;
   const totaal = volle + halve;
@@ -133,24 +134,28 @@ export async function fetchRestaurantDetail(url: string): Promise<Partial<Restau
     result.tekst = he.decode(rawText);
   }
 
-  // Sterren zoeken in ALLE <p> tags van de pagina (robuuster dan alleen .text div)
-  const allPTags = html.match(/<p[^>]*>([\s\S]*?)<\/p>/g);
-  if (allPTags) {
-    const ratings: number[] = [];
-    for (const p of allPTags) {
-      const pText = he.decode(p.replace(/<[^>]+>/g, ''));
-      const { sterren } = telSterren(pText);
-      if (sterren > 0 && sterren <= 5) {
-        ratings.push(sterren);
+  // Sterren zoeken: decode hele HTML, strip tags, zoek sterren per regel
+  const decodedFull = he.decode(html);
+  const textOnly = decodedFull.replace(/<[^>]+>/g, '\n');
+  const ratings: number[] = [];
+
+  if (textOnly.includes('⭐') || textOnly.includes('★')) {
+    for (const line of textOnly.split('\n')) {
+      if (line.includes('⭐') || line.includes('★')) {
+        const { sterren } = telSterren(line);
+        if (sterren > 0 && sterren <= 5) {
+          ratings.push(sterren);
+        }
       }
     }
-    if (ratings.length > 0) {
-      const avg = ratings.reduce((a, b) => a + b, 0) / ratings.length;
-      result.sterren = Math.round(avg * 2) / 2;
-      const volle = Math.floor(result.sterren);
-      const halve = result.sterren % 1 !== 0;
-      result.sterrenTekst = '⭐'.repeat(volle) + (halve ? '½' : '');
-    }
+  }
+
+  if (ratings.length > 0) {
+    const avg = ratings.reduce((a, b) => a + b, 0) / ratings.length;
+    result.sterren = Math.round(avg * 2) / 2;
+    const volle = Math.floor(result.sterren);
+    const halve = result.sterren % 1 !== 0;
+    result.sterrenTekst = '⭐'.repeat(volle) + (halve ? '½' : '');
   }
 
   // Coördinaten uit restaurantLocations JavaScript variable
