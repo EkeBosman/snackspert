@@ -65,7 +65,7 @@ export function useRestaurants(): UseRestaurantsReturn {
           tekst: '',
           sterren: 0,
           sterrenTekst: '',
-          afbeeldingUrl: '',
+          afbeeldingUrl: summary.afbeeldingUrl || '',
           paginaUrl: summary.paginaUrl,
           categorieen: summary.categorieen,
           latitude: lat,

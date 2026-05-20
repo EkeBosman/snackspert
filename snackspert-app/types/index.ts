@@ -23,6 +23,7 @@ export interface RestaurantSummary {
   naam: string;
   slug: string;
   paginaUrl: string;
+  afbeeldingUrl: string;
   categorieen: string[];
 }
 

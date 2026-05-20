@@ -31,22 +31,30 @@ export async function fetchAlleRestaurants(
   let totaal = 0;
 
   while (true) {
-    const url = `${API_URL}/restaurant?per_page=100&page=${pagina}`;
+    const url = `${API_URL}/restaurant?per_page=100&page=${pagina}&_embed=wp:featuredmedia`;
     const resp = await fetchMetTimeout(url);
 
     if (!resp.ok) break;
 
-    const data: WPRestaurant[] = await resp.json();
+    const data = await resp.json();
     if (!data.length) break;
 
     totaal = parseInt(resp.headers.get('X-WP-Total') || '0', 10);
 
     for (const item of data) {
+      // Afbeelding ophalen uit _embedded data
+      let afbeeldingUrl = '';
+      try {
+        const media = item._embedded?.['wp:featuredmedia']?.[0];
+        afbeeldingUrl = media?.source_url || media?.media_details?.sizes?.medium?.source_url || '';
+      } catch {}
+
       restaurants.push({
         id: item.id,
         naam: he.decode(item.title.rendered),
         slug: item.slug,
         paginaUrl: item.link,
+        afbeeldingUrl,
         categorieen: [],
       });
     }
