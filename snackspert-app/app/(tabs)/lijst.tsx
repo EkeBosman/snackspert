@@ -17,7 +17,7 @@ import { FOOD_CATEGORIES, DIET_FILTERS } from '../../constants/theme';
 import { Restaurant } from '../../types';
 
 const ALL_CATEGORIES = [...FOOD_CATEGORIES, ...DIET_FILTERS];
-const STAR_FILTERS = [3, 4, 5] as const;
+const STAR_FILTERS = [5] as const;
 
 export default function LijstScreen() {
   const {
@@ -73,8 +73,23 @@ export default function LijstScreen() {
           />
         </View>
 
-        {/* Categorie chips - flexWrap ipv ScrollView */}
+        {/* Sterren-filter + categorie chips samen */}
         <View style={styles.chipWrap}>
+          {STAR_FILTERS.map(s => {
+            const isActive = filters.minimumSterren === s;
+            return (
+              <TouchableOpacity
+                key={`star-${s}`}
+                onPress={() => setMinimumSterren(s)}
+                activeOpacity={0.7}
+                style={[styles.chip, isActive && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
+                  ⭐ {s} sterren
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
           {ALL_CATEGORIES.map(cat => {
             const isActive = filters.categorieen.includes(cat);
             return (
@@ -86,25 +101,6 @@ export default function LijstScreen() {
               >
                 <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
                   {cat}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        {/* Sterren-filter */}
-        <View style={styles.starRow}>
-          {STAR_FILTERS.map(s => {
-            const isActive = filters.minimumSterren === s;
-            return (
-              <TouchableOpacity
-                key={s}
-                onPress={() => setMinimumSterren(s)}
-                activeOpacity={0.7}
-                style={[styles.chip, isActive && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
-                  ⭐ {s}+
                 </Text>
               </TouchableOpacity>
             );
@@ -225,12 +221,6 @@ const styles = StyleSheet.create({
   },
   chipTextActive: {
     color: '#FFFFFF',
-  },
-  starRow: {
-    flexDirection: 'row',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    gap: 6,
   },
   resultBar: {
     flexDirection: 'row',
