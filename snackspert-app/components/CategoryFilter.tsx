@@ -48,6 +48,8 @@ export function CategoryFilter({ selected, onToggle, beschikbaar }: CategoryFilt
 
 const styles = StyleSheet.create({
   container: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
     gap: Spacing.sm,
