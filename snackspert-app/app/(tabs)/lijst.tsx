@@ -4,6 +4,7 @@ import {
   Text,
   FlatList,
   TextInput,
+  TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
   RefreshControl,
@@ -15,6 +16,8 @@ import { LocationFilter } from '../../components/LocationFilter';
 import { Colors, Spacing, BorderRadius, FontSize, Shadow } from '../../constants/theme';
 import { Restaurant } from '../../types';
 
+const STAR_FILTERS = [3, 4, 5] as const;
+
 export default function LijstScreen() {
   const {
     filteredRestaurants,
@@ -24,6 +27,7 @@ export default function LijstScreen() {
     toggleCategory,
     setZoekterm,
     setLocatie,
+    setMinimumSterren,
     beschikbareCategorieen,
     beschikbareSteden,
     refresh,
@@ -42,9 +46,28 @@ export default function LijstScreen() {
 
   const keyExtractor = useCallback((item: Restaurant) => item.id.toString(), []);
 
-  const ListHeader = () => (
-    <View>
-      {/* Zoekbalk */}
+  const ListEmpty = () => (
+    <View style={styles.emptyContainer}>
+      {isLoading ? (
+        <>
+          <ActivityIndicator size="large" color={Colors.primary} />
+          <Text style={styles.emptyText}>
+            Restaurants laden... ({loadingProgress.loaded}/{loadingProgress.total})
+          </Text>
+        </>
+      ) : (
+        <>
+          <Text style={styles.emptyEmoji}>🔍</Text>
+          <Text style={styles.emptyText}>Geen restaurants gevonden</Text>
+          <Text style={styles.emptySubtext}>Probeer andere zoektermen of filters</Text>
+        </>
+      )}
+    </View>
+  );
+
+  return (
+    <View style={styles.container}>
+      {/* Vaste filters bovenaan (scrollen niet mee) */}
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
@@ -58,7 +81,6 @@ export default function LijstScreen() {
         />
       </View>
 
-      {/* Locatie + categorie filters */}
       <View style={styles.filterRow}>
         <LocationFilter
           value={filters.locatie}
@@ -66,17 +88,37 @@ export default function LijstScreen() {
           beschikbareSteden={beschikbareSteden}
         />
       </View>
+
       <CategoryFilter
         selected={filters.categorieen}
         onToggle={toggleCategory}
         beschikbaar={beschikbareCategorieen}
       />
 
+      {/* Sterren-filter */}
+      <View style={styles.starFilterRow}>
+        {STAR_FILTERS.map(s => {
+          const isActive = filters.minimumSterren === s;
+          return (
+            <TouchableOpacity
+              key={s}
+              style={[styles.starChip, isActive && styles.starChipActive]}
+              onPress={() => setMinimumSterren(s)}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.starChipText, isActive && styles.starChipTextActive]}>
+                ⭐ {s}+
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
       {/* Resultaat telling */}
       <View style={styles.resultBar}>
         <Text style={styles.resultText}>
           {filteredRestaurants.length} restaurants
-          {filters.categorieen.length > 0 || filters.zoekterm || filters.locatie
+          {filters.categorieen.length > 0 || filters.zoekterm || filters.locatie || filters.minimumSterren > 0
             ? ' gevonden'
             : ''}
         </Text>
@@ -87,39 +129,12 @@ export default function LijstScreen() {
           </View>
         )}
       </View>
-    </View>
-  );
 
-  const ListEmpty = () => (
-    <View style={styles.emptyContainer}>
-      {isLoading ? (
-        <>
-          <ActivityIndicator size="large" color={Colors.primary} />
-          <Text style={styles.emptyText}>
-            Restaurants laden... ({loadingProgress.loaded}/{loadingProgress.total})
-          </Text>
-        </>
-      ) : (
-        <>
-          <Text style={styles.emptyEmoji}>🔍</Text>
-          <Text style={styles.emptyText}>
-            Geen restaurants gevonden
-          </Text>
-          <Text style={styles.emptySubtext}>
-            Probeer andere zoektermen of filters
-          </Text>
-        </>
-      )}
-    </View>
-  );
-
-  return (
-    <View style={styles.container}>
+      {/* Alleen de lijst scrollt */}
       <FlatList
         data={filteredRestaurants}
         renderItem={renderItem}
         keyExtractor={keyExtractor}
-        ListHeaderComponent={ListHeader}
         ListEmptyComponent={ListEmpty}
         contentContainerStyle={styles.listContent}
         refreshControl={
@@ -168,6 +183,30 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
     ...Shadow.sm,
+  },
+  starFilterRow: {
+    flexDirection: 'row',
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+    gap: Spacing.sm,
+  },
+  starChip: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.categoryBg,
+  },
+  starChipActive: {
+    backgroundColor: Colors.primary,
+  },
+  starChipText: {
+    fontSize: FontSize.sm,
+    color: Colors.categoryText,
+    fontWeight: '500',
+  },
+  starChipTextActive: {
+    color: Colors.textOnPrimary,
+    fontWeight: '600',
   },
   resultBar: {
     flexDirection: 'row',
