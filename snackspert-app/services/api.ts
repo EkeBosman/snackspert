@@ -139,19 +139,15 @@ export async function fetchRestaurantDetail(url: string): Promise<Partial<Restau
     result.tekst = he.decode(rawText);
   }
 
-  // Sterren zoeken: decode hele HTML, strip tags, zoek sterren per regel
-  const decodedFull = he.decode(html);
-  const textOnly = decodedFull.replace(/<[^>]+>/g, '\n');
+  // Sterren zoeken: strip tags (met spatie), zoek star-clusters
+  const textOnly = he.decode(html.replace(/<[^>]+>/g, ' '));
   const ratings: number[] = [];
-
-  if (textOnly.includes('⭐') || textOnly.includes('★')) {
-    for (const line of textOnly.split('\n')) {
-      if (line.includes('⭐') || line.includes('★')) {
-        const { sterren } = telSterren(line);
-        if (sterren > 0 && sterren <= 5) {
-          ratings.push(sterren);
-        }
-      }
+  const clusterPattern = /([⭐★]️?\s*){1,5}(½|1\/2)?/g;
+  let clusterMatch;
+  while ((clusterMatch = clusterPattern.exec(textOnly)) !== null) {
+    const { sterren } = telSterren(clusterMatch[0]);
+    if (sterren > 0 && sterren <= 5) {
+      ratings.push(sterren);
     }
   }
 
