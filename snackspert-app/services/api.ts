@@ -3,7 +3,8 @@ import { Restaurant, RestaurantSummary, WPRestaurant } from '../types';
 
 const BASE_URL = 'https://snackspert.nl';
 const API_URL = `${BASE_URL}/wp-json/wp/v2`;
-const FETCH_TIMEOUT = 15000; // 15 seconden timeout per request
+const GOOGLE_MAPS_API_KEY = 'AIzaSyASmO1Ml_6yLt3JPInfd_5CJhA5eKMI9bg';
+const FETCH_TIMEOUT = 15000;
 
 /**
  * Fetch met timeout - voorkomt eindeloos wachten.
@@ -159,17 +160,15 @@ export async function fetchRestaurantDetail(url: string): Promise<Partial<Restau
     result.sterrenTekst = '⭐'.repeat(volle) + (halve ? '½' : '');
   }
 
-  // Coördinaten uit restaurantLocations JavaScript variable
-  const locMatch = html.match(
-    /restaurantLocations\s*=\s*\[([\s\S]*?)\]/
-  );
-  if (locMatch) {
-    const latMatch = locMatch[1].match(/lat:\s*([\d.]+)/);
-    const lngMatch = locMatch[1].match(/lng:\s*([\d.]+)/);
-    if (latMatch && lngMatch) {
-      result.latitude = parseFloat(latMatch[1]);
-      result.longitude = parseFloat(lngMatch[1]);
-    }
+  // Coördinaten via Google Geocoding API (op basis van adres)
+  if (result.adres) {
+    try {
+      const coords = await geocodeAdres(result.adres);
+      if (coords) {
+        result.latitude = coords.lat;
+        result.longitude = coords.lng;
+      }
+    } catch {}
   }
 
   // Categorieën uit de HTML (vaak als class of data-attribuut)
@@ -185,44 +184,20 @@ export async function fetchRestaurantDetail(url: string): Promise<Partial<Restau
 }
 
 /**
- * Haal alle restaurantlocaties op uit de overzichtspagina's.
- * De snackspert.nl site bevat een JS-array met alle coördinaten.
+ * Geocodeer een adres naar coördinaten via Google Geocoding API.
  */
-export async function fetchAlleLocaties(): Promise<Map<string, { lat: number; lng: number }>> {
-  const locaties = new Map<string, { lat: number; lng: number }>();
-
-  // Probeer de hoofdpagina met alle locaties
+async function geocodeAdres(adres: string): Promise<{ lat: number; lng: number } | null> {
   try {
-    const resp = await fetchMetTimeout(`${BASE_URL}/restaurant/`, 20000);
-    const html = await resp.text();
-
-    // restaurantLocations array parsen
-    const match = html.match(/restaurantLocations\s*=\s*\[([\s\S]*?)\];/);
-    if (match) {
-      // Elke entry heeft: { lat: ..., lng: ..., title: "...", url: "..." }
-      const entries = match[1].match(/\{[^}]+\}/g);
-      if (entries) {
-        for (const entry of entries) {
-          const lat = entry.match(/lat:\s*([\d.-]+)/);
-          const lng = entry.match(/lng:\s*([\d.-]+)/);
-          const urlMatch = entry.match(/url:\s*['"]([^'"]+)['"]/);
-          const titleMatch = entry.match(/title:\s*['"]([^'"]+)['"]/);
-
-          if (lat && lng && (urlMatch || titleMatch)) {
-            const key = urlMatch ? urlMatch[1] : titleMatch![1];
-            locaties.set(key, {
-              lat: parseFloat(lat[1]),
-              lng: parseFloat(lng[1]),
-            });
-          }
-        }
-      }
+    const encoded = encodeURIComponent(adres);
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encoded}&key=${GOOGLE_MAPS_API_KEY}`;
+    const resp = await fetchMetTimeout(url, 5000);
+    const data = await resp.json();
+    if (data.status === 'OK' && data.results?.[0]) {
+      const loc = data.results[0].geometry.location;
+      return { lat: loc.lat, lng: loc.lng };
     }
-  } catch (e) {
-    console.warn('Kon locaties niet ophalen van overzichtspagina:', e);
-  }
-
-  return locaties;
+  } catch {}
+  return null;
 }
 
 /**

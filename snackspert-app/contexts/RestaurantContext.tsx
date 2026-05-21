@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react';
 import { Restaurant, FilterState } from '../types';
-import { fetchAlleRestaurants, fetchRestaurantDetail, fetchAlleLocaties } from '../services/api';
+import { fetchAlleRestaurants, fetchRestaurantDetail } from '../services/api';
 
 interface RestaurantContextValue {
   restaurants: Restaurant[];
@@ -44,36 +44,21 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
         setLoadingProgress({ loaded, total });
       });
 
-      const locaties = await fetchAlleLocaties();
-
-      const fullRestaurants: Restaurant[] = summaries.map(summary => {
-        let lat: number | null = null;
-        let lng: number | null = null;
-
-        for (const [key, loc] of locaties.entries()) {
-          if (key.includes(summary.slug) || summary.paginaUrl.includes(key)) {
-            lat = loc.lat;
-            lng = loc.lng;
-            break;
-          }
-        }
-
-        return {
-          id: summary.id,
-          naam: summary.naam,
-          slug: summary.slug,
-          adres: '',
-          stad: '',
-          tekst: '',
-          sterren: 0,
-          sterrenTekst: '',
-          afbeeldingUrl: summary.afbeeldingUrl || '',
-          paginaUrl: summary.paginaUrl,
-          categorieen: summary.categorieen,
-          latitude: lat,
-          longitude: lng,
-        };
-      });
+      const fullRestaurants: Restaurant[] = summaries.map(summary => ({
+        id: summary.id,
+        naam: summary.naam,
+        slug: summary.slug,
+        adres: '',
+        stad: '',
+        tekst: '',
+        sterren: 0,
+        sterrenTekst: '',
+        afbeeldingUrl: summary.afbeeldingUrl || '',
+        paginaUrl: summary.paginaUrl,
+        categorieen: summary.categorieen,
+        latitude: null,
+        longitude: null,
+      }));
 
       setRestaurants(fullRestaurants);
       setIsLoading(false);
