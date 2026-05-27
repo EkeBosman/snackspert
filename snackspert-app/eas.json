@@ -7,6 +7,9 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "install": {
+        "command": "npm ci --legacy-peer-deps"
+      },
       "ios": {
         "resourceClass": "m-medium"
       }
