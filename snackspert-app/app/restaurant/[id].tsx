@@ -39,7 +39,12 @@ export default function RestaurantDetailScreen() {
       try {
         resp = await fetch(
           `https://snackspert.nl/wp-json/wp/v2/restaurant/${id}`,
-          { signal: controller.signal }
+          {
+            signal: controller.signal,
+            headers: {
+              'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15',
+            },
+          }
         );
       } finally {
         clearTimeout(timer);
