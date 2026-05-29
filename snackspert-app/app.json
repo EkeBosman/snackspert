@@ -36,6 +36,11 @@
       "expo-dev-client",
       "expo-router",
       "expo-location"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "fd962018-0ade-40ff-9d39-3f318f026d24"
+      }
+    }
   }
 }
