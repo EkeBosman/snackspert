@@ -7,7 +7,7 @@
     "icon": "./assets/icon.png",
     "scheme": "snackspert",
     "userInterfaceStyle": "light",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "splash": {
       "backgroundColor": "#EDAA2D"
     },
