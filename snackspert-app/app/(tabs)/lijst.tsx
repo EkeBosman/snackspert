@@ -23,6 +23,7 @@ export default function LijstScreen() {
   const {
     filteredRestaurants,
     isLoading,
+    isLoadingDetails,
     loadingProgress,
     filters,
     toggleCategory,
@@ -115,10 +116,14 @@ export default function LijstScreen() {
               ? ' gevonden'
               : ''}
           </Text>
-          {isLoading && (
+          {isLoadingDetails && (
             <View style={styles.loadingBadge}>
               <ActivityIndicator size="small" color="#EDAA2D" />
-              <Text style={styles.loadingSmall}>Details laden...</Text>
+              <Text style={styles.loadingSmall}>
+                {loadingProgress.total > 0
+                  ? `Details laden... ${loadingProgress.loaded}/${loadingProgress.total}`
+                  : 'Details laden...'}
+              </Text>
             </View>
           )}
         </View>

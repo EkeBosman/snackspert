@@ -62,6 +62,7 @@ export default function RestaurantDetailScreen() {
         naam: detail.naam || wpData.title.rendered,
         slug: wpData.slug,
         adres: detail.adres || '',
+        stad: detail.stad || '',
         tekst: detail.tekst || '',
         sterren: detail.sterren || 0,
         sterrenTekst: detail.sterrenTekst || '',

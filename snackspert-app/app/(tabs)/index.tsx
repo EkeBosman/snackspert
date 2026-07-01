@@ -5,9 +5,8 @@ import {
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
-  Dimensions,
 } from 'react-native';
-import MapView, { Marker, Region, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { router } from 'expo-router';
 import { useRestaurants } from '../../hooks/useRestaurants';
 import { CategoryFilter } from '../../components/CategoryFilter';
@@ -19,6 +18,7 @@ export default function MapScreen() {
   const {
     filteredRestaurants,
     isLoading,
+    isLoadingDetails,
     loadingProgress,
     filters,
     toggleCategory,
@@ -48,7 +48,9 @@ export default function MapScreen() {
     mapRef.current?.animateToRegion(MAP_INITIAL_REGION, 500);
   };
 
-  if (isLoading && loadingProgress.total === 0) {
+  // Volledig laadscherm alleen bij de allereerste keer, zolang er nog geen
+  // (gecachte) restaurants zijn om te tonen.
+  if (isLoading && filteredRestaurants.length === 0) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.primary} />
@@ -72,7 +74,7 @@ export default function MapScreen() {
           {restaurantsOpKaart.length} restaurants op de kaart
           {filters.categorieen.length > 0 && ` (gefilterd)`}
         </Text>
-        {isLoading && (
+        {isLoadingDetails && loadingProgress.total > 0 && (
           <View style={styles.loadingBadge}>
             <ActivityIndicator size="small" color={Colors.primary} />
             <Text style={styles.loadingSmall}>

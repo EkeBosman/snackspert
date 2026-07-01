@@ -94,8 +94,15 @@ function telSterren(tekst: string): { sterren: number; sterrenTekst: string } {
 /**
  * Scrape de details van een individuele restaurantpagina.
  * Haalt naam, adres, afbeelding, recensietekst, sterren, en coördinaten op.
+ *
+ * Als `bestaandeCoords` wordt meegegeven (bijv. uit de cache), slaan we de
+ * dure Google Geocoding-call over. Coördinaten van een adres veranderen immers
+ * nooit, dus die hoeven we maar één keer ooit op te halen.
  */
-export async function fetchRestaurantDetail(url: string): Promise<Partial<Restaurant>> {
+export async function fetchRestaurantDetail(
+  url: string,
+  bestaandeCoords?: { lat: number; lng: number } | null
+): Promise<Partial<Restaurant>> {
   const resp = await fetchMetTimeout(url);
   const html = await resp.text();
 
@@ -160,8 +167,12 @@ export async function fetchRestaurantDetail(url: string): Promise<Partial<Restau
     result.sterrenTekst = '⭐'.repeat(volle) + (halve ? '½' : '');
   }
 
-  // Coördinaten via Google Geocoding API (op basis van adres)
-  if (result.adres) {
+  // Coördinaten: hergebruik bekende coords (uit cache) om geocoding te sparen,
+  // anders via Google Geocoding API op basis van het adres.
+  if (bestaandeCoords && bestaandeCoords.lat && bestaandeCoords.lng) {
+    result.latitude = bestaandeCoords.lat;
+    result.longitude = bestaandeCoords.lng;
+  } else if (result.adres) {
     try {
       const coords = await geocodeAdres(result.adres);
       if (coords) {
