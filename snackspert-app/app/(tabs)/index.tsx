@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   Dimensions,
 } from 'react-native';
-import MapView, { Marker, Callout, Region, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Region, PROVIDER_GOOGLE } from 'react-native-maps';
 import { router } from 'expo-router';
 import { useRestaurants } from '../../hooks/useRestaurants';
 import { CategoryFilter } from '../../components/CategoryFilter';
@@ -102,24 +102,7 @@ export default function MapScreen() {
             }}
             pinColor={Colors.mapMarker}
             onPress={() => handleMarkerPress(restaurant)}
-          >
-            <Callout onPress={() => handleCalloutPress(restaurant)}>
-              <View style={styles.callout}>
-                <Text style={styles.calloutTitle} numberOfLines={1}>
-                  {restaurant.naam}
-                </Text>
-                {restaurant.sterren > 0 && (
-                  <StarRating rating={restaurant.sterren} size="sm" />
-                )}
-                {restaurant.adres ? (
-                  <Text style={styles.calloutAdres} numberOfLines={1}>
-                    {restaurant.adres}
-                  </Text>
-                ) : null}
-                <Text style={styles.calloutAction}>Tik voor details →</Text>
-              </View>
-            </Callout>
-          </Marker>
+          />
         ))}
       </MapView>
 
@@ -202,27 +185,6 @@ const styles = StyleSheet.create({
   loadingSmall: {
     fontSize: FontSize.xs,
     color: Colors.textLight,
-  },
-  callout: {
-    width: 200,
-    padding: Spacing.sm,
-  },
-  calloutTitle: {
-    fontSize: FontSize.md,
-    fontWeight: '700',
-    color: Colors.text,
-    marginBottom: Spacing.xs,
-  },
-  calloutAdres: {
-    fontSize: FontSize.xs,
-    color: Colors.textSecondary,
-    marginTop: Spacing.xs,
-  },
-  calloutAction: {
-    fontSize: FontSize.xs,
-    color: Colors.primary,
-    fontWeight: '600',
-    marginTop: Spacing.sm,
   },
   zoomButton: {
     position: 'absolute',
