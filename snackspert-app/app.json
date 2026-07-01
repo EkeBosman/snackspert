@@ -35,8 +35,7 @@
     "plugins": [
       "expo-dev-client",
       "expo-router",
-      "expo-location",
-      "./plugins/disable-folly-coroutines"
+      "expo-location"
     ],
     "extra": {
       "eas": {
