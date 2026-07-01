@@ -63,7 +63,7 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
       setRestaurants(fullRestaurants);
       setIsLoading(false);
 
-      const batchSize = 3;
+      const batchSize = 15;
       let errorCount = 0;
       for (let i = 0; i < fullRestaurants.length; i += batchSize) {
         if (stopBackgroundRef.current) break;
@@ -97,7 +97,7 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
         });
 
         errorCount += batchErrors;
-        const delay = errorCount > 10 ? 3000 : 1500;
+        const delay = errorCount > 10 ? 2000 : 200;
         await new Promise(r => setTimeout(r, delay));
       }
     } catch (e) {

@@ -23,8 +23,8 @@ export function CategoryFilter({ selected, onToggle, beschikbaar }: CategoryFilt
 
   return (
     <ScrollView
-      horizontal
-      showsHorizontalScrollIndicator={false}
+      style={styles.scroll}
+      showsVerticalScrollIndicator={false}
       contentContainerStyle={styles.container}
     >
       {categories.map(cat => {
@@ -47,11 +47,15 @@ export function CategoryFilter({ selected, onToggle, beschikbaar }: CategoryFilt
 }
 
 const styles = StyleSheet.create({
+  scroll: {
+    maxHeight: 92,
+    flexGrow: 0,
+  },
   container: {
     flexDirection: 'row',
-    alignItems: 'center',
+    flexWrap: 'wrap',
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.xs,
     gap: Spacing.sm,
   },
   chip: {
