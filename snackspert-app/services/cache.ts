@@ -46,8 +46,11 @@ export async function loadCache(): Promise<CachePayload | null> {
 
 /**
  * Sla de volledige restaurantlijst op naar schijf.
+ * Een lege lijst wordt bewust NIET opgeslagen: die duidt vrijwel altijd op
+ * een storing, en zou een goede bestaande cache overschrijven.
  */
 export async function saveCache(restaurants: Restaurant[]): Promise<void> {
+  if (!restaurants || restaurants.length === 0) return;
   try {
     const file = getCacheFile();
     const payload: CachePayload = {

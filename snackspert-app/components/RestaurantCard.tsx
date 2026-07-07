@@ -31,7 +31,12 @@ export function RestaurantCard({ restaurant, afstandKm }: RestaurantCardProps) {
   const handlePress = () => {
     router.push({
       pathname: '/restaurant/[id]',
-      params: { id: restaurant.id.toString() },
+      params: {
+        id: restaurant.id.toString(),
+        // Coördinaten meegeven zodat het detailscherm niet opnieuw hoeft te geocoderen.
+        lat: restaurant.latitude?.toString() ?? '',
+        lng: restaurant.longitude?.toString() ?? '',
+      },
     });
   };
 

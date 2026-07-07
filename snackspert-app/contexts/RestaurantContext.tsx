@@ -104,6 +104,16 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
 
       if (stopBackgroundRef.current) return;
 
+      // Lege lijst betekent vrijwel zeker een storing: behoud wat we hebben
+      // (de cache blijft dan gewoon zichtbaar) in plaats van alles te wissen.
+      if (summaries.length === 0) {
+        if (!heeftCache) {
+          setError('Kon geen restaurants ophalen. Controleer je internetverbinding en probeer opnieuw.');
+        }
+        setIsLoading(false);
+        return;
+      }
+
       const coordsBySlug = new Map(locaties.map(l => [l.slug, l]));
 
       // Stap 2: samenvoegen met cache. Bekende restaurants hergebruiken we,
@@ -195,6 +205,12 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
         verwerkt += batch.length;
         setRestaurants([...all]);
         setLoadingProgress({ loaded: verwerkt, total: teLaden.length });
+
+        // Tussentijds opslaan (elke ~75 restaurants), zodat een afgesloten of
+        // gecrashte app de voortgang niet kwijt is en verder kan waar het bleef.
+        if ((i / batchSize) % 5 === 4) {
+          await saveCache(all);
+        }
 
         errorCount += batchErrors;
         const delay = errorCount > 10 ? 2000 : 200;

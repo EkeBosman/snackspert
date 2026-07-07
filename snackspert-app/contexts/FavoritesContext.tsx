@@ -26,6 +26,13 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
     return () => { geannuleerd = true; };
   }, []);
 
+  // Persist bij elke wijziging (pas nadat de initiële lading binnen is,
+  // anders zou een vroege render de opgeslagen lijst met leeg overschrijven).
+  useEffect(() => {
+    if (!geladen.current) return;
+    saveFavorites(Array.from(favorites));
+  }, [favorites]);
+
   const toggleFavorite = useCallback((id: number) => {
     setFavorites(prev => {
       const next = new Set(prev);
@@ -34,8 +41,6 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
       } else {
         next.add(id);
       }
-      // Persist (best-effort, buiten de render om).
-      saveFavorites(Array.from(next));
       return next;
     });
   }, []);

@@ -22,13 +22,16 @@ type PuntData = { restaurantId: number };
 
 export default function MapScreen() {
   const {
+    restaurants,
     filteredRestaurants,
     isLoading,
     isLoadingDetails,
     loadingProgress,
+    error,
     filters,
     toggleCategory,
     beschikbareCategorieen,
+    refresh,
   } = useRestaurants();
   const { isFavorite, toggleFavorite } = useFavorites();
   const mapRef = useRef<MapView>(null);
@@ -91,7 +94,12 @@ export default function MapScreen() {
   const handleCalloutPress = (restaurant: Restaurant) => {
     router.push({
       pathname: '/restaurant/[id]',
-      params: { id: restaurant.id.toString() },
+      params: {
+        id: restaurant.id.toString(),
+        // Coördinaten meegeven zodat het detailscherm niet opnieuw hoeft te geocoderen.
+        lat: restaurant.latitude?.toString() ?? '',
+        lng: restaurant.longitude?.toString() ?? '',
+      },
     });
   };
 
@@ -106,6 +114,20 @@ export default function MapScreen() {
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.primary} />
         <Text style={styles.loadingText}>Restaurants laden...</Text>
+      </View>
+    );
+  }
+
+  // Laden mislukt en niets (uit cache) om te tonen: fout + opnieuw proberen.
+  if (error && restaurants.length === 0) {
+    return (
+      <View style={styles.loadingContainer}>
+        <Text style={styles.errorEmoji}>📡</Text>
+        <Text style={styles.loadingText}>Laden mislukt</Text>
+        <Text style={styles.errorDetail}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={refresh} activeOpacity={0.8}>
+          <Text style={styles.retryText}>Opnieuw proberen</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -263,6 +285,27 @@ const styles = StyleSheet.create({
   loadingText: {
     fontSize: FontSize.lg,
     color: Colors.textSecondary,
+  },
+  errorEmoji: {
+    fontSize: 44,
+  },
+  errorDetail: {
+    fontSize: FontSize.sm,
+    color: Colors.textLight,
+    textAlign: 'center',
+    paddingHorizontal: Spacing.xl,
+  },
+  retryButton: {
+    marginTop: Spacing.sm,
+    backgroundColor: Colors.primary,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+  },
+  retryText: {
+    color: Colors.textOnPrimary,
+    fontWeight: '700',
+    fontSize: FontSize.md,
   },
   infoBar: {
     flexDirection: 'row',

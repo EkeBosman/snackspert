@@ -27,10 +27,12 @@ type Sortering = 'standaard' | 'sterren' | 'afstand';
 
 export default function LijstScreen() {
   const {
+    restaurants,
     filteredRestaurants,
     isLoading,
     isLoadingDetails,
     loadingProgress,
+    error,
     filters,
     toggleCategory,
     setZoekterm,
@@ -171,9 +173,9 @@ export default function LijstScreen() {
             )}
           </TouchableOpacity>
         </View>
-        {sortering === 'afstand' && locatieStatus === 'denied' && (
+        {locatieStatus === 'denied' && (
           <Text style={styles.locatieWaarschuwing}>
-            Locatie niet beschikbaar — sta locatietoegang toe om op afstand te sorteren.
+            Locatie niet beschikbaar — sta locatietoegang toe (Instellingen → Snackspert) om op afstand te sorteren.
           </Text>
         )}
 
@@ -252,6 +254,15 @@ export default function LijstScreen() {
                 <Text style={styles.emptyEmoji}>🤍</Text>
                 <Text style={styles.emptyText}>Nog geen favorieten</Text>
                 <Text style={styles.emptySubtext}>Tik op het hartje bij een restaurant om het hier te bewaren</Text>
+              </>
+            ) : error && restaurants.length === 0 ? (
+              <>
+                <Text style={styles.emptyEmoji}>📡</Text>
+                <Text style={styles.emptyText}>Laden mislukt</Text>
+                <Text style={styles.emptySubtext}>{error}</Text>
+                <TouchableOpacity style={styles.retryButton} onPress={refresh} activeOpacity={0.8}>
+                  <Text style={styles.retryText}>Opnieuw proberen</Text>
+                </TouchableOpacity>
               </>
             ) : (
               <>
@@ -429,5 +440,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#9C8E80',
     textAlign: 'center',
+    paddingHorizontal: 24,
+  },
+  retryButton: {
+    marginTop: 8,
+    backgroundColor: '#EDAA2D',
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 16,
+  },
+  retryText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 15,
   },
 });

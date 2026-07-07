@@ -27,52 +27,64 @@ async function fetchMetTimeout(url: string, timeout = FETCH_TIMEOUT): Promise<Re
 
 /**
  * Haal alle restaurants op via de WordPress REST API.
- * Geeft een callback per pagina zodat we voortgang kunnen tonen.
+ * Pagina 1 bepaalt het totaal; de overige pagina's worden parallel geladen.
+ *
+ * Gooit een error bij een mislukte pagina in plaats van stilletjes een
+ * (gedeeltelijk) lege lijst terug te geven — de aanroeper behoudt dan de
+ * bestaande (gecachte) data in plaats van die te overschrijven.
  */
 export async function fetchAlleRestaurants(
   onProgress?: (loaded: number, total: number) => void
 ): Promise<RestaurantSummary[]> {
-  const restaurants: RestaurantSummary[] = [];
-  let pagina = 1;
-  let totaal = 0;
+  const paginaUrl = (p: number) =>
+    `${API_URL}/restaurant?per_page=100&page=${p}&_embed=wp:featuredmedia`;
 
-  while (true) {
-    const url = `${API_URL}/restaurant?per_page=100&page=${pagina}&_embed=wp:featuredmedia`;
-    const resp = await fetchMetTimeout(url);
-
-    if (!resp.ok) break;
-
-    const data = await resp.json();
-    if (!data.length) break;
-
-    totaal = parseInt(resp.headers.get('X-WP-Total') || '0', 10);
-
-    for (const item of data) {
+  const parseItems = (data: WPRestaurant[]): RestaurantSummary[] =>
+    data.map(item => {
       // Afbeelding ophalen uit _embedded data
       let afbeeldingUrl = '';
       try {
-        const media = item._embedded?.['wp:featuredmedia']?.[0];
+        const media = (item as any)._embedded?.['wp:featuredmedia']?.[0];
         afbeeldingUrl = media?.source_url || media?.media_details?.sizes?.medium?.source_url || '';
       } catch {}
 
-      restaurants.push({
+      return {
         id: item.id,
         naam: he.decode(item.title.rendered),
         slug: item.slug,
         paginaUrl: item.link,
         afbeeldingUrl,
         categorieen: [],
-      });
+      };
+    });
+
+  const eerste = await fetchMetTimeout(paginaUrl(1));
+  if (!eerste.ok) {
+    throw new Error(`Kon restaurants niet ophalen (server gaf ${eerste.status})`);
+  }
+
+  const totaal = parseInt(eerste.headers.get('X-WP-Total') || '0', 10);
+  const totaalPaginas = parseInt(eerste.headers.get('X-WP-TotalPages') || '1', 10);
+  const restaurants = parseItems(await eerste.json());
+  onProgress?.(restaurants.length, totaal);
+
+  if (totaalPaginas > 1) {
+    // Overige pagina's parallel: dit is de eigen site en het gaat om ~6 extra
+    // requests, dus dit kan prima tegelijk.
+    const rest = await Promise.all(
+      Array.from({ length: totaalPaginas - 1 }, (_, i) =>
+        fetchMetTimeout(paginaUrl(i + 2)).then(resp => {
+          if (!resp.ok) {
+            throw new Error(`Kon restaurants niet ophalen (server gaf ${resp.status})`);
+          }
+          return resp.json() as Promise<WPRestaurant[]>;
+        })
+      )
+    );
+    for (const pageData of rest) {
+      restaurants.push(...parseItems(pageData));
     }
-
     onProgress?.(restaurants.length, totaal);
-
-    const totaalPaginas = parseInt(resp.headers.get('X-WP-TotalPages') || '0', 10);
-    if (pagina >= totaalPaginas) break;
-
-    pagina++;
-    // Korte pauze om de server niet te overbelasten
-    await new Promise(r => setTimeout(r, 200));
   }
 
   return restaurants;

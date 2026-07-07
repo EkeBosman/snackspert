@@ -22,13 +22,20 @@ import { Colors, Spacing, BorderRadius, FontSize, Shadow } from '../../constants
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
 export default function RestaurantDetailScreen() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, lat, lng } = useLocalSearchParams<{ id: string; lat?: string; lng?: string }>();
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { isFavorite, toggleFavorite } = useFavorites();
   const restaurantId = parseInt(id!, 10);
   const favoriet = isFavorite(restaurantId);
+
+  // Coördinaten die het vorige scherm al kende (bespaart een geocoding-call).
+  const bekendeLat = lat ? parseFloat(lat) : NaN;
+  const bekendeLng = lng ? parseFloat(lng) : NaN;
+  const bekendeCoords = !isNaN(bekendeLat) && !isNaN(bekendeLng)
+    ? { lat: bekendeLat, lng: bekendeLng }
+    : null;
 
   useEffect(() => {
     loadDetail();
@@ -59,8 +66,8 @@ export default function RestaurantDetailScreen() {
       const wpData = await resp.json();
       const paginaUrl = wpData.link;
 
-      // Scrape de detailpagina
-      const detail = await fetchRestaurantDetail(paginaUrl);
+      // Scrape de detailpagina (met bekende coördinaten om geocoding te sparen)
+      const detail = await fetchRestaurantDetail(paginaUrl, bekendeCoords);
 
       setRestaurant({
         id: parseInt(id!, 10),
