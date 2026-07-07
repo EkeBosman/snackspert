@@ -1,6 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, ReactNode } from 'react';
 import { Restaurant, FilterState } from '../types';
-import { fetchAlleRestaurants, fetchRestaurantDetail } from '../services/api';
+import {
+  fetchAlleRestaurants,
+  fetchRestaurantDetail,
+  fetchRestaurantLocaties,
+  RestaurantLocatie,
+} from '../services/api';
 import { loadCache, saveCache } from '../services/cache';
 
 interface RestaurantContextValue {
@@ -87,27 +92,41 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      // Stap 1: summary-lijst ophalen (goedkoop, ~7 calls).
-      const summaries = await fetchAlleRestaurants((loaded, total) => {
-        if (!heeftCache) setLoadingProgress({ loaded, total });
-      });
+      // Stap 1: summary-lijst (namen/ids/afbeeldingen) én de bulk-coördinaten
+      // parallel ophalen. De coördinaten komen in één request van /restaurants/,
+      // wat 700 geocoding-calls bespaart en de kaart direct kan vullen.
+      const [summaries, locaties] = await Promise.all([
+        fetchAlleRestaurants((loaded, total) => {
+          if (!heeftCache) setLoadingProgress({ loaded, total });
+        }),
+        fetchRestaurantLocaties().catch(() => [] as RestaurantLocatie[]),
+      ]);
 
       if (stopBackgroundRef.current) return;
 
+      const coordsBySlug = new Map(locaties.map(l => [l.slug, l]));
+
       // Stap 2: samenvoegen met cache. Bekende restaurants hergebruiken we,
       // nieuwe krijgen een lege basis. Verwijderde restaurants vallen vanzelf
-      // weg (we volgen de verse summary-lijst).
+      // weg (we volgen de verse summary-lijst). Coördinaten uit de bulk-bron
+      // zetten we meteen op elk restaurant, zodat alle pins direct verschijnen.
       const all: Restaurant[] = summaries.map(s => {
         const cached = cachedById.get(s.id);
-        if (cached) {
-          return {
-            ...cached,
-            slug: s.slug,
-            paginaUrl: s.paginaUrl,
-            afbeeldingUrl: cached.afbeeldingUrl || s.afbeeldingUrl,
-          };
+        const base: Restaurant = cached
+          ? {
+              ...cached,
+              slug: s.slug,
+              paginaUrl: s.paginaUrl,
+              afbeeldingUrl: cached.afbeeldingUrl || s.afbeeldingUrl,
+            }
+          : summaryNaarRestaurant(s);
+
+        const loc = coordsBySlug.get(s.slug);
+        if (loc) {
+          base.latitude = loc.lat;
+          base.longitude = loc.lng;
         }
-        return summaryNaarRestaurant(s);
+        return base;
       });
 
       setRestaurants(all);
@@ -115,12 +134,14 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
 
       const indexById = new Map(all.map((r, i) => [r.id, i]));
 
-      // Stap 3: bepalen wat gescraped moet worden.
-      // - Normaal: alleen restaurants zonder coördinaten (nieuw of eerder mislukt).
-      // - forceRescrape: alles (maar met hergebruik van bekende coords).
+      // Stap 3: bepalen wat nog gescraped moet worden voor de detailgegevens
+      // (adres, sterren, categorieën) die de kaart-pins zelf niet nodig hebben,
+      // maar de filters en de lijst wél.
+      // - Normaal: alleen restaurants die nog niet verrijkt zijn (geen adres).
+      // - forceRescrape: alles opnieuw (om nieuwe recensies/sterren op te halen).
       const teLaden = forceRescrape
         ? all
-        : all.filter(r => !r.latitude || !r.longitude);
+        : all.filter(r => !r.adres);
 
       if (teLaden.length === 0) {
         // Niets te doen: cache dekt alles. Toch opslaan om verwijderde
@@ -142,7 +163,10 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
         const batch = teLaden.slice(i, i + batchSize);
         const details = await Promise.allSettled(
           batch.map(r => {
-            const bekend = forceRescrape && r.latitude && r.longitude
+            // Coördinaten kennen we al uit de bulk-bron; geef ze mee zodat de
+            // dure geocoding wordt overgeslagen. Alleen als ze ontbreken (niet
+            // in de bulk-lijst) valt fetchRestaurantDetail terug op geocoding.
+            const bekend = r.latitude && r.longitude
               ? { lat: r.latitude, lng: r.longitude }
               : null;
             return fetchRestaurantDetail(r.paginaUrl, bekend);

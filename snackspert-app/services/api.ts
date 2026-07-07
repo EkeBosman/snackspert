@@ -79,6 +79,49 @@ export async function fetchAlleRestaurants(
 }
 
 /**
+ * Coördinaten van één restaurant, gekoppeld via de slug.
+ */
+export interface RestaurantLocatie {
+  slug: string;
+  lat: number;
+  lng: number;
+}
+
+/**
+ * Haal in één request de coördinaten van ALLE restaurants op.
+ *
+ * De pagina /restaurants/ bevat een ingebedde JS-variabele `restaurantLocations`
+ * met per restaurant title/lat/lng/permalink (dit voedt de kaart op de website).
+ * Hiermee vermijden we zowel het scrapen van 700 losse pagina's als 700
+ * Google Geocoding-calls om de kaart te vullen.
+ */
+export async function fetchRestaurantLocaties(): Promise<RestaurantLocatie[]> {
+  const resp = await fetchMetTimeout(`${BASE_URL}/restaurants/`);
+  const html = await resp.text();
+
+  // Pak de array tussen `restaurantLocations=[ ... ]` tot aan het script-einde.
+  const match = html.match(/restaurantLocations\s*=\s*(\[[\s\S]*?\])\s*;?\s*<\/script>/);
+  if (!match) return [];
+
+  let ruw: Array<{ lat?: number; lng?: number; permalink?: string }>;
+  try {
+    ruw = JSON.parse(match[1]);
+  } catch {
+    return [];
+  }
+
+  const locaties: RestaurantLocatie[] = [];
+  for (const m of ruw) {
+    if (typeof m.lat !== 'number' || typeof m.lng !== 'number' || !m.permalink) continue;
+    // Slug uit de permalink halen: .../restaurant/<slug>/
+    const slugMatch = m.permalink.match(/\/restaurant\/([^/]+)\/?/);
+    if (!slugMatch) continue;
+    locaties.push({ slug: slugMatch[1], lat: m.lat, lng: m.lng });
+  }
+  return locaties;
+}
+
+/**
  * Parse het sterren-aantal uit een tekst met ster-emoji's.
  */
 function telSterren(tekst: string): { sterren: number; sterrenTekst: string } {
