@@ -7,15 +7,27 @@ import {
   StyleSheet,
 } from 'react-native';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { Restaurant } from '../types';
 import { StarRating } from './StarRating';
+import { useFavorites } from '../contexts/FavoritesContext';
 import { Colors, Spacing, BorderRadius, FontSize, Shadow } from '../constants/theme';
 
 interface RestaurantCardProps {
   restaurant: Restaurant;
+  afstandKm?: number | null;
 }
 
-export function RestaurantCard({ restaurant }: RestaurantCardProps) {
+/** Formatteer een afstand in km netjes (bijv. "850 m" of "3,4 km"). */
+function formatAfstand(km: number): string {
+  if (km < 1) return `${Math.round(km * 1000)} m`;
+  return `${km.toFixed(1).replace('.', ',')} km`;
+}
+
+export function RestaurantCard({ restaurant, afstandKm }: RestaurantCardProps) {
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const favoriet = isFavorite(restaurant.id);
+
   const handlePress = () => {
     router.push({
       pathname: '/restaurant/[id]',
@@ -38,6 +50,26 @@ export function RestaurantCard({ restaurant }: RestaurantCardProps) {
       ) : (
         <View style={styles.imagePlaceholder}>
           <Text style={styles.placeholderEmoji}>🍟</Text>
+        </View>
+      )}
+
+      <TouchableOpacity
+        style={styles.heart}
+        onPress={() => toggleFavorite(restaurant.id)}
+        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        activeOpacity={0.7}
+      >
+        <Ionicons
+          name={favoriet ? 'heart' : 'heart-outline'}
+          size={22}
+          color={favoriet ? Colors.error : Colors.textOnPrimary}
+        />
+      </TouchableOpacity>
+
+      {afstandKm != null && (
+        <View style={styles.afstandBadge}>
+          <Ionicons name="location" size={12} color={Colors.textOnPrimary} />
+          <Text style={styles.afstandText}>{formatAfstand(afstandKm)}</Text>
         </View>
       )}
 
@@ -94,6 +126,34 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.categoryBg,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  heart: {
+    position: 'absolute',
+    top: Spacing.sm,
+    right: Spacing.sm,
+    width: 38,
+    height: 38,
+    borderRadius: BorderRadius.full,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  afstandBadge: {
+    position: 'absolute',
+    top: Spacing.sm,
+    left: Spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    borderRadius: BorderRadius.full,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  afstandText: {
+    fontSize: FontSize.xs,
+    color: Colors.textOnPrimary,
+    fontWeight: '600',
   },
   placeholderEmoji: {
     fontSize: 48,

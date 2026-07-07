@@ -1,10 +1,11 @@
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { Colors } from '../constants/theme';
+import { FavoritesProvider } from '../contexts/FavoritesContext';
 
 export default function RootLayout() {
   return (
-    <>
+    <FavoritesProvider>
       <StatusBar style="light" />
       <Stack
         screenOptions={{
@@ -23,6 +24,6 @@ export default function RootLayout() {
           }}
         />
       </Stack>
-    </>
+    </FavoritesProvider>
   );
 }

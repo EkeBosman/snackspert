@@ -12,9 +12,11 @@ import {
 } from 'react-native';
 import { useLocalSearchParams, Stack } from 'expo-router';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import { Ionicons } from '@expo/vector-icons';
 import { Restaurant } from '../../types';
 import { fetchRestaurantDetail } from '../../services/api';
 import { StarRating } from '../../components/StarRating';
+import { useFavorites } from '../../contexts/FavoritesContext';
 import { Colors, Spacing, BorderRadius, FontSize, Shadow } from '../../constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -24,6 +26,9 @@ export default function RestaurantDetailScreen() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { isFavorite, toggleFavorite } = useFavorites();
+  const restaurantId = parseInt(id!, 10);
+  const favoriet = isFavorite(restaurantId);
 
   useEffect(() => {
     loadDetail();
@@ -115,7 +120,24 @@ export default function RestaurantDetailScreen() {
 
   return (
     <>
-      <Stack.Screen options={{ title: restaurant.naam }} />
+      <Stack.Screen
+        options={{
+          title: restaurant.naam,
+          headerRight: () => (
+            <TouchableOpacity
+              onPress={() => toggleFavorite(restaurantId)}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={favoriet ? 'heart' : 'heart-outline'}
+                size={26}
+                color={Colors.textOnPrimary}
+              />
+            </TouchableOpacity>
+          ),
+        }}
+      />
       <ScrollView style={styles.container} bounces={false}>
         {/* Hero afbeelding */}
         {restaurant.afbeeldingUrl ? (

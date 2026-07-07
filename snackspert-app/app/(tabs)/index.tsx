@@ -2,17 +2,23 @@ import React, { useState, useRef, useMemo } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, Region, PROVIDER_GOOGLE } from 'react-native-maps';
+import Supercluster from 'supercluster';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { useRestaurants } from '../../hooks/useRestaurants';
+import { useFavorites } from '../../contexts/FavoritesContext';
 import { CategoryFilter } from '../../components/CategoryFilter';
 import { StarRating } from '../../components/StarRating';
 import { Colors, Spacing, FontSize, BorderRadius, Shadow, MAP_INITIAL_REGION } from '../../constants/theme';
 import { Restaurant } from '../../types';
+
+type PuntData = { restaurantId: number };
 
 export default function MapScreen() {
   const {
@@ -24,17 +30,62 @@ export default function MapScreen() {
     toggleCategory,
     beschikbareCategorieen,
   } = useRestaurants();
+  const { isFavorite, toggleFavorite } = useFavorites();
   const mapRef = useRef<MapView>(null);
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
+  const [region, setRegion] = useState<Region>(MAP_INITIAL_REGION);
 
-  // Alleen restaurants met coördinaten tonen op de kaart
+  // Alleen restaurants met coördinaten tonen op de kaart.
   const restaurantsOpKaart = useMemo(
     () => filteredRestaurants.filter(r => r.latitude && r.longitude),
     [filteredRestaurants]
   );
 
+  const restaurantById = useMemo(() => {
+    const m = new Map<number, Restaurant>();
+    for (const r of restaurantsOpKaart) m.set(r.id, r);
+    return m;
+  }, [restaurantsOpKaart]);
+
+  // Supercluster-index opbouwen uit de zichtbare restaurants.
+  const clusterIndex = useMemo(() => {
+    const sc = new Supercluster<PuntData>({ radius: 55, maxZoom: 18 });
+    sc.load(
+      restaurantsOpKaart.map(r => ({
+        type: 'Feature' as const,
+        properties: { restaurantId: r.id },
+        geometry: {
+          type: 'Point' as const,
+          coordinates: [r.longitude!, r.latitude!],
+        },
+      }))
+    );
+    return sc;
+  }, [restaurantsOpKaart]);
+
+  // Clusters/punten berekenen voor de huidige kaartuitsnede.
+  const clusters = useMemo(() => {
+    const bbox: [number, number, number, number] = [
+      region.longitude - region.longitudeDelta / 2,
+      region.latitude - region.latitudeDelta / 2,
+      region.longitude + region.longitudeDelta / 2,
+      region.latitude + region.latitudeDelta / 2,
+    ];
+    const zoom = Math.round(Math.log2(360 / region.longitudeDelta));
+    return clusterIndex.getClusters(bbox, Math.max(1, Math.min(20, zoom)));
+  }, [clusterIndex, region]);
+
   const handleMarkerPress = (restaurant: Restaurant) => {
     setSelectedRestaurant(restaurant);
+  };
+
+  const handleClusterPress = (clusterId: number, lat: number, lng: number) => {
+    const expansionZoom = Math.min(clusterIndex.getClusterExpansionZoom(clusterId), 18);
+    const delta = 360 / Math.pow(2, expansionZoom);
+    mapRef.current?.animateToRegion(
+      { latitude: lat, longitude: lng, latitudeDelta: delta, longitudeDelta: delta },
+      350
+    );
   };
 
   const handleCalloutPress = (restaurant: Restaurant) => {
@@ -58,6 +109,8 @@ export default function MapScreen() {
       </View>
     );
   }
+
+  const favorietGeselecteerd = selectedRestaurant ? isFavorite(selectedRestaurant.id) : false;
 
   return (
     <View style={styles.container}>
@@ -90,22 +143,43 @@ export default function MapScreen() {
         provider={PROVIDER_GOOGLE}
         style={styles.map}
         initialRegion={MAP_INITIAL_REGION}
+        onRegionChangeComplete={setRegion}
         showsUserLocation
         showsMyLocationButton
         showsCompass
         mapType="standard"
       >
-        {restaurantsOpKaart.map(restaurant => (
-          <Marker
-            key={restaurant.id}
-            coordinate={{
-              latitude: restaurant.latitude!,
-              longitude: restaurant.longitude!,
-            }}
-            pinColor={Colors.mapMarker}
-            onPress={() => handleMarkerPress(restaurant)}
-          />
-        ))}
+        {clusters.map(punt => {
+          const [lng, lat] = punt.geometry.coordinates;
+          const props = punt.properties as Supercluster.ClusterProperties & PuntData;
+
+          if ('cluster' in props && props.cluster) {
+            const aantal = props.point_count;
+            const grootte = aantal < 10 ? 44 : aantal < 50 ? 54 : aantal < 200 ? 64 : 74;
+            return (
+              <Marker
+                key={`cluster-${props.cluster_id}`}
+                coordinate={{ latitude: lat, longitude: lng }}
+                onPress={() => handleClusterPress(props.cluster_id, lat, lng)}
+              >
+                <View style={[styles.cluster, { width: grootte, height: grootte, borderRadius: grootte / 2 }]}>
+                  <Text style={styles.clusterText}>{aantal}</Text>
+                </View>
+              </Marker>
+            );
+          }
+
+          const r = restaurantById.get(props.restaurantId);
+          if (!r) return null;
+          return (
+            <Marker
+              key={`r-${r.id}`}
+              coordinate={{ latitude: lat, longitude: lng }}
+              pinColor={Colors.mapMarker}
+              onPress={() => handleMarkerPress(r)}
+            />
+          );
+        })}
       </MapView>
 
       {/* Zoom-naar-NL knop */}
@@ -124,6 +198,18 @@ export default function MapScreen() {
           onPress={() => handleCalloutPress(selectedRestaurant)}
           activeOpacity={0.9}
         >
+          {selectedRestaurant.afbeeldingUrl ? (
+            <Image
+              source={{ uri: selectedRestaurant.afbeeldingUrl }}
+              style={styles.previewThumb}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.previewThumbPlaceholder}>
+              <Text style={styles.previewThumbEmoji}>🍟</Text>
+            </View>
+          )}
+
           <View style={styles.previewContent}>
             <Text style={styles.previewNaam} numberOfLines={1}>
               {selectedRestaurant.naam}
@@ -140,9 +226,19 @@ export default function MapScreen() {
               </Text>
             )}
           </View>
-          <View style={styles.previewArrow}>
-            <Text style={styles.previewArrowText}>→</Text>
-          </View>
+
+          <TouchableOpacity
+            style={styles.previewHeart}
+            onPress={() => toggleFavorite(selectedRestaurant.id)}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            activeOpacity={0.7}
+          >
+            <Ionicons
+              name={favorietGeselecteerd ? 'heart' : 'heart-outline'}
+              size={24}
+              color={favorietGeselecteerd ? Colors.error : Colors.textLight}
+            />
+          </TouchableOpacity>
         </TouchableOpacity>
       )}
     </View>
@@ -188,6 +284,19 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: Colors.textLight,
   },
+  cluster: {
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#FFFFFF',
+    ...Shadow.md,
+  },
+  clusterText: {
+    color: Colors.textOnPrimary,
+    fontWeight: '800',
+    fontSize: FontSize.md,
+  },
   zoomButton: {
     position: 'absolute',
     bottom: 100,
@@ -210,10 +319,28 @@ const styles = StyleSheet.create({
     right: Spacing.lg,
     backgroundColor: Colors.surface,
     borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
+    padding: Spacing.md,
     flexDirection: 'row',
     alignItems: 'center',
     ...Shadow.lg,
+  },
+  previewThumb: {
+    width: 64,
+    height: 64,
+    borderRadius: BorderRadius.md,
+    marginRight: Spacing.md,
+  },
+  previewThumbPlaceholder: {
+    width: 64,
+    height: 64,
+    borderRadius: BorderRadius.md,
+    marginRight: Spacing.md,
+    backgroundColor: Colors.categoryBg,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  previewThumbEmoji: {
+    fontSize: 30,
   },
   previewContent: {
     flex: 1,
@@ -232,18 +359,11 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: Colors.primary,
   },
-  previewArrow: {
+  previewHeart: {
     width: 40,
     height: 40,
-    borderRadius: BorderRadius.full,
-    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginLeft: Spacing.md,
-  },
-  previewArrowText: {
-    fontSize: FontSize.lg,
-    color: Colors.textOnPrimary,
-    fontWeight: '700',
+    marginLeft: Spacing.sm,
   },
 });
