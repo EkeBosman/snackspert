@@ -27,16 +27,22 @@ interface LandGroep {
   restaurants: Restaurant[];
 }
 
-const PIN_ZWART = '#1A1A1A';
+const PIN_DONKER = '#2D2013';
 
-/** Custom kaart-pin: zwarte druppel met gele kern; omgekeerd als 'geweest'. */
+/**
+ * Custom kaart-pin, opgebouwd uit vaste vormen (geen transparant gaatje):
+ * een ronde kop met witte rand + een puntje eronder, met een klein stipje.
+ * Standaard donker met gouden stip; afgevinkt ('geweest') omgekeerd.
+ */
 function MapPin({ bezocht }: { bezocht: boolean }) {
-  const body = bezocht ? Colors.primary : PIN_ZWART;
-  const kern = bezocht ? PIN_ZWART : Colors.primary;
+  const body = bezocht ? Colors.primary : PIN_DONKER;
+  const stip = bezocht ? PIN_DONKER : Colors.primary;
   return (
     <View style={styles.pinWrap}>
-      <Ionicons name="location-sharp" size={40} color={body} />
-      <View style={[styles.pinKern, { backgroundColor: kern }]} />
+      <View style={[styles.pinKop, { backgroundColor: body }]}>
+        <View style={[styles.pinStip, { backgroundColor: stip }]} />
+      </View>
+      <View style={[styles.pinPunt, { borderTopColor: body }]} />
     </View>
   );
 }
@@ -374,17 +380,33 @@ const styles = StyleSheet.create({
     color: Colors.textLight,
   },
   pinWrap: {
-    width: 40,
-    height: 48,
+    width: 28,
     alignItems: 'center',
-    justifyContent: 'flex-start',
   },
-  pinKern: {
-    position: 'absolute',
-    top: 9,
+  pinKop: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...Shadow.sm,
+  },
+  pinStip: {
     width: 8,
     height: 8,
     borderRadius: 4,
+  },
+  pinPunt: {
+    width: 0,
+    height: 0,
+    marginTop: -3,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 10,
+    borderLeftColor: 'transparent',
+    borderRightColor: 'transparent',
   },
   controls: {
     position: 'absolute',
