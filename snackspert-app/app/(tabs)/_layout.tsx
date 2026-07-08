@@ -1,7 +1,16 @@
 import { Tabs } from 'expo-router';
+import { Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize } from '../../constants/theme';
 import { RestaurantProvider } from '../../contexts/RestaurantContext';
+
+// Logo in de header (transparant, past op de gouden balk).
+const LogoTitel = () => (
+  <Image
+    source={require('../../assets/SNACKSPERT_LOGO_SB_PIXEL.png')}
+    style={{ width: 150, height: 34, resizeMode: 'contain' }}
+  />
+);
 
 export default function TabLayout() {
   return (
@@ -27,7 +36,7 @@ export default function TabLayout() {
           name="index"
           options={{
             title: 'Kaart',
-            headerTitle: 'Snackspert',
+            headerTitle: () => <LogoTitel />,
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="map" size={size} color={color} />
             ),
@@ -37,7 +46,7 @@ export default function TabLayout() {
           name="lijst"
           options={{
             title: 'Lijst',
-            headerTitle: 'Snackspert',
+            headerTitle: () => <LogoTitel />,
             tabBarIcon: ({ color, size }) => (
               <Ionicons name="list" size={size} color={color} />
             ),

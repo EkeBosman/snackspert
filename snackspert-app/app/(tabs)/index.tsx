@@ -27,6 +27,20 @@ interface LandGroep {
   restaurants: Restaurant[];
 }
 
+const PIN_ZWART = '#1A1A1A';
+
+/** Custom kaart-pin: zwarte druppel met gele kern; omgekeerd als 'geweest'. */
+function MapPin({ bezocht }: { bezocht: boolean }) {
+  const body = bezocht ? Colors.primary : PIN_ZWART;
+  const kern = bezocht ? PIN_ZWART : Colors.primary;
+  return (
+    <View style={styles.pinWrap}>
+      <Ionicons name="location-sharp" size={40} color={body} />
+      <View style={[styles.pinKern, { backgroundColor: kern }]} />
+    </View>
+  );
+}
+
 export default function MapScreen() {
   const {
     restaurants,
@@ -168,17 +182,23 @@ export default function MapScreen() {
         showsCompass
         mapType="standard"
       >
-        {restaurantsOpKaart.map(restaurant => (
-          <Marker
-            key={restaurant.id}
-            coordinate={{
-              latitude: restaurant.latitude!,
-              longitude: restaurant.longitude!,
-            }}
-            pinColor={isVisited(restaurant.id) ? Colors.success : Colors.mapMarker}
-            onPress={() => setSelectedRestaurant(restaurant)}
-          />
-        ))}
+        {restaurantsOpKaart.map(restaurant => {
+          const bezocht = isVisited(restaurant.id);
+          return (
+            <Marker
+              key={`${restaurant.id}-${bezocht ? 'v' : 'n'}`}
+              coordinate={{
+                latitude: restaurant.latitude!,
+                longitude: restaurant.longitude!,
+              }}
+              anchor={{ x: 0.5, y: 1 }}
+              tracksViewChanges={false}
+              onPress={() => setSelectedRestaurant(restaurant)}
+            >
+              <MapPin bezocht={bezocht} />
+            </Marker>
+          );
+        })}
       </MapView>
 
       {/* Zwevende knoppen (verspringen naar boven als de popup open is) */}
@@ -352,6 +372,19 @@ const styles = StyleSheet.create({
   loadingSmall: {
     fontSize: FontSize.xs,
     color: Colors.textLight,
+  },
+  pinWrap: {
+    width: 40,
+    height: 48,
+    alignItems: 'center',
+    justifyContent: 'flex-start',
+  },
+  pinKern: {
+    position: 'absolute',
+    top: 8,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
   },
   controls: {
     position: 'absolute',
