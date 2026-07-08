@@ -9,6 +9,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { FilterState } from '../types';
+import { useEngagement } from '../contexts/EngagementContext';
 import { FOOD_CATEGORIES, DIET_FILTERS, Colors, Spacing, BorderRadius, FontSize, Shadow } from '../constants/theme';
 
 const ALL_CATEGORIES = [...FOOD_CATEGORIES, ...DIET_FILTERS];
@@ -26,6 +27,7 @@ interface FilterMenuProps {
 
 export function FilterMenu({ filters, setFilters, beschikbareCategorieen }: FilterMenuProps) {
   const [open, setOpen] = useState(false);
+  const { markActie } = useEngagement();
 
   const categorieen =
     beschikbareCategorieen && beschikbareCategorieen.length > 0
@@ -39,10 +41,12 @@ export function FilterMenu({ filters, setFilters, beschikbareCategorieen }: Filt
       ? filters.categorieen.filter(c => c !== cat)
       : [...filters.categorieen, cat];
     setFilters({ ...filters, categorieen: nieuw });
+    markActie();
   };
 
   const zetSterren = (waarde: number) => {
     setFilters({ ...filters, minimumSterren: waarde });
+    markActie();
   };
 
   const wissen = () => {

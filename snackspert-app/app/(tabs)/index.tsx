@@ -14,6 +14,7 @@ import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useRestaurants } from '../../hooks/useRestaurants';
 import { useFavorites } from '../../contexts/FavoritesContext';
+import { useEngagement } from '../../contexts/EngagementContext';
 import { useUserLocation } from '../../hooks/useUserLocation';
 import { FilterMenu } from '../../components/FilterMenu';
 import { StarRating } from '../../components/StarRating';
@@ -64,6 +65,7 @@ export default function MapScreen() {
     refresh,
   } = useRestaurants();
   const { isFavorite, toggleFavorite, isVisited, toggleVisited } = useFavorites();
+  const { markActie } = useEngagement();
   const { request: vraagLocatie } = useUserLocation();
   const mapRef = useRef<MapView>(null);
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
@@ -293,7 +295,7 @@ export default function MapScreen() {
 
           <View style={styles.previewActies}>
             <TouchableOpacity
-              onPress={() => toggleVisited(selectedRestaurant.id)}
+              onPress={() => { toggleVisited(selectedRestaurant.id); markActie(); }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               activeOpacity={0.7}
             >
@@ -304,7 +306,7 @@ export default function MapScreen() {
               />
             </TouchableOpacity>
             <TouchableOpacity
-              onPress={() => toggleFavorite(selectedRestaurant.id)}
+              onPress={() => { toggleFavorite(selectedRestaurant.id); markActie(); }}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
               activeOpacity={0.7}
             >

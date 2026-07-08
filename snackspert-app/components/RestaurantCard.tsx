@@ -11,6 +11,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { Restaurant } from '../types';
 import { StarRating } from './StarRating';
 import { useFavorites } from '../contexts/FavoritesContext';
+import { useEngagement } from '../contexts/EngagementContext';
 import { Colors, Spacing, BorderRadius, FontSize, Shadow } from '../constants/theme';
 
 interface RestaurantCardProps {
@@ -26,6 +27,7 @@ function formatAfstand(km: number): string {
 
 export function RestaurantCard({ restaurant, afstandKm }: RestaurantCardProps) {
   const { isFavorite, toggleFavorite, isVisited, toggleVisited } = useFavorites();
+  const { markActie } = useEngagement();
   const favoriet = isFavorite(restaurant.id);
   const bezocht = isVisited(restaurant.id);
 
@@ -62,7 +64,7 @@ export function RestaurantCard({ restaurant, afstandKm }: RestaurantCardProps) {
       <View style={styles.acties}>
         <TouchableOpacity
           style={styles.actieKnop}
-          onPress={() => toggleVisited(restaurant.id)}
+          onPress={() => { toggleVisited(restaurant.id); markActie(); }}
           hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
           activeOpacity={0.7}
         >
@@ -74,7 +76,7 @@ export function RestaurantCard({ restaurant, afstandKm }: RestaurantCardProps) {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.actieKnop}
-          onPress={() => toggleFavorite(restaurant.id)}
+          onPress={() => { toggleFavorite(restaurant.id); markActie(); }}
           hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
           activeOpacity={0.7}
         >

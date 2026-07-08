@@ -17,6 +17,7 @@ import { Restaurant } from '../../types';
 import { fetchRestaurantDetail } from '../../services/api';
 import { StarRating } from '../../components/StarRating';
 import { useFavorites } from '../../contexts/FavoritesContext';
+import { useEngagement } from '../../contexts/EngagementContext';
 import { Colors, Spacing, BorderRadius, FontSize, Shadow } from '../../constants/theme';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -27,6 +28,7 @@ export default function RestaurantDetailScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { isFavorite, toggleFavorite, isVisited, toggleVisited } = useFavorites();
+  const { markActie } = useEngagement();
   const restaurantId = parseInt(id!, 10);
   const favoriet = isFavorite(restaurantId);
   const bezocht = isVisited(restaurantId);
@@ -40,6 +42,8 @@ export default function RestaurantDetailScreen() {
 
   useEffect(() => {
     loadDetail();
+    // Een recensie bekijken telt als betekenisvolle actie.
+    markActie();
   }, [id]);
 
   async function loadDetail() {
