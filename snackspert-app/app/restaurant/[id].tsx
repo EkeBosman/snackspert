@@ -126,47 +126,49 @@ export default function RestaurantDetailScreen() {
         options={{
           title: restaurant.naam,
           headerBackTitle: 'Terug',
-          headerRight: () => (
-            <View style={styles.headerActions}>
-              <TouchableOpacity
-                onPress={() => toggleVisited(restaurantId)}
-                hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={bezocht ? 'checkmark-circle' : 'checkmark-circle-outline'}
-                  size={26}
-                  color={Colors.textOnPrimary}
-                />
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => toggleFavorite(restaurantId)}
-                hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
-                activeOpacity={0.7}
-              >
-                <Ionicons
-                  name={favoriet ? 'heart' : 'heart-outline'}
-                  size={26}
-                  color={Colors.textOnPrimary}
-                />
-              </TouchableOpacity>
-            </View>
-          ),
         }}
       />
       <ScrollView style={styles.container} bounces={false}>
-        {/* Hero afbeelding */}
-        {restaurant.afbeeldingUrl ? (
-          <Image
-            source={{ uri: restaurant.afbeeldingUrl }}
-            style={styles.heroImage}
-            resizeMode="cover"
-          />
-        ) : (
-          <View style={styles.heroPlaceholder}>
-            <Text style={styles.heroEmoji}>🍟</Text>
+        {/* Hero afbeelding met favoriet/geweest-knoppen */}
+        <View>
+          {restaurant.afbeeldingUrl ? (
+            <Image
+              source={{ uri: restaurant.afbeeldingUrl }}
+              style={styles.heroImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <View style={styles.heroPlaceholder}>
+              <Text style={styles.heroEmoji}>🍟</Text>
+            </View>
+          )}
+          <View style={styles.floatActions}>
+            <TouchableOpacity
+              style={styles.floatBtn}
+              onPress={() => toggleVisited(restaurantId)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={bezocht ? 'checkmark-circle' : 'checkmark-circle-outline'}
+                size={24}
+                color={bezocht ? Colors.success : '#FFFFFF'}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.floatBtn}
+              onPress={() => toggleFavorite(restaurantId)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={favoriet ? 'heart' : 'heart-outline'}
+                size={24}
+                color={favoriet ? Colors.error : '#FFFFFF'}
+              />
+            </TouchableOpacity>
           </View>
-        )}
+        </View>
 
         {/* Content */}
         <View style={styles.content}>
@@ -378,10 +380,20 @@ const styles = StyleSheet.create({
     color: Colors.text,
     lineHeight: 24,
   },
-  headerActions: {
+  floatActions: {
+    position: 'absolute',
+    top: Spacing.md,
+    right: Spacing.md,
     flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  floatBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.full,
+    backgroundColor: 'rgba(0,0,0,0.4)',
     alignItems: 'center',
-    gap: Spacing.lg,
+    justifyContent: 'center',
   },
   actions: {
     gap: Spacing.md,
