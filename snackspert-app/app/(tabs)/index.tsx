@@ -27,22 +27,25 @@ interface LandGroep {
   restaurants: Restaurant[];
 }
 
-const PIN_DONKER = '#2D2013';
+const PIN_RAND = '#222222';   // antraciet
+const PIN_BINNEN = '#FFFFFF'; // wit
+const PIN_STIP = '#F4B400';   // goudgeel
 
 /**
- * Custom kaart-pin, opgebouwd uit vaste vormen (geen transparant gaatje):
- * een ronde kop met witte rand + een puntje eronder, met een klein stipje.
- * Standaard donker met gouden stip; afgevinkt ('geweest') omgekeerd.
+ * Custom kaart-pin: witte druppel met antracietrand en een goudgeel stipje.
+ * De kop is een cirkel, de punt een 45° gedraaid vierkant; de cirkel dekt de
+ * bovenkant van het vierkant af zodat de rand rond de hele vorm doorloopt.
+ * Afgevinkt ('geweest') = goudgele vulling met wit stipje.
  */
 function MapPin({ bezocht }: { bezocht: boolean }) {
-  const body = bezocht ? Colors.primary : PIN_DONKER;
-  const stip = bezocht ? PIN_DONKER : Colors.primary;
+  const vul = bezocht ? PIN_STIP : PIN_BINNEN;
+  const stip = bezocht ? PIN_BINNEN : PIN_STIP;
   return (
     <View style={styles.pinWrap}>
-      <View style={[styles.pinKop, { backgroundColor: body }]}>
+      <View style={[styles.pinPunt, { backgroundColor: vul }]} />
+      <View style={[styles.pinKop, { backgroundColor: vul }]}>
         <View style={[styles.pinStip, { backgroundColor: stip }]} />
       </View>
-      <View style={[styles.pinPunt, { borderTopColor: body }]} />
     </View>
   );
 }
@@ -381,12 +384,17 @@ const styles = StyleSheet.create({
   },
   pinWrap: {
     width: 28,
+    height: 30,
     alignItems: 'center',
   },
   pinKop: {
+    position: 'absolute',
+    top: 0,
     width: 24,
     height: 24,
     borderRadius: 12,
+    borderWidth: 2.5,
+    borderColor: PIN_RAND,
     alignItems: 'center',
     justifyContent: 'center',
     ...Shadow.sm,
@@ -397,14 +405,13 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   pinPunt: {
-    width: 0,
-    height: 0,
-    marginTop: -3,
-    borderLeftWidth: 6,
-    borderRightWidth: 6,
-    borderTopWidth: 10,
-    borderLeftColor: 'transparent',
-    borderRightColor: 'transparent',
+    position: 'absolute',
+    top: 13,
+    width: 13,
+    height: 13,
+    borderWidth: 2.5,
+    borderColor: PIN_RAND,
+    transform: [{ rotate: '45deg' }],
   },
   controls: {
     position: 'absolute',
