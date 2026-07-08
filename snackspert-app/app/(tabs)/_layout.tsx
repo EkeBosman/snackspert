@@ -43,6 +43,16 @@ export default function TabLayout() {
             ),
           }}
         />
+        <Tabs.Screen
+          name="opgeslagen"
+          options={{
+            title: 'Opgeslagen',
+            headerTitle: 'Opgeslagen',
+            tabBarIcon: ({ color, size }) => (
+              <Ionicons name="bookmark" size={size} color={color} />
+            ),
+          }}
+        />
       </Tabs>
     </RestaurantProvider>
   );

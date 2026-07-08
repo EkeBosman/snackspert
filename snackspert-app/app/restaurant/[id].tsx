@@ -26,9 +26,10 @@ export default function RestaurantDetailScreen() {
   const [restaurant, setRestaurant] = useState<Restaurant | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const { isFavorite, toggleFavorite } = useFavorites();
+  const { isFavorite, toggleFavorite, isVisited, toggleVisited } = useFavorites();
   const restaurantId = parseInt(id!, 10);
   const favoriet = isFavorite(restaurantId);
+  const bezocht = isVisited(restaurantId);
 
   // Coördinaten die het vorige scherm al kende (bespaart een geocoding-call).
   const bekendeLat = lat ? parseFloat(lat) : NaN;
@@ -91,12 +92,6 @@ export default function RestaurantDetailScreen() {
     }
   }
 
-  const openWebsite = () => {
-    if (restaurant?.paginaUrl) {
-      Linking.openURL(restaurant.paginaUrl);
-    }
-  };
-
   const openMaps = () => {
     if (restaurant?.latitude && restaurant?.longitude) {
       const url = `https://www.google.com/maps/search/?api=1&query=${restaurant.latitude},${restaurant.longitude}&query_place_id=${encodeURIComponent(restaurant.naam)}`;
@@ -130,18 +125,32 @@ export default function RestaurantDetailScreen() {
       <Stack.Screen
         options={{
           title: restaurant.naam,
+          headerBackTitle: 'Terug',
           headerRight: () => (
-            <TouchableOpacity
-              onPress={() => toggleFavorite(restaurantId)}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name={favoriet ? 'heart' : 'heart-outline'}
-                size={26}
-                color={Colors.textOnPrimary}
-              />
-            </TouchableOpacity>
+            <View style={styles.headerActions}>
+              <TouchableOpacity
+                onPress={() => toggleVisited(restaurantId)}
+                hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={bezocht ? 'checkmark-circle' : 'checkmark-circle-outline'}
+                  size={26}
+                  color={Colors.textOnPrimary}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => toggleFavorite(restaurantId)}
+                hitSlop={{ top: 10, bottom: 10, left: 8, right: 8 }}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={favoriet ? 'heart' : 'heart-outline'}
+                  size={26}
+                  color={Colors.textOnPrimary}
+                />
+              </TouchableOpacity>
+            </View>
           ),
         }}
       />
@@ -228,29 +237,19 @@ export default function RestaurantDetailScreen() {
           ) : null}
 
           {/* Knoppen */}
-          <View style={styles.actions}>
-            <TouchableOpacity
-              style={styles.primaryButton}
-              onPress={openWebsite}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.primaryButtonText}>
-                Bekijk op Snackspert.nl
-              </Text>
-            </TouchableOpacity>
-
-            {(restaurant.adres || restaurant.latitude) && (
+          {(restaurant.adres || restaurant.latitude) && (
+            <View style={styles.actions}>
               <TouchableOpacity
-                style={styles.secondaryButton}
+                style={styles.primaryButton}
                 onPress={openMaps}
                 activeOpacity={0.8}
               >
-                <Text style={styles.secondaryButtonText}>
+                <Text style={styles.primaryButtonText}>
                   Navigeer erheen
                 </Text>
               </TouchableOpacity>
-            )}
-          </View>
+            </View>
+          )}
         </View>
       </ScrollView>
     </>
@@ -378,6 +377,11 @@ const styles = StyleSheet.create({
     fontSize: FontSize.md,
     color: Colors.text,
     lineHeight: 24,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.lg,
   },
   actions: {
     gap: Spacing.md,

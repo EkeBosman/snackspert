@@ -10,18 +10,13 @@ import {
   RefreshControl,
   ScrollView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { useRestaurants } from '../../hooks/useRestaurants';
-import { useFavorites } from '../../contexts/FavoritesContext';
 import { useUserLocation } from '../../hooks/useUserLocation';
 import { afstandKm } from '../../utils/afstand';
 import { RestaurantCard } from '../../components/RestaurantCard';
 import { LocationFilter } from '../../components/LocationFilter';
-import { FOOD_CATEGORIES, DIET_FILTERS } from '../../constants/theme';
+import { FilterMenu } from '../../components/FilterMenu';
 import { Restaurant } from '../../types';
-
-const ALL_CATEGORIES = [...FOOD_CATEGORIES, ...DIET_FILTERS];
-const STAR_FILTERS = [5] as const;
 
 type Sortering = 'standaard' | 'sterren' | 'afstand';
 
@@ -34,18 +29,16 @@ export default function LijstScreen() {
     loadingProgress,
     error,
     filters,
-    toggleCategory,
+    setFilters,
     setZoekterm,
     setLocatie,
-    setMinimumSterren,
+    beschikbareCategorieen,
     beschikbareSteden,
     refresh,
   } = useRestaurants();
-  const { isFavorite } = useFavorites();
   const { coords, status: locatieStatus, request: vraagLocatie } = useUserLocation();
   const [refreshing, setRefreshing] = useState(false);
   const [sortering, setSortering] = useState<Sortering>('standaard');
-  const [alleenFavorieten, setAlleenFavorieten] = useState(false);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -65,12 +58,9 @@ export default function LijstScreen() {
     return m;
   }, [coords, filteredRestaurants]);
 
-  // Toon-lijst: favorieten-filter + gekozen sortering toepassen.
+  // Toon-lijst: gekozen sortering toepassen.
   const weergaveLijst = useMemo(() => {
-    let list = alleenFavorieten
-      ? filteredRestaurants.filter(r => isFavorite(r.id))
-      : [...filteredRestaurants];
-
+    const list = [...filteredRestaurants];
     if (sortering === 'sterren') {
       list.sort((a, b) => b.sterren - a.sterren);
     } else if (sortering === 'afstand' && afstanden) {
@@ -79,7 +69,7 @@ export default function LijstScreen() {
       );
     }
     return list;
-  }, [filteredRestaurants, alleenFavorieten, isFavorite, sortering, afstanden]);
+  }, [filteredRestaurants, sortering, afstanden]);
 
   // "Dichtbij" kiezen: vraag zo nodig eerst de locatie op.
   const kiesDichtbij = useCallback(async () => {
@@ -116,27 +106,18 @@ export default function LijstScreen() {
           />
         </View>
 
-        {/* Locatie filter + favorieten */}
+        {/* Filter + locatie */}
         <View style={styles.filterRow}>
+          <FilterMenu
+            filters={filters}
+            setFilters={setFilters}
+            beschikbareCategorieen={beschikbareCategorieen}
+          />
           <LocationFilter
             value={filters.locatie}
             onSelect={setLocatie}
             beschikbareSteden={beschikbareSteden}
           />
-          <TouchableOpacity
-            style={[styles.favChip, alleenFavorieten && styles.favChipActive]}
-            onPress={() => setAlleenFavorieten(v => !v)}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={alleenFavorieten ? 'heart' : 'heart-outline'}
-              size={16}
-              color={alleenFavorieten ? '#FFFFFF' : '#D32F2F'}
-            />
-            <Text style={[styles.favChipText, alleenFavorieten && styles.favChipTextActive]}>
-              Favorieten
-            </Text>
-          </TouchableOpacity>
         </View>
 
         {/* Sorteeropties */}
@@ -179,46 +160,11 @@ export default function LijstScreen() {
           </Text>
         )}
 
-        {/* Sterren-filter + categorie chips samen */}
-        <View style={styles.chipWrap}>
-          {STAR_FILTERS.map(s => {
-            const isActive = filters.minimumSterren === s;
-            return (
-              <TouchableOpacity
-                key={`star-${s}`}
-                onPress={() => setMinimumSterren(s)}
-                activeOpacity={0.7}
-                style={[styles.chip, isActive && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
-                  ⭐ {s} sterren
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-          {ALL_CATEGORIES.map(cat => {
-            const isActive = filters.categorieen.includes(cat);
-            return (
-              <TouchableOpacity
-                key={cat}
-                onPress={() => toggleCategory(cat)}
-                activeOpacity={0.7}
-                style={[styles.chip, isActive && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, isActive && styles.chipTextActive]}>
-                  {cat}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
         {/* Resultaat telling */}
         <View style={styles.resultBar}>
           <Text style={styles.resultText}>
-            {weergaveLijst.length} {alleenFavorieten ? 'favorieten' : 'restaurants'}
-            {!alleenFavorieten &&
-            (filters.categorieen.length > 0 || filters.zoekterm || filters.locatie || filters.minimumSterren > 0)
+            {weergaveLijst.length} restaurants
+            {filters.categorieen.length > 0 || filters.zoekterm || filters.locatie || filters.minimumSterren > 0
               ? ' gevonden'
               : ''}
           </Text>
@@ -248,12 +194,6 @@ export default function LijstScreen() {
                 <Text style={styles.emptyText}>
                   Restaurants laden... ({loadingProgress.loaded}/{loadingProgress.total})
                 </Text>
-              </>
-            ) : alleenFavorieten ? (
-              <>
-                <Text style={styles.emptyEmoji}>🤍</Text>
-                <Text style={styles.emptyText}>Nog geen favorieten</Text>
-                <Text style={styles.emptySubtext}>Tik op het hartje bij een restaurant om het hier te bewaren</Text>
               </>
             ) : error && restaurants.length === 0 ? (
               <>
@@ -315,26 +255,6 @@ const styles = StyleSheet.create({
     paddingBottom: 4,
     gap: 8,
   },
-  favChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 9999,
-    backgroundColor: '#FFF3DC',
-  },
-  favChipActive: {
-    backgroundColor: '#D32F2F',
-  },
-  favChipText: {
-    fontSize: 13,
-    color: '#A67612',
-    fontWeight: '600',
-  },
-  favChipTextActive: {
-    color: '#FFFFFF',
-  },
   sorteerRow: {
     flexDirection: 'row',
     paddingHorizontal: 16,
@@ -376,30 +296,6 @@ const styles = StyleSheet.create({
     color: '#2D2013',
     borderWidth: 1,
     borderColor: '#E8E0D5',
-  },
-  chipWrap: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    gap: 6,
-  },
-  chip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 9999,
-    backgroundColor: '#FFF3DC',
-  },
-  chipActive: {
-    backgroundColor: '#EDAA2D',
-  },
-  chipText: {
-    fontSize: 12,
-    color: '#A67612',
-    fontWeight: '600',
-  },
-  chipTextActive: {
-    color: '#FFFFFF',
   },
   resultBar: {
     flexDirection: 'row',

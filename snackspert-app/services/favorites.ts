@@ -1,19 +1,16 @@
 import { File, Paths } from 'expo-file-system';
 
 /**
- * Persistente opslag van favoriete restaurants (op restaurant-id).
+ * Persistente opslag van id-lijsten (favorieten en "geweest"-markeringen).
  */
 
-const FAVORITES_FILE_NAME = 'favorites.v1.json';
-
-function getFile(): File {
-  return new File(Paths.document, FAVORITES_FILE_NAME);
+function getFile(naam: string): File {
+  return new File(Paths.document, naam);
 }
 
-/** Lees de opgeslagen favoriet-ids. */
-export async function loadFavorites(): Promise<number[]> {
+async function loadIds(naam: string): Promise<number[]> {
   try {
-    const file = getFile();
+    const file = getFile(naam);
     if (!file.exists) return [];
     const raw = await file.text();
     const parsed = JSON.parse(raw);
@@ -24,10 +21,9 @@ export async function loadFavorites(): Promise<number[]> {
   }
 }
 
-/** Sla de favoriet-ids op. */
-export async function saveFavorites(ids: number[]): Promise<void> {
+async function saveIds(naam: string, ids: number[]): Promise<void> {
   try {
-    const file = getFile();
+    const file = getFile(naam);
     if (!file.exists) {
       file.create();
     }
@@ -36,3 +32,11 @@ export async function saveFavorites(ids: number[]): Promise<void> {
     // Best-effort; nooit laten crashen.
   }
 }
+
+const FAVORITES_FILE = 'favorites.v1.json';
+const VISITED_FILE = 'visited.v1.json';
+
+export const loadFavorites = () => loadIds(FAVORITES_FILE);
+export const saveFavorites = (ids: number[]) => saveIds(FAVORITES_FILE, ids);
+export const loadVisited = () => loadIds(VISITED_FILE);
+export const saveVisited = (ids: number[]) => saveIds(VISITED_FILE, ids);

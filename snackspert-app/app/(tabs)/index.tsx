@@ -7,18 +7,15 @@ import {
   ActivityIndicator,
   TouchableOpacity,
 } from 'react-native';
-import MapView, { Marker, Region, PROVIDER_GOOGLE } from 'react-native-maps';
-import Supercluster from 'supercluster';
+import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useRestaurants } from '../../hooks/useRestaurants';
 import { useFavorites } from '../../contexts/FavoritesContext';
-import { CategoryFilter } from '../../components/CategoryFilter';
+import { FilterMenu } from '../../components/FilterMenu';
 import { StarRating } from '../../components/StarRating';
 import { Colors, Spacing, FontSize, BorderRadius, Shadow, MAP_INITIAL_REGION } from '../../constants/theme';
 import { Restaurant } from '../../types';
-
-type PuntData = { restaurantId: number };
 
 export default function MapScreen() {
   const {
@@ -29,14 +26,13 @@ export default function MapScreen() {
     loadingProgress,
     error,
     filters,
-    toggleCategory,
+    setFilters,
     beschikbareCategorieen,
     refresh,
   } = useRestaurants();
-  const { isFavorite, toggleFavorite } = useFavorites();
+  const { isFavorite, toggleFavorite, isVisited, toggleVisited } = useFavorites();
   const mapRef = useRef<MapView>(null);
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
-  const [region, setRegion] = useState<Region>(MAP_INITIAL_REGION);
 
   // Alleen restaurants met coördinaten tonen op de kaart.
   const restaurantsOpKaart = useMemo(
@@ -44,59 +40,11 @@ export default function MapScreen() {
     [filteredRestaurants]
   );
 
-  const restaurantById = useMemo(() => {
-    const m = new Map<number, Restaurant>();
-    for (const r of restaurantsOpKaart) m.set(r.id, r);
-    return m;
-  }, [restaurantsOpKaart]);
-
-  // Supercluster-index opbouwen uit de zichtbare restaurants.
-  const clusterIndex = useMemo(() => {
-    const sc = new Supercluster<PuntData>({ radius: 55, maxZoom: 18 });
-    sc.load(
-      restaurantsOpKaart.map(r => ({
-        type: 'Feature' as const,
-        properties: { restaurantId: r.id },
-        geometry: {
-          type: 'Point' as const,
-          coordinates: [r.longitude!, r.latitude!],
-        },
-      }))
-    );
-    return sc;
-  }, [restaurantsOpKaart]);
-
-  // Clusters/punten berekenen voor de huidige kaartuitsnede.
-  const clusters = useMemo(() => {
-    const bbox: [number, number, number, number] = [
-      region.longitude - region.longitudeDelta / 2,
-      region.latitude - region.latitudeDelta / 2,
-      region.longitude + region.longitudeDelta / 2,
-      region.latitude + region.latitudeDelta / 2,
-    ];
-    const zoom = Math.round(Math.log2(360 / region.longitudeDelta));
-    return clusterIndex.getClusters(bbox, Math.max(1, Math.min(20, zoom)));
-  }, [clusterIndex, region]);
-
-  const handleMarkerPress = (restaurant: Restaurant) => {
-    setSelectedRestaurant(restaurant);
-  };
-
-  const handleClusterPress = (clusterId: number, lat: number, lng: number) => {
-    const expansionZoom = Math.min(clusterIndex.getClusterExpansionZoom(clusterId), 18);
-    const delta = 360 / Math.pow(2, expansionZoom);
-    mapRef.current?.animateToRegion(
-      { latitude: lat, longitude: lng, latitudeDelta: delta, longitudeDelta: delta },
-      350
-    );
-  };
-
   const handleCalloutPress = (restaurant: Restaurant) => {
     router.push({
       pathname: '/restaurant/[id]',
       params: {
         id: restaurant.id.toString(),
-        // Coördinaten meegeven zodat het detailscherm niet opnieuw hoeft te geocoderen.
         lat: restaurant.latitude?.toString() ?? '',
         lng: restaurant.longitude?.toString() ?? '',
       },
@@ -133,21 +81,19 @@ export default function MapScreen() {
   }
 
   const favorietGeselecteerd = selectedRestaurant ? isFavorite(selectedRestaurant.id) : false;
+  const bezochtGeselecteerd = selectedRestaurant ? isVisited(selectedRestaurant.id) : false;
 
   return (
     <View style={styles.container}>
-      {/* Categorie filter */}
-      <CategoryFilter
-        selected={filters.categorieen}
-        onToggle={toggleCategory}
-        beschikbaar={beschikbareCategorieen}
-      />
-
-      {/* Info balk */}
-      <View style={styles.infoBar}>
+      {/* Filter-balk */}
+      <View style={styles.filterBar}>
+        <FilterMenu
+          filters={filters}
+          setFilters={setFilters}
+          beschikbareCategorieen={beschikbareCategorieen}
+        />
         <Text style={styles.infoText}>
-          {restaurantsOpKaart.length} restaurants op de kaart
-          {filters.categorieen.length > 0 && ` (gefilterd)`}
+          {restaurantsOpKaart.length} op de kaart
         </Text>
         {isLoadingDetails && loadingProgress.total > 0 && (
           <View style={styles.loadingBadge}>
@@ -165,43 +111,22 @@ export default function MapScreen() {
         provider={PROVIDER_GOOGLE}
         style={styles.map}
         initialRegion={MAP_INITIAL_REGION}
-        onRegionChangeComplete={setRegion}
         showsUserLocation
         showsMyLocationButton
         showsCompass
         mapType="standard"
       >
-        {clusters.map(punt => {
-          const [lng, lat] = punt.geometry.coordinates;
-          const props = punt.properties as Supercluster.ClusterProperties & PuntData;
-
-          if ('cluster' in props && props.cluster) {
-            const aantal = props.point_count;
-            const grootte = aantal < 10 ? 44 : aantal < 50 ? 54 : aantal < 200 ? 64 : 74;
-            return (
-              <Marker
-                key={`cluster-${props.cluster_id}`}
-                coordinate={{ latitude: lat, longitude: lng }}
-                onPress={() => handleClusterPress(props.cluster_id, lat, lng)}
-              >
-                <View style={[styles.cluster, { width: grootte, height: grootte, borderRadius: grootte / 2 }]}>
-                  <Text style={styles.clusterText}>{aantal}</Text>
-                </View>
-              </Marker>
-            );
-          }
-
-          const r = restaurantById.get(props.restaurantId);
-          if (!r) return null;
-          return (
-            <Marker
-              key={`r-${r.id}`}
-              coordinate={{ latitude: lat, longitude: lng }}
-              pinColor={Colors.mapMarker}
-              onPress={() => handleMarkerPress(r)}
-            />
-          );
-        })}
+        {restaurantsOpKaart.map(restaurant => (
+          <Marker
+            key={restaurant.id}
+            coordinate={{
+              latitude: restaurant.latitude!,
+              longitude: restaurant.longitude!,
+            }}
+            pinColor={isVisited(restaurant.id) ? Colors.success : Colors.mapMarker}
+            onPress={() => setSelectedRestaurant(restaurant)}
+          />
+        ))}
       </MapView>
 
       {/* Zoom-naar-NL knop */}
@@ -242,25 +167,32 @@ export default function MapScreen() {
                 {selectedRestaurant.adres}
               </Text>
             ) : null}
-            {selectedRestaurant.categorieen.length > 0 && (
-              <Text style={styles.previewCats} numberOfLines={1}>
-                {selectedRestaurant.categorieen.join(' · ')}
-              </Text>
-            )}
           </View>
 
-          <TouchableOpacity
-            style={styles.previewHeart}
-            onPress={() => toggleFavorite(selectedRestaurant.id)}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={favorietGeselecteerd ? 'heart' : 'heart-outline'}
-              size={24}
-              color={favorietGeselecteerd ? Colors.error : Colors.textLight}
-            />
-          </TouchableOpacity>
+          <View style={styles.previewActies}>
+            <TouchableOpacity
+              onPress={() => toggleVisited(selectedRestaurant.id)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={bezochtGeselecteerd ? 'checkmark-circle' : 'checkmark-circle-outline'}
+                size={26}
+                color={bezochtGeselecteerd ? Colors.success : Colors.textLight}
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => toggleFavorite(selectedRestaurant.id)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name={favorietGeselecteerd ? 'heart' : 'heart-outline'}
+                size={26}
+                color={favorietGeselecteerd ? Colors.error : Colors.textLight}
+              />
+            </TouchableOpacity>
+          </View>
         </TouchableOpacity>
       )}
     </View>
@@ -307,12 +239,12 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     fontSize: FontSize.md,
   },
-  infoBar: {
+  filterBar: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    gap: Spacing.md,
     paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.sm,
+    paddingVertical: Spacing.sm,
   },
   infoText: {
     fontSize: FontSize.sm,
@@ -322,23 +254,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.xs,
+    marginLeft: 'auto',
   },
   loadingSmall: {
     fontSize: FontSize.xs,
     color: Colors.textLight,
-  },
-  cluster: {
-    backgroundColor: Colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: '#FFFFFF',
-    ...Shadow.md,
-  },
-  clusterText: {
-    color: Colors.textOnPrimary,
-    fontWeight: '800',
-    fontSize: FontSize.md,
   },
   zoomButton: {
     position: 'absolute',
@@ -398,15 +318,10 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     color: Colors.textSecondary,
   },
-  previewCats: {
-    fontSize: FontSize.xs,
-    color: Colors.primary,
-  },
-  previewHeart: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
+  previewActies: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: Spacing.md,
     marginLeft: Spacing.sm,
   },
 });

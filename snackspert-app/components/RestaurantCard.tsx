@@ -25,8 +25,9 @@ function formatAfstand(km: number): string {
 }
 
 export function RestaurantCard({ restaurant, afstandKm }: RestaurantCardProps) {
-  const { isFavorite, toggleFavorite } = useFavorites();
+  const { isFavorite, toggleFavorite, isVisited, toggleVisited } = useFavorites();
   const favoriet = isFavorite(restaurant.id);
+  const bezocht = isVisited(restaurant.id);
 
   const handlePress = () => {
     router.push({
@@ -58,18 +59,32 @@ export function RestaurantCard({ restaurant, afstandKm }: RestaurantCardProps) {
         </View>
       )}
 
-      <TouchableOpacity
-        style={styles.heart}
-        onPress={() => toggleFavorite(restaurant.id)}
-        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        activeOpacity={0.7}
-      >
-        <Ionicons
-          name={favoriet ? 'heart' : 'heart-outline'}
-          size={22}
-          color={favoriet ? Colors.error : Colors.textOnPrimary}
-        />
-      </TouchableOpacity>
+      <View style={styles.acties}>
+        <TouchableOpacity
+          style={styles.actieKnop}
+          onPress={() => toggleVisited(restaurant.id)}
+          hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name={bezocht ? 'checkmark-circle' : 'checkmark-circle-outline'}
+            size={22}
+            color={bezocht ? Colors.success : Colors.textOnPrimary}
+          />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.actieKnop}
+          onPress={() => toggleFavorite(restaurant.id)}
+          hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name={favoriet ? 'heart' : 'heart-outline'}
+            size={22}
+            color={favoriet ? Colors.error : Colors.textOnPrimary}
+          />
+        </TouchableOpacity>
+      </View>
 
       {afstandKm != null && (
         <View style={styles.afstandBadge}>
@@ -132,10 +147,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
-  heart: {
+  acties: {
     position: 'absolute',
     top: Spacing.sm,
     right: Spacing.sm,
+    flexDirection: 'row',
+    gap: Spacing.sm,
+  },
+  actieKnop: {
     width: 38,
     height: 38,
     borderRadius: BorderRadius.full,
