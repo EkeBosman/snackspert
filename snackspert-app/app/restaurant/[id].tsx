@@ -97,11 +97,14 @@ export default function RestaurantDetailScreen() {
   }
 
   const openMaps = () => {
-    if (restaurant?.latitude && restaurant?.longitude) {
-      const url = `https://www.google.com/maps/search/?api=1&query=${restaurant.latitude},${restaurant.longitude}&query_place_id=${encodeURIComponent(restaurant.naam)}`;
+    // Zoek op naam + adres zodat Google Maps de echte zaak-vermelding toont
+    // (met openingstijden/reviews); val terug op kale coördinaten.
+    // NB: geen query_place_id — dat veld verwacht een Google Place-ID, geen naam.
+    if (restaurant?.adres) {
+      const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${restaurant.naam}, ${restaurant.adres}`)}`;
       Linking.openURL(url);
-    } else if (restaurant?.adres) {
-      const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(restaurant.adres)}`;
+    } else if (restaurant?.latitude && restaurant?.longitude) {
+      const url = `https://www.google.com/maps/search/?api=1&query=${restaurant.latitude},${restaurant.longitude}`;
       Linking.openURL(url);
     }
   };
