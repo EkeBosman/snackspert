@@ -381,10 +381,10 @@ const styles = StyleSheet.create({
   },
   pinKern: {
     position: 'absolute',
-    top: 8,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    top: 9,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   controls: {
     position: 'absolute',
