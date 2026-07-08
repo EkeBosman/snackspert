@@ -6,16 +6,26 @@ import {
   StyleSheet,
   ActivityIndicator,
   TouchableOpacity,
+  Modal,
+  FlatList,
 } from 'react-native';
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useRestaurants } from '../../hooks/useRestaurants';
 import { useFavorites } from '../../contexts/FavoritesContext';
+import { useUserLocation } from '../../hooks/useUserLocation';
 import { FilterMenu } from '../../components/FilterMenu';
 import { StarRating } from '../../components/StarRating';
+import { bepaalLand, LAND_VLAGGEN } from '../../utils/land';
 import { Colors, Spacing, FontSize, BorderRadius, Shadow, MAP_INITIAL_REGION } from '../../constants/theme';
 import { Restaurant } from '../../types';
+
+interface LandGroep {
+  naam: string;
+  vlag: string;
+  restaurants: Restaurant[];
+}
 
 export default function MapScreen() {
   const {
@@ -31,14 +41,30 @@ export default function MapScreen() {
     refresh,
   } = useRestaurants();
   const { isFavorite, toggleFavorite, isVisited, toggleVisited } = useFavorites();
+  const { request: vraagLocatie } = useUserLocation();
   const mapRef = useRef<MapView>(null);
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
+  const [landMenuOpen, setLandMenuOpen] = useState(false);
 
   // Alleen restaurants met coördinaten tonen op de kaart.
   const restaurantsOpKaart = useMemo(
     () => filteredRestaurants.filter(r => r.latitude && r.longitude),
     [filteredRestaurants]
   );
+
+  // Restaurants groeperen per land (voor het landen-menu).
+  const landen = useMemo(() => {
+    const map = new Map<string, LandGroep>();
+    for (const r of restaurantsOpKaart) {
+      const naam = bepaalLand(r.adres, r.latitude, r.longitude);
+      if (!naam) continue;
+      if (!map.has(naam)) {
+        map.set(naam, { naam, vlag: LAND_VLAGGEN[naam] ?? '🌍', restaurants: [] });
+      }
+      map.get(naam)!.restaurants.push(r);
+    }
+    return Array.from(map.values()).sort((a, b) => b.restaurants.length - a.restaurants.length);
+  }, [restaurantsOpKaart]);
 
   const handleCalloutPress = (restaurant: Restaurant) => {
     router.push({
@@ -51,8 +77,34 @@ export default function MapScreen() {
     });
   };
 
-  const handleZoomToNetherlands = () => {
-    mapRef.current?.animateToRegion(MAP_INITIAL_REGION, 500);
+  const handleSelectLand = (groep: LandGroep) => {
+    setLandMenuOpen(false);
+    setSelectedRestaurant(null);
+    const coords = groep.restaurants
+      .filter(r => r.latitude && r.longitude)
+      .map(r => ({ latitude: r.latitude!, longitude: r.longitude! }));
+    if (coords.length === 0) return;
+    if (coords.length === 1) {
+      mapRef.current?.animateToRegion(
+        { ...coords[0], latitudeDelta: 0.05, longitudeDelta: 0.05 },
+        500
+      );
+    } else {
+      mapRef.current?.fitToCoordinates(coords, {
+        edgePadding: { top: 80, right: 60, bottom: 180, left: 60 },
+        animated: true,
+      });
+    }
+  };
+
+  const handleMyLocation = async () => {
+    const c = await vraagLocatie();
+    if (c) {
+      mapRef.current?.animateToRegion(
+        { latitude: c.latitude, longitude: c.longitude, latitudeDelta: 0.08, longitudeDelta: 0.08 },
+        500
+      );
+    }
   };
 
   // Volledig laadscherm alleen bij de allereerste keer, zolang er nog geen
@@ -112,7 +164,7 @@ export default function MapScreen() {
         style={styles.map}
         initialRegion={MAP_INITIAL_REGION}
         showsUserLocation
-        showsMyLocationButton
+        showsMyLocationButton={false}
         showsCompass
         mapType="standard"
       >
@@ -129,14 +181,55 @@ export default function MapScreen() {
         ))}
       </MapView>
 
-      {/* Zoom-naar-NL knop */}
-      <TouchableOpacity
-        style={styles.zoomButton}
-        onPress={handleZoomToNetherlands}
-        activeOpacity={0.8}
+      {/* Zwevende knoppen (verspringen naar boven als de popup open is) */}
+      <View style={[styles.controls, { bottom: selectedRestaurant ? 150 : 30 }]}>
+        <TouchableOpacity style={styles.controlKnop} onPress={handleMyLocation} activeOpacity={0.8}>
+          <Ionicons name="locate" size={22} color={Colors.primary} />
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={styles.controlKnop}
+          onPress={() => setLandMenuOpen(true)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="earth" size={22} color={Colors.primary} />
+        </TouchableOpacity>
+      </View>
+
+      {/* Landen-menu */}
+      <Modal
+        visible={landMenuOpen}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setLandMenuOpen(false)}
       >
-        <Text style={styles.zoomButtonText}>🇳🇱</Text>
-      </TouchableOpacity>
+        <View style={styles.landModal}>
+          <View style={styles.landHeader}>
+            <Text style={styles.landTitel}>Landen</Text>
+            <TouchableOpacity onPress={() => setLandMenuOpen(false)}>
+              <Ionicons name="close" size={26} color={Colors.text} />
+            </TouchableOpacity>
+          </View>
+          <FlatList
+            data={landen}
+            keyExtractor={item => item.naam}
+            renderItem={({ item }) => (
+              <TouchableOpacity
+                style={styles.landRij}
+                onPress={() => handleSelectLand(item)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.landVlag}>{item.vlag}</Text>
+                <Text style={styles.landNaam}>{item.naam}</Text>
+                <Text style={styles.landAantal}>{item.restaurants.length}</Text>
+                <Ionicons name="chevron-forward" size={18} color={Colors.textLight} />
+              </TouchableOpacity>
+            )}
+            ListEmptyComponent={
+              <Text style={styles.landLeeg}>Landen worden geladen...</Text>
+            }
+          />
+        </View>
+      </Modal>
 
       {/* Geselecteerd restaurant preview */}
       {selectedRestaurant && (
@@ -260,10 +353,12 @@ const styles = StyleSheet.create({
     fontSize: FontSize.xs,
     color: Colors.textLight,
   },
-  zoomButton: {
+  controls: {
     position: 'absolute',
-    bottom: 100,
     right: Spacing.lg,
+    gap: Spacing.md,
+  },
+  controlKnop: {
     width: 48,
     height: 48,
     borderRadius: BorderRadius.full,
@@ -272,8 +367,50 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     ...Shadow.lg,
   },
-  zoomButtonText: {
-    fontSize: 24,
+  landModal: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  landHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.xl,
+    paddingTop: Spacing.xl,
+    paddingBottom: Spacing.lg,
+  },
+  landTitel: {
+    fontSize: FontSize.xl,
+    fontWeight: '700',
+    color: Colors.text,
+  },
+  landRij: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.md,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.lg,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: Colors.border,
+  },
+  landVlag: {
+    fontSize: 26,
+  },
+  landNaam: {
+    flex: 1,
+    fontSize: FontSize.md,
+    color: Colors.text,
+    fontWeight: '600',
+  },
+  landAantal: {
+    fontSize: FontSize.sm,
+    color: Colors.textLight,
+    fontWeight: '600',
+  },
+  landLeeg: {
+    textAlign: 'center',
+    color: Colors.textLight,
+    paddingVertical: Spacing.xxl,
   },
   preview: {
     position: 'absolute',
