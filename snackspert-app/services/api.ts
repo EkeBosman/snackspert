@@ -36,16 +36,34 @@ async function fetchMetTimeout(url: string, timeout = FETCH_TIMEOUT): Promise<Re
 export async function fetchAlleRestaurants(
   onProgress?: (loaded: number, total: number) => void
 ): Promise<RestaurantSummary[]> {
+  // `_embed` haalt in één keer de uitgelichte afbeelding ÉN de taxonomie-termen
+  // (categorie/dieet) mee, zodat we die niet per pagina hoeven te scrapen.
   const paginaUrl = (p: number) =>
-    `${API_URL}/restaurant?per_page=100&page=${p}&_embed=wp:featuredmedia`;
+    `${API_URL}/restaurant?per_page=100&page=${p}&_embed`;
 
   const parseItems = (data: WPRestaurant[]): RestaurantSummary[] =>
     data.map(item => {
+      const embedded = (item as any)._embedded || {};
+
       // Afbeelding ophalen uit _embedded data
       let afbeeldingUrl = '';
       try {
-        const media = (item as any)._embedded?.['wp:featuredmedia']?.[0];
+        const media = embedded['wp:featuredmedia']?.[0];
         afbeeldingUrl = media?.source_url || media?.media_details?.sizes?.medium?.source_url || '';
+      } catch {}
+
+      // Categorieën/dieet uit de ingebedde taxonomie-termen (indien beschikbaar).
+      const categorieen: string[] = [];
+      try {
+        const groepen = embedded['wp:term'] || [];
+        for (const groep of groepen) {
+          for (const term of groep) {
+            if (term?.name && term.taxonomy !== 'post_tag' && term.taxonomy !== 'post_format') {
+              const naam = he.decode(term.name);
+              if (!categorieen.includes(naam)) categorieen.push(naam);
+            }
+          }
+        }
       } catch {}
 
       return {
@@ -54,7 +72,7 @@ export async function fetchAlleRestaurants(
         slug: item.slug,
         paginaUrl: item.link,
         afbeeldingUrl,
-        categorieen: [],
+        categorieen,
       };
     });
 

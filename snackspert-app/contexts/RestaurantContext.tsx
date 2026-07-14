@@ -163,59 +163,65 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
       setIsLoadingDetails(true);
       setLoadingProgress({ loaded: 0, total: teLaden.length });
 
-      const batchSize = 15;
+      // Doorlopende werkploeg: CONCURRENCY pagina's tegelijk, zonder gaten
+      // tussen batches (elke worker pakt meteen het volgende item op). Dit is
+      // veel sneller dan wachten tot een hele batch klaar is.
+      const CONCURRENCY = 16;
       let errorCount = 0;
       let verwerkt = 0;
+      let volgende = 0;
 
-      for (let i = 0; i < teLaden.length; i += batchSize) {
-        if (stopBackgroundRef.current) break;
+      const worker = async () => {
+        while (!stopBackgroundRef.current) {
+          const i = volgende++;
+          if (i >= teLaden.length) return;
+          const r = teLaden[i];
 
-        const batch = teLaden.slice(i, i + batchSize);
-        const details = await Promise.allSettled(
-          batch.map(r => {
-            // Coördinaten kennen we al uit de bulk-bron; geef ze mee zodat de
-            // dure geocoding wordt overgeslagen. Alleen als ze ontbreken (niet
-            // in de bulk-lijst) valt fetchRestaurantDetail terug op geocoding.
+          try {
+            // Coördinaten kennen we al uit de bulk-bron; meegeven zodat de dure
+            // geocoding wordt overgeslagen (alleen fallback als ze ontbreken).
             const bekend = r.latitude && r.longitude
               ? { lat: r.latitude, lng: r.longitude }
               : null;
-            return fetchRestaurantDetail(r.paginaUrl, bekend);
-          })
-        );
-
-        let batchErrors = 0;
-        for (let j = 0; j < batch.length; j++) {
-          const result = details[j];
-          if (result.status === 'fulfilled') {
-            const idx = indexById.get(batch[j].id);
+            const detail = await fetchRestaurantDetail(r.paginaUrl, bekend);
+            const idx = indexById.get(r.id);
             if (idx !== undefined) {
               all[idx] = {
                 ...all[idx],
-                ...result.value,
-                naam: result.value.naam || all[idx].naam,
-                latitude: result.value.latitude ?? all[idx].latitude,
-                longitude: result.value.longitude ?? all[idx].longitude,
+                ...detail,
+                naam: detail.naam || all[idx].naam,
+                // Categorieën uit de API behouden; alleen aanvullen als die leeg zijn.
+                categorieen: all[idx].categorieen.length
+                  ? all[idx].categorieen
+                  : (detail.categorieen || []),
+                latitude: detail.latitude ?? all[idx].latitude,
+                longitude: detail.longitude ?? all[idx].longitude,
               };
             }
-          } else {
-            batchErrors++;
+          } catch {
+            errorCount++;
+          }
+
+          verwerkt++;
+          if (verwerkt % 8 === 0 || verwerkt === teLaden.length) {
+            setRestaurants([...all]);
+            setLoadingProgress({ loaded: verwerkt, total: teLaden.length });
+          }
+          // Tussentijds opslaan zodat een afgesloten app de voortgang behoudt.
+          if (verwerkt % 75 === 0) {
+            await saveCache(all);
+          }
+          // Adaptieve rem als de server veel fouten geeft (bijv. Wordfence).
+          if (errorCount > 15) {
+            await new Promise(res => setTimeout(res, 400));
           }
         }
+      };
 
-        verwerkt += batch.length;
-        setRestaurants([...all]);
-        setLoadingProgress({ loaded: verwerkt, total: teLaden.length });
+      await Promise.all(Array.from({ length: CONCURRENCY }, () => worker()));
 
-        // Tussentijds opslaan (elke ~75 restaurants), zodat een afgesloten of
-        // gecrashte app de voortgang niet kwijt is en verder kan waar het bleef.
-        if ((i / batchSize) % 5 === 4) {
-          await saveCache(all);
-        }
-
-        errorCount += batchErrors;
-        const delay = errorCount > 10 ? 2000 : 200;
-        await new Promise(r => setTimeout(r, delay));
-      }
+      setRestaurants([...all]);
+      setLoadingProgress({ loaded: teLaden.length, total: teLaden.length });
 
       // Stap 4: definitieve lijst wegschrijven naar de cache.
       await saveCache(all);
