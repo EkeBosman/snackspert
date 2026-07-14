@@ -19,7 +19,8 @@
       },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Snackspert gebruikt je locatie om restaurants bij jou in de buurt te tonen.",
-        "LSApplicationQueriesSchemes": ["instagram", "tiktok"]
+        "LSApplicationQueriesSchemes": ["instagram", "tiktok"],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
