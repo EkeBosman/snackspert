@@ -8,6 +8,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FilterState } from '../types';
 import { useEngagement } from '../contexts/EngagementContext';
 import { FOOD_CATEGORIES, DIET_FILTERS, Colors, Spacing, BorderRadius, FontSize, Shadow } from '../constants/theme';
@@ -27,6 +28,7 @@ interface FilterMenuProps {
 
 export function FilterMenu({ filters, setFilters, beschikbareCategorieen }: FilterMenuProps) {
   const [open, setOpen] = useState(false);
+  const insets = useSafeAreaInsets();
   const { markActie } = useEngagement();
 
   const categorieen =
@@ -79,7 +81,7 @@ export function FilterMenu({ filters, setFilters, beschikbareCategorieen }: Filt
         presentationStyle="pageSheet"
         onRequestClose={() => setOpen(false)}
       >
-        <View style={styles.modal}>
+        <View style={[styles.modal, { paddingTop: insets.top }]}>
           <View style={styles.header}>
             <Text style={styles.titel}>Filter</Text>
             <TouchableOpacity onPress={() => setOpen(false)}>
@@ -129,7 +131,7 @@ export function FilterMenu({ filters, setFilters, beschikbareCategorieen }: Filt
             </View>
           </ScrollView>
 
-          <View style={styles.voet}>
+          <View style={[styles.voet, { paddingBottom: Math.max(insets.bottom, Spacing.xxl) }]}>
             <TouchableOpacity style={styles.wisKnop} onPress={wissen} activeOpacity={0.7}>
               <Text style={styles.wisText}>Wissen</Text>
             </TouchableOpacity>

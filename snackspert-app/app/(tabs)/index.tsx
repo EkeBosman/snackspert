@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo } from 'react';
+import React, { useState, useRef, useMemo, useEffect } from 'react';
 import {
   View,
   Text,
@@ -12,6 +12,7 @@ import {
 import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRestaurants } from '../../hooks/useRestaurants';
 import { useFavorites } from '../../contexts/FavoritesContext';
 import { useEngagement } from '../../contexts/EngagementContext';
@@ -51,6 +52,51 @@ function MapPin({ bezocht }: { bezocht: boolean }) {
   );
 }
 
+/**
+ * Marker met een eigen pin-view.
+ *
+ * tracksViewChanges moet kort AAN staan, anders tekent Android de custom pin
+ * niet (de snapshot wordt dan gemaakt voordat de view klaar is → lege marker).
+ * Zodra de pin is uitgelijnd zetten we het uit, want met ~750 markers is
+ * permanent tracken funest voor de performance. Bij een wijziging (afvinken)
+ * tracken we heel even opnieuw zodat de kleur wordt bijgewerkt.
+ */
+function RestaurantMarker({
+  restaurant,
+  bezocht,
+  onPress,
+}: {
+  restaurant: Restaurant;
+  bezocht: boolean;
+  onPress: () => void;
+}) {
+  const [tracks, setTracks] = useState(true);
+  const eersteRender = useRef(true);
+
+  useEffect(() => {
+    if (eersteRender.current) {
+      eersteRender.current = false;
+      return; // eerste snapshot regelt onLayout hieronder
+    }
+    setTracks(true);
+    const t = setTimeout(() => setTracks(false), 300);
+    return () => clearTimeout(t);
+  }, [bezocht]);
+
+  return (
+    <Marker
+      coordinate={{ latitude: restaurant.latitude!, longitude: restaurant.longitude! }}
+      anchor={{ x: 0.5, y: 1 }}
+      tracksViewChanges={tracks}
+      onPress={onPress}
+    >
+      <View onLayout={() => setTracks(false)}>
+        <MapPin bezocht={bezocht} />
+      </View>
+    </Marker>
+  );
+}
+
 export default function MapScreen() {
   const {
     restaurants,
@@ -68,6 +114,7 @@ export default function MapScreen() {
   const { markActie } = useEngagement();
   const { request: vraagLocatie } = useUserLocation();
   const mapRef = useRef<MapView>(null);
+  const insets = useSafeAreaInsets();
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
   const [landMenuOpen, setLandMenuOpen] = useState(false);
 
@@ -193,27 +240,18 @@ export default function MapScreen() {
         showsCompass
         mapType="standard"
       >
-        {restaurantsOpKaart.map(restaurant => {
-          const bezocht = isVisited(restaurant.id);
-          return (
-            <Marker
-              key={`${restaurant.id}-${bezocht ? 'v' : 'n'}`}
-              coordinate={{
-                latitude: restaurant.latitude!,
-                longitude: restaurant.longitude!,
-              }}
-              anchor={{ x: 0.5, y: 1 }}
-              tracksViewChanges={false}
-              onPress={() => setSelectedRestaurant(restaurant)}
-            >
-              <MapPin bezocht={bezocht} />
-            </Marker>
-          );
-        })}
+        {restaurantsOpKaart.map(restaurant => (
+          <RestaurantMarker
+            key={restaurant.id}
+            restaurant={restaurant}
+            bezocht={isVisited(restaurant.id)}
+            onPress={() => setSelectedRestaurant(restaurant)}
+          />
+        ))}
       </MapView>
 
       {/* Zwevende knoppen (verspringen naar boven als de popup open is) */}
-      <View style={[styles.controls, { bottom: selectedRestaurant ? 150 : 30 }]}>
+      <View style={[styles.controls, { bottom: insets.bottom + (selectedRestaurant ? 150 : 30) }]}>
         <TouchableOpacity style={styles.controlKnop} onPress={handleMyLocation} activeOpacity={0.8}>
           <Ionicons name="locate" size={22} color={Colors.primary} />
         </TouchableOpacity>
@@ -233,7 +271,7 @@ export default function MapScreen() {
         presentationStyle="pageSheet"
         onRequestClose={() => setLandMenuOpen(false)}
       >
-        <View style={styles.landModal}>
+        <View style={[styles.landModal, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <View style={styles.landHeader}>
             <Text style={styles.landTitel}>Landen</Text>
             <TouchableOpacity onPress={() => setLandMenuOpen(false)}>
@@ -265,7 +303,7 @@ export default function MapScreen() {
       {/* Geselecteerd restaurant preview */}
       {selectedRestaurant && (
         <TouchableOpacity
-          style={styles.preview}
+          style={[styles.preview, { bottom: insets.bottom + Spacing.xl }]}
           onPress={() => handleCalloutPress(selectedRestaurant)}
           activeOpacity={0.9}
         >

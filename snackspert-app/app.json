@@ -24,10 +24,16 @@
       }
     },
     "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#EDAA2D"
-      },
       "package": "nl.snackspert.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1A1512"
+      },
+      "edgeToEdgeEnabled": true,
+      "predictiveBackGestureEnabled": false,
+      "blockedPermissions": [
+        "com.google.android.gms.permission.AD_ID"
+      ],
       "config": {
         "googleMaps": {
           "apiKey": "AIzaSyASmO1Ml_6yLt3JPInfd_5CJhA5eKMI9bg"

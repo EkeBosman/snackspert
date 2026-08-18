@@ -9,6 +9,7 @@ import {
   Modal,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors, Spacing, BorderRadius, FontSize, Shadow } from '../constants/theme';
 
 interface LocationFilterProps {
@@ -20,6 +21,7 @@ interface LocationFilterProps {
 export function LocationFilter({ value, onSelect, beschikbareSteden }: LocationFilterProps) {
   const [modalVisible, setModalVisible] = useState(false);
   const [zoekterm, setZoekterm] = useState('');
+  const insets = useSafeAreaInsets();
 
   const gefilterdeSteden = useMemo(() => {
     if (!zoekterm) return beschikbareSteden;
@@ -73,7 +75,7 @@ export function LocationFilter({ value, onSelect, beschikbareSteden }: LocationF
         presentationStyle="pageSheet"
         onRequestClose={() => setModalVisible(false)}
       >
-        <View style={styles.modal}>
+        <View style={[styles.modal, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
           <View style={styles.modalHeader}>
             <Text style={styles.modalTitle}>Kies een locatie</Text>
             <TouchableOpacity onPress={() => setModalVisible(false)}>
