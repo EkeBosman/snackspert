@@ -8,9 +8,6 @@
     "scheme": "snackspert",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
-    "splash": {
-      "backgroundColor": "#EDAA2D"
-    },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "nl.snackspert.app",
@@ -19,7 +16,10 @@
       },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Snackspert gebruikt je locatie om restaurants bij jou in de buurt te tonen.",
-        "LSApplicationQueriesSchemes": ["instagram", "tiktok"],
+        "LSApplicationQueriesSchemes": [
+          "instagram",
+          "tiktok"
+        ],
         "ITSAppUsesNonExemptEncryption": false
       }
     },
@@ -43,7 +43,16 @@
     "plugins": [
       "expo-dev-client",
       "expo-router",
-      "expo-location"
+      "expo-location",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/SNACKSPERT_LOGO_SB_PIXEL.png",
+          "imageWidth": 240,
+          "resizeMode": "contain",
+          "backgroundColor": "#EDAA2D"
+        }
+      ]
     ],
     "extra": {
       "eas": {

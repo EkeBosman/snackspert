@@ -11,3 +11,7 @@ npm-debug.*
 web-build/
 .env
 .env.local
+
+# Native projecten worden door EAS gegenereerd (managed workflow)
+/android
+/ios
