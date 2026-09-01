@@ -9,3 +9,6 @@ credentials/
 *.session
 venv/
 .venv/
+
+# Reviewfoto's blijven lokaal; ze staan na publicatie in de mediabibliotheek.
+reviews/**/fotos/

@@ -33,6 +33,23 @@ Verzamelt alle recensies van [snackspert.nl/restaurant](https://snackspert.nl/re
 - Stap 4 kan 10-30 minuten duren (er zijn ~700 restaurants)
 - Je kunt `MAX_RECENSIES` instellen op bijv. `10` om eerst te testen
 
+## Dagelijks publiceren
+
+In `publisher/` staat een klein programma dat een aangeleverde review direct
+live zet op snackspert.nl als nieuw `restaurant`-item, met de ACF-velden,
+de hoofdfoto en de koppeling naar een plaatspagina erbij. Op de site hoort
+daar de mu-plugin uit `wp-plugin/` bij.
+
+```bash
+cp .env.voorbeeld .env          # inloggegevens invullen
+python -m publisher doctor      # controleer de site
+python -m publisher nieuw "Cafetaria De Hoek"
+python -m publisher publiceer reviews/2026-09-01-cafetaria-de-hoek.md
+```
+
+- [docs/PUBLICEREN.md](docs/PUBLICEREN.md) - installatie en de dagelijkse ronde
+- [docs/OPENSTAANDE-PUNTEN.md](docs/OPENSTAANDE-PUNTEN.md) - show_in_rest, image, location en map
+
 ## iPhone App
 
 In de map `snackspert-app/` staat een React Native (Expo) app voor de iPhone. Zie [snackspert-app/README.md](snackspert-app/README.md) voor installatie-instructies.
@@ -51,6 +68,11 @@ snackspert/
 ├── requirements.txt            # Python dependencies
 ├── README.md                   # Dit bestand
 ├── .gitignore                  # Git ignore regels
+├── publisher/                  # dagelijks publiceren (CLI)
+├── wp-plugin/                  # mu-plugin met het eigen REST-endpoint
+├── reviews/                    # de aangeleverde reviews
+├── tests/                      # tests bij publisher/
+├── docs/                       # handleiding en achtergrond
 └── snackspert-app/             # iPhone app (React Native / Expo)
     ├── app/                    # Schermen
     ├── components/             # UI componenten
