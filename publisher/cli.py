@@ -136,6 +136,9 @@ def _publiceer_een(client: WPClient, review: Review, args) -> int:
         return 0
 
     print(f"  live: {antwoord.get('link')}")
+    if not any(payload.get(sleutel) for sleutel in ("image_id", "image_base64", "image_url")):
+        print(f"  foto nog toevoegen: {client.basis_url}/wp-admin/post.php?post={antwoord.get('id')}&action=edit")
+        print("  zet daar het ACF-veld image en de uitgelichte afbeelding; de app leest die laatste.")
     if antwoord.get("locatie"):
         locatie = antwoord["locatie"]
         nieuw = " (nieuw aangemaakt)" if locatie.get("aangemaakt") else ""

@@ -35,6 +35,8 @@ class StubClient:
         self.velden = None
         self.uploads = []
 
+    basis_url = "https://snackspert.nl"
+
     def heeft_endpoint(self):
         return self.endpoint
 
@@ -193,3 +195,24 @@ def test_dry_run_op_de_rest_route_verstuurt_niets(bestand, stub, capsys):
     assert cli.main(["publiceer", str(bestand), "--dry-run"]) == 0
     assert client.payload is None and client.velden is None
     assert "niets verstuurd" in capsys.readouterr().out
+
+
+def test_zonder_foto_wijst_hij_de_weg_naar_wp_admin(bestand, stub, capsys):
+    stub()
+    assert cli.main(["publiceer", str(bestand)]) == 0
+    uit = capsys.readouterr().out
+    assert "wp-admin/post.php?post=1&action=edit" in uit
+    assert "uitgelichte afbeelding" in uit
+
+
+def test_foto_zelf_uploadt_niets(tmp_path, stub, capsys):
+    """foto: zelf betekent dat Eke hem handmatig toevoegt; geen upload, geen waarschuwing."""
+    pad = tmp_path / "review.md"
+    pad.write_text(REVIEW.replace("lat: 52.1401", "foto: zelf\nlat: 52.1401"), encoding="utf-8")
+    client = stub()
+    assert cli.main(["publiceer", str(pad)]) == 0
+    assert not client.uploads
+    assert "image_id" not in client.payload and "image_base64" not in client.payload
+    uit = capsys.readouterr().out
+    assert "Geen foto" not in uit
+    assert "foto nog toevoegen" in uit

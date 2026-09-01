@@ -82,6 +82,10 @@ class WPClient:
 
     # ------------------------------------------------------------- basis
 
+    @property
+    def basis_url(self) -> str:
+        return self.i.basis_url
+
     def _url(self, pad: str) -> str:
         return f"{self.i.basis_url}/wp-json/{pad.lstrip('/')}"
 

@@ -109,7 +109,7 @@ adres: |
   7161 CT Neede
 lat: 52.1401
 lng: 6.6152
-foto: fotos/de-hoek.jpg        # pad relatief aan dit bestand
+foto: fotos/de-hoek.jpg        # pad relatief aan dit bestand, of: zelf
 foto_alt: Kroket op een papieren bakje
 ---
 
@@ -126,6 +126,20 @@ Minder gebruikte sleutels: `slug` (standaard afgeleid van de naam),
 `maak_locatie_aan: true` om een ontbrekende plaatspagina te laten aanmaken, en
 `ook_post_content: true` om de tekst ook in het gewone WordPress-contentveld te
 zetten.
+
+### De foto zelf toevoegen
+
+Zet `foto: zelf` als je de foto liever met de hand in wp-admin plaatst. De
+publisher uploadt dan niets, zeurt er niet over, en geeft na het publiceren de
+bewerklink van de nieuwe pagina mee zodat je er meteen heen kunt.
+
+Doe je het handmatig, zet dan **twee** dingen: het ACF-veld *image* (dat is de
+foto op de detailpagina) en de **uitgelichte afbeelding** (die leest de
+iPhone-app voor de overzichtslijst en de kaart). Zet je alleen het ACF-veld,
+dan staat de zaak in de app zonder foto.
+
+Laat je `foto` helemaal leeg, dan gebeurt hetzelfde, maar krijg je er elke keer
+een waarschuwing bij.
 
 ### Sterren
 

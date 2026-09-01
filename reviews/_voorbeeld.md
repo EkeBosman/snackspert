@@ -11,7 +11,7 @@ adres: |
   7161 CT Neede
 lat: 52.1401
 lng: 6.6152
-foto:               # pad naar de foto, relatief aan dit bestand
+foto: zelf          # of een pad, bv. fotos/de-hoek.jpg
 foto_alt: Kroket op een papieren bakje bij Cafetaria De Hoek
 ---
 

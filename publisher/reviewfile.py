@@ -143,7 +143,7 @@ adres: |
   1234 AB Plaatsnaam
 lat:
 lng:
-foto:               # pad naar de foto, relatief aan dit bestand
+foto: zelf          # pad naar de foto, of zelf als je hem in wp-admin toevoegt
 foto_alt:
 ---
 

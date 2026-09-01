@@ -11,6 +11,9 @@ from typing import Any
 
 from .vocab import CATEGORIEEN, DIETEN
 
+# Waarde voor "foto" als je de foto zelf in wp-admin toevoegt.
+HANDMATIG = "zelf"
+
 
 class ReviewFout(Exception):
     """Aanlevering klopt niet; de boodschap is bedoeld voor Eke, niet voor een log."""
@@ -30,7 +33,7 @@ class Review:
     lat: float | None = None
     lng: float | None = None
     zoom: int = 15
-    foto: str = ""          # lokaal pad
+    foto: str = ""          # lokaal pad, of "zelf" als je hem handmatig toevoegt
     foto_url: str = ""      # of een URL die de server zelf ophaalt
     foto_alt: str = ""
     slug: str = ""
@@ -78,16 +81,21 @@ class Review:
 
         if self.foto and self.foto_url:
             fouten.append('Geef "foto" of "foto_url", niet allebei.')
-        if self.foto:
+        if self.foto and not self.foto_handmatig:
             pad = self.foto_pad()
             if pad is None or not pad.is_file():
                 fouten.append(f'Foto "{self.foto}" bestaat niet.')
 
         return fouten
 
+    @property
+    def foto_handmatig(self) -> bool:
+        """Voeg jij de foto zelf toe in wp-admin? Dan uploadt de publisher niets."""
+        return self.foto.strip().lower() == HANDMATIG
+
     def foto_pad(self) -> Path | None:
         """Fotopad, relatief opgelost vanaf het reviewbestand zelf."""
-        if not self.foto:
+        if not self.foto or self.foto_handmatig:
             return None
         pad = Path(self.foto).expanduser()
         if not pad.is_absolute() and self.bron is not None:

@@ -152,7 +152,13 @@ def controleer(review: Review, *, streng: bool = False) -> list[Bevinding]:
     if not review.plaats:
         bevindingen.append(Bevinding(WAARSCHUWING, "plaats", "Geen plaats: het item hangt aan geen enkele plaatspagina."))
     if not review.foto and not review.foto_url:
-        bevindingen.append(Bevinding(WAARSCHUWING, "foto", "Geen foto: het item komt zonder hoofdfoto online."))
+        bevindingen.append(
+            Bevinding(
+                WAARSCHUWING,
+                "foto",
+                'Geen foto: het item komt zonder hoofdfoto online. Zet foto: zelf als je hem in wp-admin toevoegt.',
+            )
+        )
     if review.lat is None or review.lng is None:
         bevindingen.append(Bevinding(WAARSCHUWING, "kaart", "Geen lat/lng: het item verschijnt niet op de kaart."))
     if review.sterren is None:
