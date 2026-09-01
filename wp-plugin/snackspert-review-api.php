@@ -5,6 +5,8 @@
  * Version:     1.0.0
  * Author:      Snackspert
  * License:     GPL-2.0-or-later
+ * Requires at least: 5.6
+ * Requires PHP: 7.0
  *
  * Installeren: snackspert-review-api.zip uploaden via wp-admin > Plugins > Nieuwe
  * plugin > Plugin uploaden, en activeren. Wie liever niets kan uitzetten, zet dit
