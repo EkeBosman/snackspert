@@ -51,9 +51,9 @@ def test_401_wijst_naar_wordfence():
     assert "Wordfence" in str(fout)
 
 
-def test_404_zonder_route_wijst_naar_de_mu_plugin():
+def test_404_zonder_route_wijst_naar_de_plugin():
     fout = _fout_uit_respons(_respons(404, {"code": "rest_no_route", "message": "Geen route."}))
-    assert "mu-plugins" in str(fout)
+    assert "snackspert-review-api.zip" in str(fout)
 
 
 def test_409_wijst_naar_bijwerken():

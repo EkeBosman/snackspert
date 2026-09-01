@@ -62,7 +62,7 @@ def diagnose(client: WPClient) -> Rapport:
     if heeft_plugin:
         r.punt(GOED, "snackspert/v1 is geregistreerd; publiceren gaat via het eigen endpoint.")
     else:
-        r.punt(LET_OP, "snackspert/v1 niet gevonden. Zet wp-plugin/snackspert-review-api.php in wp-content/mu-plugins/.")
+        r.punt(LET_OP, "snackspert/v1 niet gevonden. Upload wp-plugin/snackspert-review-api.zip via wp-admin > Plugins.")
 
     _acf_via_rest(client, r)
 

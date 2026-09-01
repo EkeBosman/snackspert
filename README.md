@@ -38,7 +38,7 @@ Verzamelt alle recensies van [snackspert.nl/restaurant](https://snackspert.nl/re
 In `publisher/` staat een klein programma dat een aangeleverde review direct
 live zet op snackspert.nl als nieuw `restaurant`-item, met de ACF-velden,
 de hoofdfoto en de koppeling naar een plaatspagina erbij. Op de site hoort
-daar de mu-plugin uit `wp-plugin/` bij.
+daar de plugin uit `wp-plugin/` bij (zip uploaden in wp-admin).
 
 ```bash
 cp .env.voorbeeld .env          # inloggegevens invullen
@@ -69,7 +69,7 @@ snackspert/
 ├── README.md                   # Dit bestand
 ├── .gitignore                  # Git ignore regels
 ├── publisher/                  # dagelijks publiceren (CLI)
-├── wp-plugin/                  # mu-plugin met het eigen REST-endpoint
+├── wp-plugin/                  # plugin met het eigen REST-endpoint
 ├── reviews/                    # de aangeleverde reviews
 ├── tests/                      # tests bij publisher/
 ├── docs/                       # handleiding en achtergrond

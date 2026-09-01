@@ -9,7 +9,7 @@ dat commando dus voordat je de eerste keer publiceert.
 
 ## 1. show_in_rest staat op 0
 
-**Dit is geen blokkade meer.** De mu-plugin schrijft de velden server-side met
+**Dit is geen blokkade meer.** De plugin schrijft de velden server-side met
 `update_field()`, en die functie trekt zich niets aan van de REST-instelling van
 de veldgroep. Publiceren werkt dus met `show_in_rest` op 0.
 
@@ -21,7 +21,7 @@ de detailpagina om de reviewtekst, het adres en de sterren te pakken te krijgen
 scrapen eruit. Nadeel: die velden worden daarmee publiek leesbaar. Voor een
 reviewsite die alles toch al op de pagina zet, lijkt me dat geen bezwaar.
 
-Zet je hem aan, dan werkt ook de terugvalroute `--via=rest` zonder mu-plugin.
+Zet je hem aan, dan werkt ook de terugvalroute `--via=rest` zonder plugin.
 
 ## 2. image: attachment-ID, geen URL
 

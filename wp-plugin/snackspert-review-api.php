@@ -6,8 +6,9 @@
  * Author:      Snackspert
  * License:     GPL-2.0-or-later
  *
- * Installeren: dit bestand uploaden naar wp-content/mu-plugins/ (map desnoods zelf
- * aanmaken). Mu-plugins zijn altijd actief en kunnen niet per ongeluk uitgezet worden.
+ * Installeren: snackspert-review-api.zip uploaden via wp-admin > Plugins > Nieuwe
+ * plugin > Plugin uploaden, en activeren. Wie liever niets kan uitzetten, zet dit
+ * bestand in wp-content/mu-plugins/; mu-plugins zijn altijd actief.
  *
  * Waarom een eigen endpoint en niet de standaard /wp/v2/restaurant route:
  * de ACF-veldgroep "Restaurant settings" staat op show_in_rest = 0, en drie velden

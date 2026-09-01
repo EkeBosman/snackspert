@@ -172,7 +172,7 @@ def _zet_foto_klaar(client: WPClient, review: Review, payload: dict):
 
 
 def _publiceer_via_rest(client: WPClient, review: Review, payload: dict, attachment, args) -> dict:
-    """Terugvaloptie zonder mu-plugin. Vereist show_in_rest op de veldgroep."""
+    """Terugvaloptie zonder de eigen plugin. Vereist show_in_rest op de veldgroep."""
     if payload.get("image_base64"):
         raise WPFout("Zonder het eigen endpoint moet /wp/v2/media beschikbaar zijn om de foto te kunnen plaatsen.")
 

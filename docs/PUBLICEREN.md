@@ -6,11 +6,18 @@ nieuw item onder het post type `restaurant`. Geen conceptstap.
 
 ## Eenmalig instellen
 
-### 1. De mu-plugin op de site
+### 1. De plugin op de site
 
-Upload `wp-plugin/snackspert-review-api.php` naar `wp-content/mu-plugins/` (maak
-die map aan als hij nog niet bestaat). Mu-plugins zijn altijd actief en kunnen
-niet per ongeluk uitgezet worden. Er is verder niets te activeren.
+Ga in wp-admin naar **Plugins > Nieuwe plugin > Plugin uploaden**, kies
+`wp-plugin/snackspert-review-api.zip` en activeer hem. Geen FTP nodig.
+
+Heb je wel toegang tot de bestanden en wil je hem niet per ongeluk kunnen
+uitzetten, zet dan `wp-plugin/snackspert-review-api.php` in
+`wp-content/mu-plugins/`. Mu-plugins staan altijd aan en hoef je niet te
+activeren. Allebei werkt; de zip is minder werk.
+
+Na een wijziging aan het PHP-bestand maak je een nieuwe zip met
+`./wp-plugin/maak-zip.sh`.
 
 Daarmee komen er drie routes bij:
 
@@ -51,7 +58,7 @@ pip install -r requirements.txt
 python -m publisher doctor
 ```
 
-Dat logt in, kijkt of de mu-plugin er staat, leest de ACF-veldgroep uit en laat
+Dat logt in, kijkt of de plugin er staat, leest de ACF-veldgroep uit en laat
 zien hoe de nieuwste bestaande review de velden `image`, `location` en `map`
 werkelijk heeft opgeslagen. Doe dit voordat je de eerste keer publiceert.
 
@@ -170,7 +177,7 @@ Verzonnen anekdotes kan geen script zien. Dat blijft bij het schrijven.
 `--streng` maakt van elke waarschuwing een fout; `--negeer-huisstijl` publiceert
 ondanks fouten, voor als de controle een keer te streng is.
 
-## Als de mu-plugin er niet staat
+## Als de plugin er niet staat
 
 `publiceer` valt dan automatisch terug op de standaard route
 `POST /wp/v2/restaurant` met een `acf`-blok. Dat werkt alleen als de ACF-veldgroep

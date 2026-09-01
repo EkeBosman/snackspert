@@ -138,7 +138,7 @@ class WPClient:
         return self._verzoek("GET", pad)
 
     def heeft_endpoint(self) -> bool:
-        """Staat de mu-plugin geinstalleerd?"""
+        """Staat de eigen plugin geinstalleerd?"""
         routes = self._verzoek("GET", "") or {}
         return any(str(r).startswith(f"/{NAMESPACE}") for r in (routes.get("routes") or {}))
 
@@ -171,7 +171,7 @@ class WPClient:
         return self._verzoek("POST", f"{NAMESPACE}/reviews", json=payload)
 
     def publiceer_via_wp_v2(self, payload: dict, velden: dict[str, Any]) -> dict:
-        """Terugvaloptie zonder mu-plugin, via de standaard route.
+        """Terugvaloptie zonder de eigen plugin, via de standaard route.
 
         Werkt alleen als de ACF-veldgroep "Show in REST API" aan heeft staan;
         anders slikt WordPress de acf-sleutel zonder er iets mee te doen.
@@ -232,7 +232,7 @@ def _hint(status: int, code: str) -> str:
     if status == 403:
         return "Het account mag dit niet, of Wordfence blokkeert het verzoek."
     if status == 404 and code == "rest_no_route":
-        return "Het endpoint bestaat niet; staat snackspert-review-api.php in wp-content/mu-plugins/?"
+        return "Het endpoint bestaat niet; is snackspert-review-api.zip geinstalleerd en geactiveerd?"
     if status == 409:
         return "Gebruik --bijwerken om de bestaande pagina te overschrijven."
     if status >= 500:
