@@ -118,11 +118,23 @@ async function alleRestaurants() {
 
 async function detail(zaak) {
   const r = await haal(zaak.url);
-  if (!r.ok) return { ...zaak, sterren: null, adres: '' };
+  if (!r.ok) return { ...zaak, sterren: null, adres: '', categorieen: [] };
   const html = await r.text();
+
   const m = html.match(/class="innerAddress"[^>]*>([\s\S]*?)<\//);
+
+  // Categorieen staan als labels op de pagina (de API levert ze niet).
+  const cats = [];
+  const re = /class="catLabel"[^>]*>([\s\S]*?)<\//g;
+  let c;
+  while ((c = re.exec(html)) !== null) {
+    const t = decodeEntities(c[1].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim();
+    if (t) cats.push(t);
+  }
+
   return {
     ...zaak,
+    categorieen: cats,
     adres: m ? decodeEntities(m[1].replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim() : '',
     sterren: sterrenUitHtml(html),
   };
@@ -159,32 +171,36 @@ async function provincie(postcode, stad) {
   const alle = await alleRestaurants();
   console.log(`   ${alle.length} restaurants gevonden.\n`);
 
-  // Diagnose: welke categorieen bestaan er eigenlijk?
+  // De WP API levert de categorieen niet mee, dus die staan alleen op de
+  // recensiepagina zelf. We halen daarom alle pagina's op (sterren, adres en
+  // categorie komen uit diezelfde fetch).
+  console.log(`Alle ${alle.length} recensiepagina's ophalen (categorie + sterren + adres) ...`);
+  console.log('   Dit duurt een paar minuten.');
+  const metDetail = (await parallel(alle, CONCURRENTIE, detail, (k, t) =>
+    process.stdout.write(`\r   ${k}/${t}`)
+  )).filter(Boolean);
+  process.stdout.write('\r' + ' '.repeat(30) + '\r');
+
+  // Diagnose: welke categorieen komen er voor?
   const telling = new Map();
-  for (const r of alle) for (const c of r.categorieen) telling.set(c, (telling.get(c) || 0) + 1);
+  for (const r of metDetail) for (const c of r.categorieen) telling.set(c, (telling.get(c) || 0) + 1);
   if (telling.size) {
     console.log('Categorieen in je data:');
     [...telling.entries()].sort((a, b) => b[1] - a[1])
       .forEach(([c, n]) => console.log(`   ${String(n).padStart(4)}  ${c}`));
     console.log();
   } else {
-    console.log('LET OP: geen categorieen gevonden via de API.\n');
+    console.log('LET OP: geen categorie-labels gevonden op de pagina\'s.\n');
   }
 
-  const burgers = alle.filter((r) =>
+  const met = metDetail.filter((r) =>
     r.categorieen.some((c) => BURGER_TERMEN.some((t) => c.toLowerCase().includes(t)))
   );
-  console.log(`Burgerzaken (alle landen): ${burgers.length}`);
-  if (!burgers.length) {
+  console.log(`Burgerzaken (alle landen): ${met.length}`);
+  if (!met.length) {
     console.log('Geen zaken met een burger-categorie gevonden. Pas BURGER_TERMEN bovenin aan.');
     return;
   }
-
-  console.log('Recensiepagina\'s ophalen (sterren + adres) ...');
-  const met = (await parallel(burgers, CONCURRENTIE, detail, (k, t) =>
-    process.stdout.write(`\r   ${k}/${t}`)
-  )).filter(Boolean);
-  process.stdout.write('\r');
 
   // Nederlandse zaken = adres met Nederlandse postcode (1234 AB)
   const nl = [];
