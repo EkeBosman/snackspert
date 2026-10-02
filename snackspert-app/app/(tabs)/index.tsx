@@ -266,6 +266,12 @@ export default function MapScreen() {
         )}
       </View>
 
+      {isLoadingDetails && filters.categorieen.length > 0 && (
+        <Text style={styles.filterWaarschuwing}>
+          Nog niet alle recensies zijn ingeladen — er komen nog pins bij.
+        </Text>
+      )}
+
       {/* Kaart */}
       <MapView
         ref={mapRef}
@@ -444,6 +450,12 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
+  },
+  filterWaarschuwing: {
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.sm,
+    fontSize: FontSize.xs,
+    color: Colors.categoryText,
   },
   infoText: {
     fontSize: FontSize.sm,

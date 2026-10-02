@@ -91,9 +91,13 @@ export const Shadow = {
 };
 
 // Alle eetcategorieën van snackspert.nl
+// De categorie-labels zoals ze daadwerkelijk op snackspert.nl staan.
+// Dit is alleen de terugvaloptie: zodra de recensies geladen zijn gebruikt de
+// app de categorieën die echt in de data voorkomen.
 export const FOOD_CATEGORIES = [
   'Aziatisch',
   'Bakker',
+  'Borrel',
   'Broodjes',
   'Frietpatat',
   'Grieks',
@@ -109,12 +113,12 @@ export const FOOD_CATEGORIES = [
   'Spaans',
   'Spareribs',
   'Wraps',
+  'Overig',
 ] as const;
 
-export const DIET_FILTERS = [
-  'Vega',
-  'Vegan',
-] as const;
+// Label dat op de site als categorie meekomt maar een beoordeling is; dat
+// filteren we eruit, want daar is het aparte sterrenfilter voor.
+export const GEEN_CATEGORIE_LABELS = ['5 sterren'];
 
 // Startpositie voor de kaart (centrum Nederland)
 export const MAP_INITIAL_REGION = {

@@ -7,6 +7,7 @@ import {
   RestaurantLocatie,
 } from '../services/api';
 import { loadCache, saveCache } from '../services/cache';
+import { GEEN_CATEGORIE_LABELS } from '../constants/theme';
 
 interface RestaurantContextValue {
   restaurants: Restaurant[];
@@ -292,6 +293,7 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
     const cats = new Set<string>();
     for (const r of restaurants) {
       for (const c of r.categorieen) {
+        if (GEEN_CATEGORIE_LABELS.includes(c)) continue;
         cats.add(c);
       }
     }

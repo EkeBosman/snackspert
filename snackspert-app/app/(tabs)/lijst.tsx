@@ -160,6 +160,14 @@ export default function LijstScreen() {
           </Text>
         )}
 
+        {/* Filteren terwijl de categorieen nog binnenkomen geeft een onvolledig
+            resultaat; dat zeggen we er expliciet bij. */}
+        {isLoadingDetails && filters.categorieen.length > 0 && (
+          <Text style={styles.filterWaarschuwing}>
+            Nog niet alle recensies zijn ingeladen — er komen nog resultaten bij.
+          </Text>
+        )}
+
         {/* Resultaat telling */}
         <View style={styles.resultBar}>
           <Text style={styles.resultText}>
@@ -280,6 +288,12 @@ const styles = StyleSheet.create({
   },
   sorteerTextActive: {
     color: '#FFFFFF',
+  },
+  filterWaarschuwing: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
+    fontSize: 12,
+    color: '#A67612',
   },
   locatieWaarschuwing: {
     paddingHorizontal: 16,

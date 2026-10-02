@@ -57,7 +57,6 @@ export interface WPTaxonomyTerm {
 }
 
 export type FoodCategory = typeof import('../constants/theme').FOOD_CATEGORIES[number];
-export type DietFilter = typeof import('../constants/theme').DIET_FILTERS[number];
 
 export interface FilterState {
   categorieen: string[];

@@ -11,9 +11,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FilterState } from '../types';
 import { useEngagement } from '../contexts/EngagementContext';
-import { FOOD_CATEGORIES, DIET_FILTERS, Colors, Spacing, BorderRadius, FontSize, Shadow } from '../constants/theme';
+import { FOOD_CATEGORIES, Colors, Spacing, BorderRadius, FontSize, Shadow } from '../constants/theme';
 
-const ALL_CATEGORIES = [...FOOD_CATEGORIES, ...DIET_FILTERS];
+const ALL_CATEGORIES = [...FOOD_CATEGORIES];
 const STER_OPTIES = [
   { label: 'Alles', waarde: 0 },
   { label: '⭐ 4+', waarde: 4 },
