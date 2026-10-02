@@ -141,7 +141,18 @@ Wil je het zelf doen: in `app.json` staan ze bij
 
 ## Deel F — Budgetwaarschuwing
 
-Nu extra belangrijk, want de sleutel van je website blijft nog onbeperkt.
+Dit staat helemaal los van je app en van de build — je kunt het ervoor of erna
+doen.
+
+Het is een **e-mail van Google als het gebruik van Maps geld gaat kosten**. Geen
+limiet: het zet niets stop, het waarschuwt alleen.
+
+Waarom het nuttig is: Maps heeft een gratis maandtegoed, en jouw site plus app
+blijven daar normaal ruim onder. Maar de sleutel van je website is nog
+onbeperkt en staat in je paginabron. Haalt iemand hem eruit en gaat er
+grootschalig mee geocoderen, dan loopt dat op jouw rekening. Met een
+waarschuwing hoor je dat binnen een dag in plaats van aan het eind van de
+maand.
 
 **F1.** Ga naar https://console.cloud.google.com/billing
 
