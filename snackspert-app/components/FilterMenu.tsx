@@ -14,6 +14,8 @@ import { useEngagement } from '../contexts/EngagementContext';
 import { FOOD_CATEGORIES, Colors, Spacing, BorderRadius, FontSize, Shadow } from '../constants/theme';
 
 const ALL_CATEGORIES = [...FOOD_CATEGORIES];
+// Terugval als de filteropties van de site (nog) niet geladen zijn.
+const STANDAARD_DIETEN = ['Vega', 'Vegan'];
 const STER_OPTIES = [
   { label: 'Alles', waarde: 0 },
   { label: '⭐ 4+', waarde: 4 },
@@ -24,9 +26,15 @@ interface FilterMenuProps {
   filters: FilterState;
   setFilters: (f: FilterState) => void;
   beschikbareCategorieen?: string[];
+  beschikbareDieten?: string[];
 }
 
-export function FilterMenu({ filters, setFilters, beschikbareCategorieen }: FilterMenuProps) {
+export function FilterMenu({
+  filters,
+  setFilters,
+  beschikbareCategorieen,
+  beschikbareDieten,
+}: FilterMenuProps) {
   const [open, setOpen] = useState(false);
   const insets = useSafeAreaInsets();
   const { markActie } = useEngagement();
@@ -36,7 +44,14 @@ export function FilterMenu({ filters, setFilters, beschikbareCategorieen }: Filt
       ? beschikbareCategorieen
       : ALL_CATEGORIES;
 
-  const actief = filters.categorieen.length + (filters.minimumSterren > 0 ? 1 : 0);
+  const dieten = beschikbareDieten && beschikbareDieten.length > 0
+    ? beschikbareDieten
+    : STANDAARD_DIETEN;
+
+  const actief =
+    filters.categorieen.length +
+    filters.dieten.length +
+    (filters.minimumSterren > 0 ? 1 : 0);
 
   const toggleCategorie = (cat: string) => {
     const nieuw = filters.categorieen.includes(cat)
@@ -46,13 +61,21 @@ export function FilterMenu({ filters, setFilters, beschikbareCategorieen }: Filt
     markActie();
   };
 
+  const toggleDieet = (dieet: string) => {
+    const nieuw = filters.dieten.includes(dieet)
+      ? filters.dieten.filter(d => d !== dieet)
+      : [...filters.dieten, dieet];
+    setFilters({ ...filters, dieten: nieuw });
+    markActie();
+  };
+
   const zetSterren = (waarde: number) => {
     setFilters({ ...filters, minimumSterren: waarde });
     markActie();
   };
 
   const wissen = () => {
-    setFilters({ ...filters, categorieen: [], minimumSterren: 0 });
+    setFilters({ ...filters, categorieen: [], dieten: [], minimumSterren: 0 });
   };
 
   return (
@@ -124,6 +147,32 @@ export function FilterMenu({ filters, setFilters, beschikbareCategorieen }: Filt
                   >
                     <Text style={[styles.chipText, isActief && styles.chipTextActief]}>
                       {cat}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            {/* Dieet — apart van de categorieën, want een vegazaak kan net zo
+                goed een snackbar als een pizzeria zijn. */}
+            <Text style={[styles.sectie, { marginTop: Spacing.xl }]}>Dieet</Text>
+            <View style={styles.rijWrap}>
+              {dieten.map(dieet => {
+                const isActief = filters.dieten.includes(dieet);
+                return (
+                  <TouchableOpacity
+                    key={dieet}
+                    style={[styles.chip, isActief && styles.chipActief]}
+                    onPress={() => toggleDieet(dieet)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="leaf-outline"
+                      size={14}
+                      color={isActief ? Colors.textOnPrimary : Colors.categoryText}
+                    />
+                    <Text style={[styles.chipText, isActief && styles.chipTextActief]}>
+                      {dieet}
                     </Text>
                   </TouchableOpacity>
                 );
@@ -221,6 +270,9 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.xs,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.full,

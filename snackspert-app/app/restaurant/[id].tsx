@@ -17,6 +17,7 @@ import { Restaurant } from '../../types';
 import { fetchRestaurantDetail } from '../../services/api';
 import { StarRating } from '../../components/StarRating';
 import { useFavorites } from '../../contexts/FavoritesContext';
+import { useRestaurants } from '../../contexts/RestaurantContext';
 import { useEngagement } from '../../contexts/EngagementContext';
 import { Colors, Spacing, BorderRadius, FontSize, Shadow } from '../../constants/theme';
 
@@ -29,6 +30,7 @@ export default function RestaurantDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const { isFavorite, toggleFavorite, isVisited, toggleVisited } = useFavorites();
   const { markActie } = useEngagement();
+  const { restaurants } = useRestaurants();
   const restaurantId = parseInt(id!, 10);
   const favoriet = isFavorite(restaurantId);
   const bezocht = isVisited(restaurantId);
@@ -40,6 +42,10 @@ export default function RestaurantDetailScreen() {
     ? { lat: bekendeLat, lng: bekendeLng }
     : null;
 
+  // Wat de app al weet, staat er meteen: adres, foto, categorieen en dieten
+  // komen uit de overzichtspagina en hoeven niet opnieuw opgehaald te worden.
+  const bekend = restaurants.find(r => r.id === restaurantId);
+
   useEffect(() => {
     loadDetail();
     // Een recensie bekijken telt als betekenisvolle actie.
@@ -47,7 +53,13 @@ export default function RestaurantDetailScreen() {
   }, [id]);
 
   async function loadDetail() {
-    setIsLoading(true);
+    if (bekend) {
+      setRestaurant(bekend);
+      // De recensietekst halen we nog op, maar het scherm is al gevuld.
+      setIsLoading(false);
+    } else {
+      setIsLoading(true);
+    }
     try {
       // Haal eerst de basis-URL op via de WP REST API
       const controller = new AbortController();
@@ -75,22 +87,28 @@ export default function RestaurantDetailScreen() {
       const detail = await fetchRestaurantDetail(paginaUrl, bekendeCoords);
 
       setRestaurant({
-        id: parseInt(id!, 10),
-        naam: detail.naam || wpData.title.rendered,
+        id: restaurantId,
+        naam: detail.naam || bekend?.naam || wpData.title.rendered,
         slug: wpData.slug,
-        adres: detail.adres || '',
-        stad: detail.stad || '',
+        adres: detail.adres || bekend?.adres || '',
+        stad: detail.stad || bekend?.stad || '',
+        land: bekend?.land || '',
         tekst: detail.tekst || '',
-        sterren: detail.sterren || 0,
-        sterrenTekst: detail.sterrenTekst || '',
-        afbeeldingUrl: detail.afbeeldingUrl || '',
+        sterren: detail.sterren ?? bekend?.sterren ?? 0,
+        sterrenTekst: detail.sterrenTekst || bekend?.sterrenTekst || '',
+        afbeeldingUrl: detail.afbeeldingUrl || bekend?.afbeeldingUrl || '',
         paginaUrl,
-        categorieen: detail.categorieen || [],
-        latitude: detail.latitude || null,
-        longitude: detail.longitude || null,
+        // Categorieen en dieten bestaan alleen in de filters van de site, niet
+        // op de recensiepagina zelf; die komen dus uit de al geladen lijst.
+        categorieen: bekend?.categorieen ?? [],
+        dieten: bekend?.dieten ?? [],
+        latitude: detail.latitude || bekend?.latitude || null,
+        longitude: detail.longitude || bekend?.longitude || null,
       });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Kon restaurant niet laden');
+      // Staat er al iets op het scherm uit de geladen lijst, dan is een
+      // mislukte ververs geen reden om een foutmelding te tonen.
+      if (!bekend) setError(e instanceof Error ? e.message : 'Kon restaurant niet laden');
     } finally {
       setIsLoading(false);
     }
@@ -185,12 +203,18 @@ export default function RestaurantDetailScreen() {
             <StarRating rating={restaurant.sterren} size="lg" />
           </View>
 
-          {/* Categorieën */}
-          {restaurant.categorieen.length > 0 && (
+          {/* Categorieën en dieet */}
+          {(restaurant.categorieen.length > 0 || (restaurant.dieten?.length ?? 0) > 0) && (
             <View style={styles.categories}>
               {restaurant.categorieen.map(cat => (
                 <View key={cat} style={styles.categoryChip}>
                   <Text style={styles.categoryText}>{cat}</Text>
+                </View>
+              ))}
+              {(restaurant.dieten ?? []).map(dieet => (
+                <View key={dieet} style={[styles.categoryChip, styles.dieetChip]}>
+                  <Ionicons name="leaf" size={12} color={Colors.textOnPrimary} />
+                  <Text style={[styles.categoryText, styles.dieetText]}>{dieet}</Text>
                 </View>
               ))}
             </View>
@@ -328,6 +352,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: Spacing.sm,
+  },
+  dieetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#2E7D32',
+  },
+  dieetText: {
+    color: Colors.textOnPrimary,
   },
   categoryChip: {
     backgroundColor: Colors.categoryBg,

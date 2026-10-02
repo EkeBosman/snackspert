@@ -20,3 +20,6 @@ scripts/acf-dump.json
 scripts/facetwp-dump.json
 scripts/fwp-json.json
 scripts/sterren-dump.json
+
+# Testbuild van de parser-test
+.test-build/

@@ -6,7 +6,8 @@
     "start": "expo start",
     "ios": "expo run:ios",
     "android": "expo run:android",
-    "web": "expo start --web"
+    "web": "expo start --web",
+    "test:parser": "tsc --project scripts/tsconfig.test.json && node .test-build/scripts/test-lijst-parser.js"
   },
   "dependencies": {
     "@expo/vector-icons": "^15.0.3",

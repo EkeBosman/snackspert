@@ -3,11 +3,9 @@ import { Restaurant, FilterState } from '../types';
 import {
   fetchAlleRestaurants,
   fetchRestaurantDetail,
-  fetchRestaurantLocaties,
-  RestaurantLocatie,
 } from '../services/api';
+import { fetchSiteIndex, SiteIndex, TermOptie } from '../services/lijst';
 import { loadCache, saveCache } from '../services/cache';
-import { GEEN_CATEGORIE_LABELS } from '../constants/theme';
 
 interface RestaurantContextValue {
   restaurants: Restaurant[];
@@ -19,41 +17,25 @@ interface RestaurantContextValue {
   filters: FilterState;
   setFilters: (filters: FilterState) => void;
   toggleCategory: (category: string) => void;
+  toggleDieet: (dieet: string) => void;
   setZoekterm: (term: string) => void;
   setLocatie: (locatie: string) => void;
   setMinimumSterren: (sterren: number) => void;
   beschikbareCategorieen: string[];
+  beschikbareDieten: string[];
   beschikbareSteden: string[];
   refresh: () => void;
 }
 
 const RestaurantContext = createContext<RestaurantContextValue | null>(null);
 
-/** Maak een leeg Restaurant-object op basis van een summary. */
-function summaryNaarRestaurant(s: {
-  id: number;
-  naam: string;
-  slug: string;
-  paginaUrl: string;
-  afbeeldingUrl: string;
-  categorieen: string[];
-}): Restaurant {
-  return {
-    id: s.id,
-    naam: s.naam,
-    slug: s.slug,
-    adres: '',
-    stad: '',
-    tekst: '',
-    sterren: 0,
-    sterrenTekst: '',
-    afbeeldingUrl: s.afbeeldingUrl || '',
-    paginaUrl: s.paginaUrl,
-    categorieen: s.categorieen,
-    latitude: null,
-    longitude: null,
-  };
-}
+const LEGE_FILTERS: FilterState = {
+  categorieen: [],
+  dieten: [],
+  zoekterm: '',
+  locatie: '',
+  minimumSterren: 0,
+};
 
 export function RestaurantProvider({ children }: { children: ReactNode }) {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
@@ -61,53 +43,105 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
   const [isLoadingDetails, setIsLoadingDetails] = useState(false);
   const [loadingProgress, setLoadingProgress] = useState({ loaded: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
-  const stopBackgroundRef = useRef(false);
-  const [filters, setFilters] = useState<FilterState>({
+  // De filteropties zoals de site ze zelf aanbiedt, in de volgorde van de site.
+  const [termen, setTermen] = useState<{ categorieen: TermOptie[]; dieten: TermOptie[] }>({
     categorieen: [],
-    zoekterm: '',
-    locatie: '',
-    minimumSterren: 0,
+    dieten: [],
   });
+  const stopBackgroundRef = useRef(false);
+  const [filters, setFilters] = useState<FilterState>(LEGE_FILTERS);
 
   /**
-   * Kernlogica: haal de (goedkope) summary-lijst op, hergebruik alles wat al
-   * in de cache zit, en scrape/geocode alleen wat nog ontbreekt.
+   * Zet de overzichtsgegevens om in een volledige restaurantlijst, met
+   * hergebruik van wat er al in de cache staat.
    *
-   * @param cachedById  Reeds bekende restaurants (uit de cache), op id.
-   * @param forceRescrape  Bij true worden ook bekende restaurants opnieuw
-   *   gescraped (om nieuwe recensies/sterren op te halen), maar met hergebruik
-   *   van bekende coördinaten zodat er niet opnieuw gegeocodeerd wordt.
+   * Uit de index komen adres, stad, land, foto, coördinaten, categorieën en
+   * diëten. Uit de cache komen de sterren en de recensietekst, want die zijn
+   * alleen door de recensiepagina te lezen.
+   */
+  const bouwLijst = useCallback((
+    index: SiteIndex,
+    idsPerSlug: Map<string, { id: number; naam: string; paginaUrl: string; afbeeldingUrl: string }>,
+    cachedBySlug: Map<string, Restaurant>
+  ): Restaurant[] => {
+    return index.items.map(item => {
+      const cached = cachedBySlug.get(item.slug);
+      const wp = idsPerSlug.get(item.slug);
+      const coord = index.coords.get(item.slug);
+
+      let sterren = cached?.sterren ?? 0;
+      let sterrenTekst = cached?.sterrenTekst ?? '';
+      // De site heeft een categorie "5 sterren". Zit een restaurant daarin, dan
+      // weten we zijn beoordeling al zonder de recensie te lezen — dat scheelt
+      // ruim honderd pagina's ophalen.
+      if (sterren === 0 && index.vijfSterrenSlugs.has(item.slug)) {
+        sterren = 5;
+        sterrenTekst = '⭐⭐⭐⭐⭐';
+      }
+
+      return {
+        id: wp?.id ?? cached?.id ?? 0,
+        naam: item.naam || wp?.naam || cached?.naam || '',
+        slug: item.slug,
+        adres: item.adres,
+        stad: item.stad,
+        land: item.land,
+        tekst: cached?.tekst ?? '',
+        sterren,
+        sterrenTekst,
+        afbeeldingUrl: item.afbeeldingUrl || wp?.afbeeldingUrl || cached?.afbeeldingUrl || '',
+        paginaUrl: item.paginaUrl || wp?.paginaUrl || cached?.paginaUrl || '',
+        categorieen: index.categorieenPerSlug.get(item.slug) ?? [],
+        dieten: index.dietenPerSlug.get(item.slug) ?? [],
+        latitude: coord?.lat ?? cached?.latitude ?? null,
+        longitude: coord?.lng ?? cached?.longitude ?? null,
+      };
+    });
+  }, []);
+
+  /**
+   * Kernlogica.
+   *
+   * Stap 1 levert in een kleine twintig verzoeken alles waar de kaart, de lijst
+   * en de filters op draaien. Stap 2 vult op de achtergrond de sterren bij van
+   * de restaurants waarvan we die nog niet kennen — doorgaans alleen nieuwe
+   * recensies, want de cache houdt ze vast.
+   *
+   * @param cachedBySlug   Wat we al weten, op slug.
+   * @param forceRescrape  Alle recensiepagina's opnieuw lezen (pull-to-refresh),
+   *   om gewijzigde beoordelingen op te pikken.
    */
   const loadRestaurants = useCallback(async (
-    cachedById: Map<number, Restaurant>,
+    cachedBySlug: Map<string, Restaurant>,
     forceRescrape = false
   ) => {
     setError(null);
     stopBackgroundRef.current = false;
 
-    const heeftCache = cachedById.size > 0;
-    // Alleen het volledige laadscherm tonen als er nog niks te zien is.
+    const heeftCache = cachedBySlug.size > 0;
     if (!heeftCache) {
       setIsLoading(true);
       setLoadingProgress({ loaded: 0, total: 0 });
     }
 
     try {
-      // Stap 1: summary-lijst (namen/ids/afbeeldingen) én de bulk-coördinaten
-      // parallel ophalen. De coördinaten komen in één request van /restaurants/,
-      // wat 700 geocoding-calls bespaart en de kaart direct kan vullen.
-      const [summaries, locaties] = await Promise.all([
-        fetchAlleRestaurants((loaded, total) => {
-          if (!heeftCache) setLoadingProgress({ loaded, total });
+      // Stap 1: de overzichtspagina (alle restaurants, hun adressen, foto's,
+      // coördinaten en alle categorieën/diëten) plus de REST-lijst voor de
+      // post-id's. Allebei tegelijk.
+      const [index, summaries] = await Promise.all([
+        fetchSiteIndex((gereed, totaal) => {
+          if (!heeftCache) setLoadingProgress({ loaded: gereed, total: totaal });
         }),
-        fetchRestaurantLocaties().catch(() => [] as RestaurantLocatie[]),
+        // De id's zijn een nette-maar-niet-essentiële toevoeging; valt dit om,
+        // dan werkt de app verder op de slug.
+        fetchAlleRestaurants().catch(() => []),
       ]);
 
       if (stopBackgroundRef.current) return;
 
-      // Lege lijst betekent vrijwel zeker een storing: behoud wat we hebben
-      // (de cache blijft dan gewoon zichtbaar) in plaats van alles te wissen.
-      if (summaries.length === 0) {
+      // Een lege lijst betekent vrijwel zeker een storing. Dan laten we staan
+      // wat er al is in plaats van een goede cache weg te gooien.
+      if (index.items.length === 0) {
         if (!heeftCache) {
           setError('Kon geen restaurants ophalen. Controleer je internetverbinding en probeer opnieuw.');
         }
@@ -115,58 +149,35 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      const coordsBySlug = new Map(locaties.map(l => [l.slug, l]));
+      if (index.categorieen.length > 0 || index.dieten.length > 0) {
+        setTermen({ categorieen: index.categorieen, dieten: index.dieten });
+      }
 
-      // Stap 2: samenvoegen met cache. Bekende restaurants hergebruiken we,
-      // nieuwe krijgen een lege basis. Verwijderde restaurants vallen vanzelf
-      // weg (we volgen de verse summary-lijst). Coördinaten uit de bulk-bron
-      // zetten we meteen op elk restaurant, zodat alle pins direct verschijnen.
-      const all: Restaurant[] = summaries.map(s => {
-        const cached = cachedById.get(s.id);
-        const base: Restaurant = cached
-          ? {
-              ...cached,
-              slug: s.slug,
-              paginaUrl: s.paginaUrl,
-              afbeeldingUrl: cached.afbeeldingUrl || s.afbeeldingUrl,
-            }
-          : summaryNaarRestaurant(s);
-
-        const loc = coordsBySlug.get(s.slug);
-        if (loc) {
-          base.latitude = loc.lat;
-          base.longitude = loc.lng;
-        }
-        return base;
-      });
+      const idsPerSlug = new Map(summaries.map(s => [s.slug, s]));
+      const all = bouwLijst(index, idsPerSlug, cachedBySlug);
 
       setRestaurants(all);
       setIsLoading(false);
 
-      const indexById = new Map(all.map((r, i) => [r.id, i]));
+      // De app is nu volledig bruikbaar: kaart, lijst, zoeken en alle filters.
+      // Vanaf hier gaat het alleen nog om de sterren.
+      await saveCache(all);
 
-      // Stap 3: bepalen wat nog gescraped moet worden voor de detailgegevens
-      // (adres, sterren, categorieën) die de kaart-pins zelf niet nodig hebben,
-      // maar de filters en de lijst wél.
-      // - Normaal: alleen restaurants die nog niet verrijkt zijn (geen adres).
-      // - forceRescrape: alles opnieuw (om nieuwe recensies/sterren op te halen).
+      const indexBySlug = new Map(all.map((r, i) => [r.slug, i]));
+
+      // Stap 2: sterren. Alleen waar we ze nog niet hebben — een restaurant met
+      // tekst maar zonder sterren is al eens gelezen en heeft er simpelweg geen.
       const teLaden = forceRescrape
         ? all
-        : all.filter(r => !r.adres);
+        : all.filter(r => r.sterren === 0 && !r.tekst);
 
-      if (teLaden.length === 0) {
-        // Niets te doen: cache dekt alles. Toch opslaan om verwijderde
-        // restaurants uit de cache te schonen.
-        await saveCache(all);
-        return;
-      }
+      if (teLaden.length === 0) return;
 
       setIsLoadingDetails(true);
       setLoadingProgress({ loaded: 0, total: teLaden.length });
 
       // Doorlopende werkploeg: CONCURRENCY pagina's tegelijk, zonder gaten
-      // tussen batches (elke worker pakt meteen het volgende item op). Dit is
-      // veel sneller dan wachten tot een hele batch klaar is.
+      // tussen batches (elke worker pakt meteen het volgende item op).
       const CONCURRENCY = 16;
       let errorCount = 0;
       let verwerkt = 0;
@@ -179,24 +190,24 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
           const r = teLaden[i];
 
           try {
-            // Coördinaten kennen we al uit de bulk-bron; meegeven zodat de dure
-            // geocoding wordt overgeslagen (alleen fallback als ze ontbreken).
+            // Coördinaten kennen we al; meegeven zodat de dure geocoding wordt
+            // overgeslagen (alleen terugval als ze ontbreken).
             const bekend = r.latitude && r.longitude
               ? { lat: r.latitude, lng: r.longitude }
               : null;
             const detail = await fetchRestaurantDetail(r.paginaUrl, bekend);
-            const idx = indexById.get(r.id);
+            const idx = indexBySlug.get(r.slug);
             if (idx !== undefined) {
+              const huidig = all[idx];
               all[idx] = {
-                ...all[idx],
-                ...detail,
-                naam: detail.naam || all[idx].naam,
-                // Categorieën uit de API behouden; alleen aanvullen als die leeg zijn.
-                categorieen: all[idx].categorieen.length
-                  ? all[idx].categorieen
-                  : (detail.categorieen || []),
-                latitude: detail.latitude ?? all[idx].latitude,
-                longitude: detail.longitude ?? all[idx].longitude,
+                ...huidig,
+                tekst: detail.tekst || huidig.tekst,
+                // Een gelezen beoordeling gaat voor op de schatting uit de
+                // categorie "5 sterren".
+                sterren: detail.sterren ?? huidig.sterren,
+                sterrenTekst: detail.sterrenTekst || huidig.sterrenTekst,
+                latitude: huidig.latitude ?? detail.latitude ?? null,
+                longitude: huidig.longitude ?? detail.longitude ?? null,
               };
             }
           } catch {
@@ -223,8 +234,6 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
 
       setRestaurants([...all]);
       setLoadingProgress({ loaded: teLaden.length, total: teLaden.length });
-
-      // Stap 4: definitieve lijst wegschrijven naar de cache.
       await saveCache(all);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Er ging iets mis bij het laden');
@@ -232,9 +241,9 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
     } finally {
       setIsLoadingDetails(false);
     }
-  }, []);
+  }, [bouwLijst]);
 
-  // Bij opstarten: eerst cache tonen (direct), daarna slim verversen.
+  // Bij opstarten: eerst cache tonen (direct), daarna verversen.
   useEffect(() => {
     let geannuleerd = false;
 
@@ -242,14 +251,14 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
       const cache = await loadCache();
       if (geannuleerd) return;
 
-      let cachedById = new Map<number, Restaurant>();
+      let cachedBySlug = new Map<string, Restaurant>();
       if (cache) {
         setRestaurants(cache.restaurants);
         setIsLoading(false);
-        cachedById = new Map(cache.restaurants.map(r => [r.id, r]));
+        cachedBySlug = new Map(cache.restaurants.map(r => [r.slug, r]));
       }
 
-      loadRestaurants(cachedById);
+      loadRestaurants(cachedBySlug);
     })();
 
     return () => {
@@ -258,11 +267,11 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
     };
   }, [loadRestaurants]);
 
-  // Pull-to-refresh: volledige herscrape (nieuwe recensies/sterren), maar met
-  // hergebruik van bekende coördinaten zodat er niet opnieuw gegeocodeerd wordt.
+  // Pull-to-refresh: alle recensies opnieuw lezen, met hergebruik van bekende
+  // coördinaten zodat er niet opnieuw gegeocodeerd wordt.
   const refresh = useCallback(() => {
-    const huidigById = new Map(restaurants.map(r => [r.id, r]));
-    loadRestaurants(huidigById, true);
+    const huidigBySlug = new Map(restaurants.map(r => [r.slug, r]));
+    loadRestaurants(huidigBySlug, true);
   }, [restaurants, loadRestaurants]);
 
   const toggleCategory = useCallback((category: string) => {
@@ -271,6 +280,15 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
       categorieen: prev.categorieen.includes(category)
         ? prev.categorieen.filter(c => c !== category)
         : [...prev.categorieen, category],
+    }));
+  }, []);
+
+  const toggleDieet = useCallback((dieet: string) => {
+    setFilters(prev => ({
+      ...prev,
+      dieten: prev.dieten.includes(dieet)
+        ? prev.dieten.filter(d => d !== dieet)
+        : [...prev.dieten, dieet],
     }));
   }, []);
 
@@ -289,16 +307,24 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
     }));
   }, []);
 
+  /**
+   * De categorieën zoals de site ze aanbiedt. Lukt dat niet (geen verbinding
+   * bij een koude start), dan vallen we terug op wat er in de geladen
+   * restaurants zit, zodat het menu nooit leeg is.
+   */
   const beschikbareCategorieen = useMemo(() => {
-    const cats = new Set<string>();
-    for (const r of restaurants) {
-      for (const c of r.categorieen) {
-        if (GEEN_CATEGORIE_LABELS.includes(c)) continue;
-        cats.add(c);
-      }
-    }
-    return Array.from(cats).sort();
-  }, [restaurants]);
+    if (termen.categorieen.length > 0) return termen.categorieen.map(t => t.label);
+    const uit = new Set<string>();
+    for (const r of restaurants) for (const c of r.categorieen) uit.add(c);
+    return Array.from(uit).sort();
+  }, [termen.categorieen, restaurants]);
+
+  const beschikbareDieten = useMemo(() => {
+    if (termen.dieten.length > 0) return termen.dieten.map(t => t.label);
+    const uit = new Set<string>();
+    for (const r of restaurants) for (const d of r.dieten ?? []) uit.add(d);
+    return Array.from(uit).sort();
+  }, [termen.dieten, restaurants]);
 
   const beschikbareSteden = useMemo(() => {
     const stadCount = new Map<string, number>();
@@ -331,6 +357,14 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
           return false;
         }
       }
+      // Dieet is een eis, niet een keuze uit meer: kies je Vega én Vegan, dan
+      // wil je zaken die beide bieden.
+      if (filters.dieten.length > 0) {
+        const eigen = r.dieten ?? [];
+        if (!filters.dieten.every(d => eigen.includes(d))) {
+          return false;
+        }
+      }
       if (filters.minimumSterren > 0 && r.sterren < filters.minimumSterren) {
         return false;
       }
@@ -348,10 +382,12 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
     filters,
     setFilters,
     toggleCategory,
+    toggleDieet,
     setZoekterm,
     setLocatie,
     setMinimumSterren,
     beschikbareCategorieen,
+    beschikbareDieten,
     beschikbareSteden,
     refresh,
   };

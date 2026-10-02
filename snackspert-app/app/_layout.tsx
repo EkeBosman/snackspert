@@ -4,12 +4,16 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Colors } from '../constants/theme';
 import { FavoritesProvider } from '../contexts/FavoritesContext';
 import { EngagementProvider } from '../contexts/EngagementContext';
+import { RestaurantProvider } from '../contexts/RestaurantContext';
 
 export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <EngagementProvider>
         <FavoritesProvider>
+          {/* Op rootniveau, zodat ook de detailpagina de al geladen gegevens
+              kan gebruiken in plaats van ze opnieuw op te halen. */}
+          <RestaurantProvider>
           <StatusBar style="light" />
           <Stack
             screenOptions={{
@@ -29,6 +33,7 @@ export default function RootLayout() {
             />
             <Stack.Screen name="over" options={{ title: 'Over Snackspert' }} />
           </Stack>
+          </RestaurantProvider>
         </FavoritesProvider>
       </EngagementProvider>
     </SafeAreaProvider>

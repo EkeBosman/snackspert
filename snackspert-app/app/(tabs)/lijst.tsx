@@ -33,6 +33,7 @@ export default function LijstScreen() {
     setZoekterm,
     setLocatie,
     beschikbareCategorieen,
+    beschikbareDieten,
     beschikbareSteden,
     refresh,
   } = useRestaurants();
@@ -112,6 +113,7 @@ export default function LijstScreen() {
             filters={filters}
             setFilters={setFilters}
             beschikbareCategorieen={beschikbareCategorieen}
+            beschikbareDieten={beschikbareDieten}
           />
           <LocationFilter
             value={filters.locatie}
@@ -160,11 +162,11 @@ export default function LijstScreen() {
           </Text>
         )}
 
-        {/* Filteren terwijl de categorieen nog binnenkomen geeft een onvolledig
-            resultaat; dat zeggen we er expliciet bij. */}
-        {isLoadingDetails && filters.categorieen.length > 0 && (
+        {/* Categorieen en dieten zijn direct compleet; de sterren komen op de
+            achtergrond binnen. Filter je daarop, dan zeggen we dat erbij. */}
+        {isLoadingDetails && filters.minimumSterren > 0 && (
           <Text style={styles.filterWaarschuwing}>
-            Nog niet alle recensies zijn ingeladen — er komen nog resultaten bij.
+            Nog niet alle beoordelingen zijn ingeladen — er komen nog resultaten bij.
           </Text>
         )}
 
@@ -172,7 +174,7 @@ export default function LijstScreen() {
         <View style={styles.resultBar}>
           <Text style={styles.resultText}>
             {weergaveLijst.length} restaurants
-            {filters.categorieen.length > 0 || filters.zoekterm || filters.locatie || filters.minimumSterren > 0
+            {filters.categorieen.length > 0 || filters.dieten.length > 0 || filters.zoekterm || filters.locatie || filters.minimumSterren > 0
               ? ' gevonden'
               : ''}
           </Text>
@@ -181,8 +183,8 @@ export default function LijstScreen() {
               <ActivityIndicator size="small" color="#EDAA2D" />
               <Text style={styles.loadingSmall}>
                 {loadingProgress.total > 0
-                  ? `Details laden... ${loadingProgress.loaded}/${loadingProgress.total}`
-                  : 'Details laden...'}
+                  ? `Beoordelingen laden... ${loadingProgress.loaded}/${loadingProgress.total}`
+                  : 'Beoordelingen laden...'}
               </Text>
             </View>
           )}

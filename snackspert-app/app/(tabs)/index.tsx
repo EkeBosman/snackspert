@@ -110,6 +110,7 @@ export default function MapScreen() {
     setFilters,
     setLocatie,
     beschikbareCategorieen,
+    beschikbareDieten,
     beschikbareSteden,
     refresh,
   } = useRestaurants();
@@ -247,6 +248,7 @@ export default function MapScreen() {
           filters={filters}
           setFilters={setFilters}
           beschikbareCategorieen={beschikbareCategorieen}
+          beschikbareDieten={beschikbareDieten}
         />
         <LocationFilter
           value={filters.locatie}
@@ -266,9 +268,9 @@ export default function MapScreen() {
         )}
       </View>
 
-      {isLoadingDetails && filters.categorieen.length > 0 && (
+      {isLoadingDetails && filters.minimumSterren > 0 && (
         <Text style={styles.filterWaarschuwing}>
-          Nog niet alle recensies zijn ingeladen — er komen nog pins bij.
+          Nog niet alle beoordelingen zijn ingeladen — er komen nog pins bij.
         </Text>
       )}
 

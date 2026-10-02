@@ -116,9 +116,11 @@ export const FOOD_CATEGORIES = [
   'Overig',
 ] as const;
 
-// Label dat op de site als categorie meekomt maar een beoordeling is; dat
-// filteren we eruit, want daar is het aparte sterrenfilter voor.
-export const GEEN_CATEGORIE_LABELS = ['5 sterren'];
+// De categorieën hierboven zijn alleen een terugval voor als de filteropties
+// van de site niet geladen kunnen worden; normaal komen ze (met de juiste
+// labels) uit fetchSiteIndex(). De site heeft daar ook "5 sterren" tussen
+// staan — dat is een beoordeling en geen keuken, dus die wordt er in
+// services/lijst.ts uitgehaald en komt bij het sterrenfilter terecht.
 
 // Startpositie voor de kaart (centrum Nederland)
 export const MAP_INITIAL_REGION = {

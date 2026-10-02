@@ -1,0 +1,13 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "outDir": "../.test-build",
+    "rootDir": ".."
+  },
+  "include": ["test-lijst-parser.ts", "../services/lijst.ts", "../services/api.ts", "../types/index.ts"]
+}

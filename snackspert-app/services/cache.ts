@@ -37,7 +37,19 @@ export async function loadCache(): Promise<CachePayload | null> {
     if (!parsed || !Array.isArray(parsed.restaurants) || parsed.restaurants.length === 0) {
       return null;
     }
-    return parsed;
+
+    // Een cache van een oudere versie mist `land` en `dieten`. Die vullen we
+    // hier aan in plaats van de cache weg te gooien: dan houden bestaande
+    // gebruikers hun sterren, en de verse gegevens overschrijven dit zo toch.
+    return {
+      ...parsed,
+      restaurants: parsed.restaurants.map(r => ({
+        ...r,
+        land: r.land ?? '',
+        dieten: Array.isArray(r.dieten) ? r.dieten : [],
+        categorieen: Array.isArray(r.categorieen) ? r.categorieen : [],
+      })),
+    };
   } catch {
     // Corrupte of onleesbare cache: negeren alsof er geen cache is.
     return null;

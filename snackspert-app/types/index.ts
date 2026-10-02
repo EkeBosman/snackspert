@@ -8,12 +8,16 @@ export interface Restaurant {
   slug: string;
   adres: string;
   stad: string;
+  /** Land, voluit zoals de site het schrijft ("Nederland", "België"). */
+  land: string;
   tekst: string;
   sterren: number;
   sterrenTekst: string;
   afbeeldingUrl: string;
   paginaUrl: string;
   categorieen: string[];
+  /** Dieet-labels: "Vega" en/of "Vegan". Apart van de categorieën. */
+  dieten: string[];
   latitude: number | null;
   longitude: number | null;
 }
@@ -60,6 +64,8 @@ export type FoodCategory = typeof import('../constants/theme').FOOD_CATEGORIES[n
 
 export interface FilterState {
   categorieen: string[];
+  /** Vega/Vegan — een eigen filter, niet vermengd met de categorieën. */
+  dieten: string[];
   zoekterm: string;
   locatie: string;
   minimumSterren: number;

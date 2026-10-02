@@ -9,7 +9,7 @@ const FETCH_TIMEOUT = 15000;
 /**
  * Fetch met timeout - voorkomt eindeloos wachten.
  */
-async function fetchMetTimeout(url: string, timeout = FETCH_TIMEOUT): Promise<Response> {
+export async function fetchMetTimeout(url: string, timeout = FETCH_TIMEOUT): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);
   try {
@@ -36,8 +36,11 @@ async function fetchMetTimeout(url: string, timeout = FETCH_TIMEOUT): Promise<Re
 export async function fetchAlleRestaurants(
   onProgress?: (loaded: number, total: number) => void
 ): Promise<RestaurantSummary[]> {
-  // `_embed` haalt in één keer de uitgelichte afbeelding ÉN de taxonomie-termen
-  // (categorie/dieet) mee, zodat we die niet per pagina hoeven te scrapen.
+  // `_embed` haalt de uitgelichte afbeelding mee, als terugval voor de enkele
+  // restaurants waar de overzichtspagina geen foto bij heeft staan.
+  //
+  // Taxonomie-termen zitten hier NIET in: de categorieën van deze site bestaan
+  // niet als taxonomie in de REST API. Die komen uit services/lijst.ts.
   const paginaUrl = (p: number) =>
     `${API_URL}/restaurant?per_page=100&page=${p}&_embed`;
 
@@ -52,27 +55,13 @@ export async function fetchAlleRestaurants(
         afbeeldingUrl = media?.source_url || media?.media_details?.sizes?.medium?.source_url || '';
       } catch {}
 
-      // Categorieën/dieet uit de ingebedde taxonomie-termen (indien beschikbaar).
-      const categorieen: string[] = [];
-      try {
-        const groepen = embedded['wp:term'] || [];
-        for (const groep of groepen) {
-          for (const term of groep) {
-            if (term?.name && term.taxonomy !== 'post_tag' && term.taxonomy !== 'post_format') {
-              const naam = he.decode(term.name);
-              if (!categorieen.includes(naam)) categorieen.push(naam);
-            }
-          }
-        }
-      } catch {}
-
       return {
         id: item.id,
         naam: he.decode(item.title.rendered),
         slug: item.slug,
         paginaUrl: item.link,
         afbeeldingUrl,
-        categorieen,
+        categorieen: [],
       };
     });
 
@@ -168,6 +157,11 @@ function telSterren(tekst: string): { sterren: number; sterrenTekst: string } {
  * Scrape de details van een individuele restaurantpagina.
  * Haalt naam, adres, afbeelding, recensietekst, sterren, en coördinaten op.
  *
+ * Naam, adres en foto komen inmiddels al uit de overzichtspagina (één verzoek
+ * voor alle restaurants, zie services/lijst.ts). Wat hier nog onmisbaar is, zijn
+ * de sterren en de recensietekst: die staan nergens anders dan in de pagina
+ * zelf — niet in de REST API, niet in de Yoast-gegevens en niet in de feed.
+ *
  * Als `bestaandeCoords` wordt meegegeven (bijv. uit de cache), slaan we de
  * dure Google Geocoding-call over. Coördinaten van een adres veranderen immers
  * nooit, dus die hoeven we maar één keer ooit op te halen.
@@ -255,15 +249,6 @@ export async function fetchRestaurantDetail(
     } catch {}
   }
 
-  // Categorieën uit de HTML (vaak als class of data-attribuut)
-  const catMatches = html.match(/class="catLabel"[^>]*>([\s\S]*?)<\//g);
-  if (catMatches) {
-    result.categorieen = catMatches.map(m => {
-      const text = m.replace(/<[^>]+>/g, '').replace(/class="catLabel"[^>]*>/, '').trim();
-      return he.decode(text);
-    }).filter(Boolean);
-  }
-
   return result;
 }
 
@@ -284,26 +269,7 @@ async function geocodeAdres(adres: string): Promise<{ lat: number; lng: number }
   return null;
 }
 
-/**
- * Haal categorieën op via de WordPress REST API taxonomy endpoint.
- */
-export async function fetchCategorieen(): Promise<string[]> {
-  try {
-    // Probeer de custom taxonomy
-    const resp = await fetchMetTimeout(`${API_URL}/restaurant-categorie?per_page=100`);
-    if (resp.ok) {
-      const terms = await resp.json();
-      return terms.map((t: { name: string }) => he.decode(t.name));
-    }
-  } catch (e) {
-    // Taxonomy bestaat misschien niet, gebruik standaard lijst
-  }
-
-  // Fallback naar de bekende categorieën
-  return [
-    'Aziatisch', 'Bakker', 'Broodjes', 'Frietpatat', 'Grieks',
-    'Hamburger', 'Hotdogs', 'Italiaans', 'Kroket', 'Mexicaans',
-    'Midden-Oosters', 'Pizza', 'Shoarma/döner', 'Snackbar',
-    'Spaans', 'Spareribs', 'Wraps',
-  ];
-}
+// De oude fetchCategorieen() stond hier. Die vroeg de taxonomie
+// "restaurant-categorie" op, en die bestaat niet: de API geeft 404. De
+// categorieën van deze site komen uit de filters op de overzichtspagina —
+// zie fetchSiteIndex() in services/lijst.ts.

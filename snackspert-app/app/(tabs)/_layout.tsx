@@ -2,7 +2,6 @@ import { Tabs, router } from 'expo-router';
 import { Image, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize } from '../../constants/theme';
-import { RestaurantProvider } from '../../contexts/RestaurantContext';
 
 // Logo in de header (transparant, past op de gouden balk).
 const LogoTitel = () => (
@@ -26,7 +25,6 @@ const InfoKnop = () => (
 
 export default function TabLayout() {
   return (
-    <RestaurantProvider>
       <Tabs
         screenOptions={{
           headerStyle: { backgroundColor: Colors.primary },
@@ -76,6 +74,5 @@ export default function TabLayout() {
           }}
         />
       </Tabs>
-    </RestaurantProvider>
   );
 }
