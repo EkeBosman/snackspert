@@ -17,3 +17,4 @@ web-build/
 /ios
 scripts/taxonomie-dump.json
 scripts/acf-dump.json
+scripts/facetwp-dump.json
