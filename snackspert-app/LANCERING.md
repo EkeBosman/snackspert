@@ -38,18 +38,28 @@ misgaat in plaats van het pas op de rekening te zien.
 
 ---
 
-## 2. Beslis: wil je iPad ondersteunen?
+## 2. Zet je Sentry-DSN erin
 
-In `app.json` staat nu `"supportsTablet": true`. Gevolgen:
+De foutmelding zit in de app, maar staat uit tot je er een DSN in zet. Zonder
+DSN doet hij niets: geen verbinding, geen vertraging.
 
-- Apple **reviewt je app op een iPad**, en de app is nooit op een iPad getest
-- App Store Connect **eist iPad-screenshots** voordat je kunt inzenden
+1. Maak een gratis account op [sentry.io](https://sentry.io) → nieuw project →
+   platform **React Native** → noem het `snackspert`
+2. Je krijgt een **DSN** te zien (`https://...@....ingest.sentry.io/...`)
+3. Zet die in `app.json`, bij `extra.sentryDsn`:
 
-Zet je het op `false`, dan hoeft geen van beide. iPad-gebruikers kunnen je app
-dan nog steeds installeren — iPhone-apps draaien op iPad, alleen in een
-iPhone-venster.
+```json
+"extra": {
+  "eas": { "projectId": "fd962018-0ade-40ff-9d39-3f318f026d24" },
+  "sentryDsn": "https://jouw-dsn-hier"
+}
+```
 
-Mijn advies voor 1.0: op `false`. Zeg het, dan pas ik het aan.
+Dat is genoeg om crashes binnen te krijgen. De regelnummers in die meldingen
+verwijzen dan nog naar de samengevoegde code, niet naar de bestanden. Wil je
+leesbare meldingen (`index.tsx:142` in plaats van `bundle:1:284910`), stuur me
+dan je **organisatie- en projectnaam** uit Sentry, dan zet ik het laatste stuk
+erbij. Dat vereist ook een token als EAS-secret, en dat regel ik dan met je.
 
 ---
 
@@ -116,8 +126,25 @@ Twee dingen die je kunnen verrassen:
 **Testvereiste.** Is je Google Play-ontwikkelaarsaccount een persoonlijk account
 dat na november 2023 is aangemaakt, dan eist Google eerst een gesloten test met
 **minimaal 12 testers, 14 dagen aaneengesloten**, voordat je publiek mag.
-Controleer dit nu in de Play Console, want het bepaalt je planning. Je vier
-testers zijn dan niet genoeg.
+Controleer dit als eerste in de Play Console onder *Dashboard → Publiceren*,
+want het bepaalt je planning.
+
+Valt je account eronder, dan is er geen trucje: nepaccounts zijn precies waar
+Google op controleert, en daar raak je je ontwikkelaarsaccount mee kwijt. Wel
+werkt dit:
+
+- **Vraag het je volgers.** Je hebt een publiek dat van snacks houdt — dat is
+  precies de doelgroep. Eén story met "wie heeft Android en wil mijn app
+  testen?" levert meestal meer dan twaalf mensen op. Ze hoeven alleen te
+  installeren en af en toe te openen.
+- **Werk met een Google-groep.** Maak één groep aan en zet die als testerslijst
+  in de Play Console. Dan hoef je geen twaalf losse e-mailadressen bij te
+  houden en kunnen mensen er later bij.
+- **De veertien dagen lopen door.** Ze beginnen zodra je twaalf testers hebt,
+  dus hoe eerder je de gesloten test aanzet, hoe eerder je publiek kunt.
+
+Vandaar het advies: **lanceer iOS nu**, en laat Android meelopen terwijl de
+testperiode draait. Daar hoeft niemand op te wachten.
 
 **Data safety-formulier.** Zelfde antwoorden als bij Apple: alleen locatie, voor
 app-functionaliteit, niet gedeeld, niet voor tracking. Vermeld dat de verbinding
@@ -192,10 +219,13 @@ Android- of iOS-code meebrengt — is er een nieuwe build nodig. In dat geval
 weigert de app de update netjes in plaats van om te vallen, omdat de
 runtimeversie op `fingerprint` staat.
 
-### Waar je nog geen oog op hebt
+### Als er iets misgaat
 
-Er zit **geen foutmelding naar jou** in de app. Crasht hij bij een gebruiker,
-dan hoor je dat alleen als die het zelf meldt. Sentry toevoegen is ongeveer een
-half uur werk en vereist één build. Niet nodig om te lanceren, maar wel iets om
-te overwegen zodra er echt mensen op zitten — juist omdat je zei dat de app niet
-mag omvallen.
+Crasht de app bij een gebruiker, dan krijg je daar nu bericht van in Sentry
+(zodra je de DSN hebt ingevuld, stap 2). De gebruiker ziet geen wit scherm meer
+maar een melding met twee knoppen; de tweede wist de opgeslagen gegevens, zodat
+een beschadigde cache geen app oplevert die bij elke start opnieuw omvalt.
+
+Is de oorzaak JavaScript — en dat is het bijna altijd — dan los je het op en
+stuur je het dezelfde dag door met `eas update`, zonder nieuwe build en zonder
+review.
