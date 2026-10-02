@@ -31,7 +31,7 @@ is de valkuil in dit hele verhaal.
 > | Jouw uploadsleutel | preview-builds, APK's die je zelf installeert | `eas credentials` (deel A) |
 > | Google's app signing key | de app uit de Play Store | Play Console, **pas nadat je je eerste .aab hebt geüpload** |
 >
-> Nu voeg je de eerste toe. De tweede doe je in deel G, na je eerste upload.
+> Nu voeg je de eerste toe. De tweede doe je in deel F, na je eerste upload.
 
 **A1.** Open je terminal en typ:
 
