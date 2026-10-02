@@ -12,7 +12,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "nl.snackspert.app",
       "config": {
-        "googleMapsApiKey": "AIzaSyASmO1Ml_6yLt3JPInfd_5CJhA5eKMI9bg"
+        "googleMapsApiKey": "AIzaSyA6vrmPznF3inOU_qilmTJ9ZIGDe_CPTRs"
       },
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Snackspert gebruikt je locatie om restaurants bij jou in de buurt te tonen.",
@@ -39,7 +39,7 @@
       ],
       "config": {
         "googleMaps": {
-          "apiKey": "AIzaSyDkif9TtH9FtojtKmFSgEVMHh10QRf21tw"
+          "apiKey": "AIzaSyBBtvh0w6Of1BFAAjE9rssVlfwZTVdE2BI"
         }
       }
     },
