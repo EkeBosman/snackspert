@@ -43,12 +43,16 @@ npx eas-cli credentials --platform android
 **A2.** Vraagt hij *"Which build profile do you want to configure?"* — kies
 **production**.
 
-**A3.** Kies in het menu: `Keystore: Manage everything needed to build your project`
+**A3.** Nu staat er meteen een overzicht op je scherm, met daarin de regel
+**SHA1 Fingerprint**. Kopieer die waarde — een lange reeks met dubbele punten,
+zoiets als `A1:B2:C3:...`
 
-**A4.** Er verschijnt een overzicht. Kopieer de waarde achter **SHA1
-Fingerprint** — een lange reeks met dubbele punten, zoiets als `A1:B2:C3:...`
+Je hoeft het menu eronder niet in; de vingerafdruk staat er al.
 
-**A5.** Druk op Ctrl+C om het menu te verlaten.
+**A4.** Kies **Exit** om af te sluiten.
+
+> Zo'n vingerafdruk is geen wachtwoord: hij zit in elk installatiebestand en is
+> openbaar. Je mag hem dus gewoon rondsturen.
 
 ---
 
