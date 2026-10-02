@@ -1,4 +1,4 @@
-import React, { useState, useRef, useMemo, useEffect } from 'react';
+import React, { useState, useRef, useMemo, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
@@ -9,7 +9,7 @@ import {
   Modal,
   FlatList,
 } from 'react-native';
-import MapView, { Marker, PROVIDER_GOOGLE } from 'react-native-maps';
+import MapView, { Marker, PROVIDER_GOOGLE, Region } from 'react-native-maps';
 import { router } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -142,18 +142,9 @@ export default function MapScreen() {
     return Array.from(map.values()).sort((a, b) => b.restaurants.length - a.restaurants.length);
   }, [restaurantsOpKaart]);
 
-  // Zoom mee met het filter: zodra je een stad of categorie kiest, past de
-  // kaart zich aan op de resultaten. Bewust alleen op een filterwijziging —
-  // niet op elke data-update, anders springt de kaart tijdens het laden terug
-  // terwijl je aan het slepen bent.
-  const filterSleutel = JSON.stringify(filters);
-  const eersteFilterRun = useRef(true);
-  useEffect(() => {
-    if (eersteFilterRun.current) {
-      eersteFilterRun.current = false;
-      return;
-    }
-    const coords = restaurantsOpKaart
+  /** Breng de kaart naar een verzameling restaurants. */
+  const zoomNaar = useCallback((lijst: Restaurant[]) => {
+    const coords = lijst
       .filter(r => r.latitude && r.longitude)
       .map(r => ({ latitude: r.latitude!, longitude: r.longitude! }));
     if (coords.length === 0) return;
@@ -168,8 +159,49 @@ export default function MapScreen() {
         animated: true,
       });
     }
+  }, []);
+
+  // Alleen bij een stadskeuze verplaatst de kaart zich: dat is zelf een "breng
+  // me daarheen". Bij een categorie, dieet of sterrenfilter blijft de kaart
+  // staan waar je kijkt — anders zou elke filterkeuze je uitzoomen naar het
+  // hele land, en dat wil je juist niet terwijl je een buurt aan het bekijken
+  // bent.
+  const eersteStadRun = useRef(true);
+  useEffect(() => {
+    if (eersteStadRun.current) {
+      eersteStadRun.current = false;
+      return;
+    }
+    if (!filters.locatie) return;
+    zoomNaar(restaurantsOpKaart);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filterSleutel]);
+  }, [filters.locatie]);
+
+  // Blijft de kaart staan, dan kan een filter alles buiten beeld duwen. Zonder
+  // uitleg lijkt de kaart dan stuk, dus we bieden één tik aan om er wel naartoe
+  // te gaan — in plaats van het ongevraagd te doen.
+  const [zichtbaarGebied, setZichtbaarGebied] = useState<Region | null>(null);
+
+  const heeftFilter =
+    filters.categorieen.length > 0 ||
+    filters.dieten.length > 0 ||
+    filters.minimumSterren > 0 ||
+    !!filters.locatie ||
+    !!filters.zoekterm;
+
+  const aantalInBeeld = useMemo(() => {
+    if (!zichtbaarGebied) return restaurantsOpKaart.length;
+    const { latitude, longitude, latitudeDelta, longitudeDelta } = zichtbaarGebied;
+    const halveHoogte = latitudeDelta / 2;
+    const halveBreedte = longitudeDelta / 2;
+    return restaurantsOpKaart.filter(
+      r =>
+        Math.abs(r.latitude! - latitude) <= halveHoogte &&
+        Math.abs(r.longitude! - longitude) <= halveBreedte
+    ).length;
+  }, [restaurantsOpKaart, zichtbaarGebied]);
+
+  const buitenBeeld = heeftFilter && restaurantsOpKaart.length > 0 && aantalInBeeld === 0;
 
   const handleCalloutPress = (restaurant: Restaurant) => {
     router.push({
@@ -185,21 +217,7 @@ export default function MapScreen() {
   const handleSelectLand = (groep: LandGroep) => {
     setLandMenuOpen(false);
     setSelectedRestaurant(null);
-    const coords = groep.restaurants
-      .filter(r => r.latitude && r.longitude)
-      .map(r => ({ latitude: r.latitude!, longitude: r.longitude! }));
-    if (coords.length === 0) return;
-    if (coords.length === 1) {
-      mapRef.current?.animateToRegion(
-        { ...coords[0], latitudeDelta: 0.05, longitudeDelta: 0.05 },
-        500
-      );
-    } else {
-      mapRef.current?.fitToCoordinates(coords, {
-        edgePadding: { top: 80, right: 60, bottom: 180, left: 60 },
-        animated: true,
-      });
-    }
+    zoomNaar(groep.restaurants);
   };
 
   const handleMyLocation = async () => {
@@ -274,6 +292,23 @@ export default function MapScreen() {
         </Text>
       )}
 
+      {/* Alles weggefilterd buiten dit kaartbeeld: aanbieden, niet opdringen. */}
+      {buitenBeeld && (
+        <TouchableOpacity
+          style={styles.buitenBeeldBalk}
+          onPress={() => zoomNaar(restaurantsOpKaart)}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="locate-outline" size={15} color={Colors.text} />
+          <Text style={styles.buitenBeeldText}>
+            {restaurantsOpKaart.length === 1
+              ? '1 resultaat, buiten dit gebied'
+              : `${restaurantsOpKaart.length} resultaten, buiten dit gebied`}
+          </Text>
+          <Text style={styles.buitenBeeldActie}>Toon</Text>
+        </TouchableOpacity>
+      )}
+
       {/* Kaart */}
       <MapView
         ref={mapRef}
@@ -284,6 +319,7 @@ export default function MapScreen() {
         showsMyLocationButton={false}
         showsCompass
         mapType="standard"
+        onRegionChangeComplete={setZichtbaarGebied}
       >
         {restaurantsOpKaart.map(restaurant => (
           <RestaurantMarker
@@ -458,6 +494,27 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm,
     fontSize: FontSize.xs,
     color: Colors.categoryText,
+  },
+  buitenBeeldBalk: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    backgroundColor: Colors.categoryBg,
+  },
+  buitenBeeldText: {
+    flex: 1,
+    fontSize: FontSize.xs,
+    color: Colors.text,
+  },
+  buitenBeeldActie: {
+    fontSize: FontSize.xs,
+    fontWeight: '700',
+    color: Colors.primaryDark,
   },
   infoText: {
     fontSize: FontSize.sm,
