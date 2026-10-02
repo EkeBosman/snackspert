@@ -58,6 +58,14 @@
       "eas": {
         "projectId": "fd962018-0ade-40ff-9d39-3f318f026d24"
       }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/fd962018-0ade-40ff-9d39-3f318f026d24",
+      "enabled": true,
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "fingerprint"
     }
   }
 }
