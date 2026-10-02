@@ -3,7 +3,6 @@ import { Restaurant, RestaurantSummary, WPRestaurant } from '../types';
 
 const BASE_URL = 'https://snackspert.nl';
 const API_URL = `${BASE_URL}/wp-json/wp/v2`;
-const GOOGLE_MAPS_API_KEY = 'AIzaSyASmO1Ml_6yLt3JPInfd_5CJhA5eKMI9bg';
 const FETCH_TIMEOUT = 15000;
 
 /**
@@ -162,9 +161,8 @@ function telSterren(tekst: string): { sterren: number; sterrenTekst: string } {
  * de sterren en de recensietekst: die staan nergens anders dan in de pagina
  * zelf — niet in de REST API, niet in de Yoast-gegevens en niet in de feed.
  *
- * Als `bestaandeCoords` wordt meegegeven (bijv. uit de cache), slaan we de
- * dure Google Geocoding-call over. Coördinaten van een adres veranderen immers
- * nooit, dus die hoeven we maar één keer ooit op te halen.
+ * `bestaandeCoords` wordt onveranderd doorgegeven, zodat de aanroeper de
+ * coördinaten niet kwijtraakt die hij al had.
  */
 export async function fetchRestaurantDetail(
   url: string,
@@ -234,39 +232,26 @@ export async function fetchRestaurantDetail(
     result.sterrenTekst = '⭐'.repeat(volle) + (halve ? '½' : '');
   }
 
-  // Coördinaten: hergebruik bekende coords (uit cache) om geocoding te sparen,
-  // anders via Google Geocoding API op basis van het adres.
+  // Coördinaten komen in bulk uit de kaartdata op /restaurants/ (zie
+  // services/lijst.ts), dus hier geven we alleen door wat we al hadden.
+  //
+  // Er stond hier een terugval die het adres bij Google liet geocoderen. Die is
+  // weg, en wel om twee redenen. De coördinaten van vrijwel alle restaurants
+  // komen nu al in één verzoek mee, dus er viel niets te winnen. En de
+  // Geocoding API is een webdienst: een sleutel daarvoor kan níet worden
+  // beperkt tot een app, alleen tot IP-adressen. Zo'n sleutel in een publieke
+  // app is dus per definitie onbeveiligd — en iedereen die hem eruit haalt, kan
+  // op jouw rekening geocoderen.
+  //
+  // Gevolg: een restaurant zonder coördinaten op de site krijgt geen pin. Het
+  // staat wel in de lijst, en op de kaart van de site zelf ontbreekt het net zo
+  // goed. Dat hoort dus op de site opgelost te worden, niet in de app.
   if (bestaandeCoords && bestaandeCoords.lat && bestaandeCoords.lng) {
     result.latitude = bestaandeCoords.lat;
     result.longitude = bestaandeCoords.lng;
-  } else if (result.adres) {
-    try {
-      const coords = await geocodeAdres(result.adres);
-      if (coords) {
-        result.latitude = coords.lat;
-        result.longitude = coords.lng;
-      }
-    } catch {}
   }
 
   return result;
-}
-
-/**
- * Geocodeer een adres naar coördinaten via Google Geocoding API.
- */
-async function geocodeAdres(adres: string): Promise<{ lat: number; lng: number } | null> {
-  try {
-    const encoded = encodeURIComponent(adres);
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encoded}&key=${GOOGLE_MAPS_API_KEY}`;
-    const resp = await fetchMetTimeout(url, 5000);
-    const data = await resp.json();
-    if (data.status === 'OK' && data.results?.[0]) {
-      const loc = data.results[0].geometry.location;
-      return { lat: loc.lat, lng: loc.lng };
-    }
-  } catch {}
-  return null;
 }
 
 // De oude fetchCategorieen() stond hier. Die vroeg de taxonomie

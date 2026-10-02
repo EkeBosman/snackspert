@@ -6,37 +6,56 @@ Afvinklijst voor de eerste publieke release. Van boven naar beneden.
 
 ## 1. Beveilig je Google Maps-sleutels — doe dit eerst
 
-Je twee sleutels staan in `app.json`, en dat kan niet anders: een app moet ze
-kunnen lezen. Maar daarmee staan ze ook in het installatiebestand, en dat is
-straks publiek te downloaden. Een onbeperkte sleutel kan iedereen gebruiken, en
-de rekening komt op jouw Google-account.
+Je sleutels staan in `app.json`, en dat kan niet anders: een app moet ze kunnen
+lezen. Maar daarmee staan ze ook in het installatiebestand, en dat is straks
+publiek te downloaden. Een onbeperkte sleutel kan iedereen gebruiken, en de
+rekening komt op jouw Google-account.
 
-Ga naar [Google Cloud → Credentials](https://console.cloud.google.com/apis/credentials)
-en beperk beide sleutels:
+**Belangrijk:** deze sleutels staan *niet* in EAS. `eas credentials` beheert
+alleen je ondertekening voor Apple en Google (certificaten, keystore). API-
+sleutels regel je in de
+[Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials).
 
-**iOS-sleutel** (`AIzaSyASmO...MI9bg`)
-- Application restrictions → **iOS apps** → bundle ID: `nl.snackspert.app`
-- API restrictions → alleen *Maps SDK for iOS* en *Geocoding API*
+### Android-sleutel (`AIzaSyDkif...Rf21tw`)
 
-**Android-sleutel** (`AIzaSyDkif...Rf21tw`)
-- Application restrictions → **Android apps** → package: `nl.snackspert.app`
-  en de SHA-1 van je release-keystore
-- API restrictions → alleen *Maps SDK for Android*
+Deze heb je zelf aangemaakt, dus die vind je terug in hetzelfde Cloud-project.
 
-Je SHA-1 opvragen:
+- Application restrictions → **Android apps**
+- Package name: `nl.snackspert.app`
+- SHA-1: die van je release-keystore, op te vragen met
 
 ```
 npx eas-cli credentials --platform android
 ```
 
-Kies je project → *Keystore: Manage everything* → de SHA-1 staat in het
-overzicht.
+(kies je project → *Keystore: Manage everything* → de SHA-1 staat in het
+overzicht)
 
-Zet daarna ook een **budgetwaarschuwing** op je Google Cloud-project
-(Billing → Budgets & alerts), bijvoorbeeld op € 20. Dan hoor je het als er iets
-misgaat in plaats van het pas op de rekening te zien.
+- API restrictions → alleen **Maps SDK for Android**
 
----
+### iOS-sleutel (`AIzaSyASmO...MI9bg`)
+
+Zie je deze niet in de lijst, dan hoort hij bij een **ander Cloud-project**. Je
+hebt de Android-sleutel later in een nieuw project aangemaakt; de iOS-sleutel is
+van eerder. Kijk in het projectmenu bovenin — er is geen zoekfunctie over alle
+projecten heen, dus je moet ze langslopen.
+
+Makkelijker is het om hem gewoon te vervangen, en dat is ook netter:
+
+1. Maak in **hetzelfde project als de Android-sleutel** een nieuwe sleutel aan
+2. Application restrictions → **iOS apps** → bundle ID: `nl.snackspert.app`
+3. API restrictions → alleen **Maps SDK for iOS**
+4. Stuur me de nieuwe sleutel, dan zet ik hem in `app.json` — of vervang zelf de
+   waarde bij `ios.config.googleMapsApiKey`
+
+Verwijder de oude pas nadat je nieuwe build draait: de preview-app die nu op je
+telefoon staat gebruikt hem nog, en zonder sleutel blijft de kaart daar leeg.
+
+### Budgetwaarschuwing
+
+Zet een waarschuwing op je Cloud-project (Billing → Budgets & alerts),
+bijvoorbeeld op € 20. Dan hoor je het als er iets misgaat in plaats van het pas
+op de rekening te zien.
 
 ## 2. Zet je Sentry-DSN erin
 
@@ -123,11 +142,18 @@ een recensiepagina, en Opgeslagen.
 
 Twee dingen die je kunnen verrassen:
 
-**Testvereiste.** Is je Google Play-ontwikkelaarsaccount een persoonlijk account
-dat na november 2023 is aangemaakt, dan eist Google eerst een gesloten test met
-**minimaal 12 testers, 14 dagen aaneengesloten**, voordat je publiek mag.
-Controleer dit als eerste in de Play Console onder *Dashboard → Publiceren*,
-want het bepaalt je planning.
+**Testvereiste.** Het gaat hier om de datum waarop je **Play
+Console-ontwikkelaarsaccount** is aangemaakt — dat account van eenmalig $ 25 —
+niet om de leeftijd van je Google-account. Die twee zijn los van elkaar: je kunt
+al vijftien jaar een Gmail hebben en vorige maand ontwikkelaar zijn geworden.
+
+Is dat ontwikkelaarsaccount een **persoonlijk** account van ná 13 november 2023,
+dan eist Google eerst een gesloten test met **minimaal 12 testers, 14 dagen
+aaneengesloten**. Organisatieaccounts zijn hiervan uitgezonderd.
+
+Je hoeft dit niet uit te rekenen: de Play Console zegt het zelf. Geldt het voor
+jou, dan staat de eis als taak in je publicatieoverzicht, met een teller van hoe
+veel testers je hebt. Staat die taak er niet, dan kun je direct publiceren.
 
 Valt je account eronder, dan is er geen trucje: nepaccounts zijn precies waar
 Google op controleert, en daar raak je je ontwikkelaarsaccount mee kwijt. Wel
