@@ -1,9 +1,11 @@
 /**
- * Configuratie voor de "Volg Snackspert"-modal.
+ * Configuratie voor de "Volg Snackspert"-modal en de Over-pagina.
  *
  * Kanalen zijn bewust een lijst zodat er later eenvoudig een kanaal
  * (bijv. YouTube of een nieuwsbrief) bij kan.
  */
+
+import { Linking } from 'react-native';
 
 export interface SocialKanaal {
   key: string;
@@ -43,3 +45,22 @@ export const VOLG_MODAL_TEKST = {
   subregel: 'Meer dan 750 snackreviews verzameld.',
   nietNu: 'Niet nu',
 };
+
+export const WEBSITE_URL = 'https://snackspert.nl';
+export const PRIVACY_URL = 'https://snackspert.nl/privacy/';
+
+/**
+ * Open een kanaal: eerst de app via deep link, anders de browser.
+ * Gedeeld door de volg-modal en de Over-pagina.
+ */
+export async function openSocialKanaal(k: SocialKanaal): Promise<void> {
+  try {
+    if (await Linking.canOpenURL(k.app)) {
+      await Linking.openURL(k.app);
+      return;
+    }
+  } catch {}
+  try {
+    await Linking.openURL(k.web);
+  } catch {}
+}

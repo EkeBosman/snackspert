@@ -1,8 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
-import { Linking } from 'react-native';
 import { loadEngagement, saveEngagement, EngagementState } from '../services/engagement';
 import { FollowModal } from '../components/FollowModal';
-import { SocialKanaal } from '../constants/socials';
+import { SocialKanaal, openSocialKanaal } from '../constants/socials';
 
 interface EngagementContextValue {
   /** Registreer een betekenisvolle actie (recensie bekeken, favoriet, filter, ...). */
@@ -23,18 +22,6 @@ function magTonen(s: EngagementState): boolean {
   if (!s.heeftActie) return false;
   if (s.laatstGetoond && Date.now() - s.laatstGetoond < DERTIG_DAGEN) return false;
   return true;
-}
-
-async function openKanaal(k: SocialKanaal): Promise<void> {
-  try {
-    if (await Linking.canOpenURL(k.app)) {
-      await Linking.openURL(k.app);
-      return;
-    }
-  } catch {}
-  try {
-    await Linking.openURL(k.web);
-  } catch {}
 }
 
 export function EngagementProvider({ children }: { children: ReactNode }) {
@@ -88,7 +75,7 @@ export function EngagementProvider({ children }: { children: ReactNode }) {
   }, [markActie]);
 
   const onKies = useCallback(async (k: SocialKanaal) => {
-    await openKanaal(k);
+    await openSocialKanaal(k);
     const s = stateRef.current;
     if (s) {
       const n = { ...s, gevolgd: true };

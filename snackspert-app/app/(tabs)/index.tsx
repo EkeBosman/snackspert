@@ -18,6 +18,7 @@ import { useFavorites } from '../../contexts/FavoritesContext';
 import { useEngagement } from '../../contexts/EngagementContext';
 import { useUserLocation } from '../../hooks/useUserLocation';
 import { FilterMenu } from '../../components/FilterMenu';
+import { LocationFilter } from '../../components/LocationFilter';
 import { StarRating } from '../../components/StarRating';
 import { bepaalLand, LAND_VLAGGEN } from '../../utils/land';
 import { Colors, Spacing, FontSize, BorderRadius, Shadow, MAP_INITIAL_REGION } from '../../constants/theme';
@@ -107,7 +108,9 @@ export default function MapScreen() {
     error,
     filters,
     setFilters,
+    setLocatie,
     beschikbareCategorieen,
+    beschikbareSteden,
     refresh,
   } = useRestaurants();
   const { isFavorite, toggleFavorite, isVisited, toggleVisited } = useFavorites();
@@ -137,6 +140,35 @@ export default function MapScreen() {
     }
     return Array.from(map.values()).sort((a, b) => b.restaurants.length - a.restaurants.length);
   }, [restaurantsOpKaart]);
+
+  // Zoom mee met het filter: zodra je een stad of categorie kiest, past de
+  // kaart zich aan op de resultaten. Bewust alleen op een filterwijziging —
+  // niet op elke data-update, anders springt de kaart tijdens het laden terug
+  // terwijl je aan het slepen bent.
+  const filterSleutel = JSON.stringify(filters);
+  const eersteFilterRun = useRef(true);
+  useEffect(() => {
+    if (eersteFilterRun.current) {
+      eersteFilterRun.current = false;
+      return;
+    }
+    const coords = restaurantsOpKaart
+      .filter(r => r.latitude && r.longitude)
+      .map(r => ({ latitude: r.latitude!, longitude: r.longitude! }));
+    if (coords.length === 0) return;
+    if (coords.length === 1) {
+      mapRef.current?.animateToRegion(
+        { ...coords[0], latitudeDelta: 0.05, longitudeDelta: 0.05 },
+        500
+      );
+    } else {
+      mapRef.current?.fitToCoordinates(coords, {
+        edgePadding: { top: 80, right: 60, bottom: 180, left: 60 },
+        animated: true,
+      });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filterSleutel]);
 
   const handleCalloutPress = (restaurant: Restaurant) => {
     router.push({
@@ -216,7 +248,12 @@ export default function MapScreen() {
           setFilters={setFilters}
           beschikbareCategorieen={beschikbareCategorieen}
         />
-        <Text style={styles.infoText}>
+        <LocationFilter
+          value={filters.locatie}
+          onSelect={setLocatie}
+          beschikbareSteden={beschikbareSteden}
+        />
+        <Text style={styles.infoText} numberOfLines={1}>
           {restaurantsOpKaart.length} op de kaart
         </Text>
         {isLoadingDetails && loadingProgress.total > 0 && (

@@ -27,6 +27,7 @@ export default function RootLayout() {
                 presentation: 'card',
               }}
             />
+            <Stack.Screen name="over" options={{ title: 'Over Snackspert' }} />
           </Stack>
         </FavoritesProvider>
       </EngagementProvider>

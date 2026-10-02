@@ -1,5 +1,5 @@
-import { Tabs } from 'expo-router';
-import { Image } from 'react-native';
+import { Tabs, router } from 'expo-router';
+import { Image, TouchableOpacity } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors, FontSize } from '../../constants/theme';
 import { RestaurantProvider } from '../../contexts/RestaurantContext';
@@ -12,6 +12,18 @@ const LogoTitel = () => (
   />
 );
 
+// Info-knop rechtsboven: naar de Over-pagina (socials, website, privacy).
+const InfoKnop = () => (
+  <TouchableOpacity
+    onPress={() => router.push('/over')}
+    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+    activeOpacity={0.7}
+    style={{ paddingHorizontal: 4 }}
+  >
+    <Ionicons name="information-circle-outline" size={26} color={Colors.textOnPrimary} />
+  </TouchableOpacity>
+);
+
 export default function TabLayout() {
   return (
     <RestaurantProvider>
@@ -20,6 +32,7 @@ export default function TabLayout() {
           headerStyle: { backgroundColor: Colors.primary },
           headerTintColor: Colors.textOnPrimary,
           headerTitleStyle: { fontWeight: '700', fontSize: FontSize.xl },
+          headerRight: () => <InfoKnop />,
           tabBarActiveTintColor: Colors.primary,
           tabBarInactiveTintColor: Colors.textLight,
           tabBarStyle: {
