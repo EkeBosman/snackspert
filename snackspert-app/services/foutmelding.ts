@@ -1,5 +1,6 @@
 import Constants from 'expo-constants';
 import * as Sentry from '@sentry/react-native';
+import { SENTRY_DSN } from '../constants/sentry';
 
 /**
  * Foutmeldingen die bij Eke terechtkomen in plaats van bij niemand.
@@ -7,12 +8,19 @@ import * as Sentry from '@sentry/react-native';
  * Zonder dit hoor je een crash alleen als een gebruiker hem zelf meldt, en de
  * meeste mensen melden niets — ze verwijderen de app.
  *
- * De DSN staat in app.json onder extra.sentryDsn. Is die leeg, dan doet dit
- * bestand niets: geen verbinding, geen vertraging, geen fout. Zo kan de app ook
- * draaien zonder dat er een Sentry-project achter hangt.
+ * De DSN staat in constants/sentry.ts. Is die leeg, dan doet dit bestand niets:
+ * geen verbinding, geen vertraging, geen fout. Zo kan de app ook draaien zonder
+ * dat er een Sentry-project achter hangt.
+ *
+ * app.json wordt nog als terugval gelezen, maar is niet de plek om hem te
+ * zetten: dat veld zit in de vingerafdruk van de build, dus een wijziging daar
+ * komt nooit via een update binnen. Zie constants/sentry.ts.
  */
 
-const DSN: string = (Constants.expoConfig?.extra as { sentryDsn?: string })?.sentryDsn || '';
+const UIT_APP_JSON: string =
+  (Constants.expoConfig?.extra as { sentryDsn?: string })?.sentryDsn || '';
+
+const DSN: string = SENTRY_DSN || UIT_APP_JSON;
 
 export const FOUTMELDING_AAN = DSN.length > 0;
 

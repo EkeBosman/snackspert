@@ -26,22 +26,22 @@ DSN doet hij niets: geen verbinding, geen vertraging.
 1. Maak een gratis account op [sentry.io](https://sentry.io) → nieuw project →
    platform **React Native** → noem het `snackspert`
 2. Je krijgt een **DSN** te zien (`https://...@....ingest.sentry.io/...`)
-3. Zet die in `app.json`, bij `extra.sentryDsn`:
+3. Zet die in **`constants/sentry.ts`**:
 
-```json
-"extra": {
-  "eas": { "projectId": "fd962018-0ade-40ff-9d39-3f318f026d24" },
-  "sentryDsn": "https://jouw-dsn-hier"
-}
+```ts
+export const SENTRY_DSN = 'https://jouw-dsn-hier';
 ```
 
-Dat is genoeg om crashes binnen te krijgen. De regelnummers in die meldingen
-verwijzen dan nog naar de samengevoegde code, niet naar de bestanden. Wil je
-leesbare meldingen (`index.tsx:142` in plaats van `bundle:1:284910`), stuur me
-dan je **organisatie- en projectnaam** uit Sentry, dan zet ik het laatste stuk
-erbij. Dat vereist ook een token als EAS-secret, en dat regel ik dan met je.
+4. Sturen met `npx eas-cli update --branch production --message "foutmelding aan"`
 
----
+**Dit kan dus ná je build.** Dat is precies waarom de DSN in een codebestand
+staat en niet in `app.json`: dat laatste zit in de vingerafdruk van de build, en
+een wijziging daar zou nooit via een update aankomen.
+
+De regelnummers in de meldingen verwijzen voorlopig naar de samengevoegde code.
+Wil je leesbare meldingen (`index.tsx:142` in plaats van `bundle:1:284910`),
+stuur me dan je **organisatie- en projectnaam** uit Sentry, dan zet ik dat
+erbij — dat vereist wel een nieuwe build.
 
 ## 3. De build
 
