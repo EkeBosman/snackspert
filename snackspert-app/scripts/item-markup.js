@@ -45,8 +45,15 @@ function jsObject(html, naam) {
   return null;
 }
 
-/** De template-HTML zoals FacetWP die voorlaadt — dat is precies de lijst. */
+/**
+ * De lijst zelf. Op de ongefilterde pagina zit die ook in preload_data, maar op
+ * een gefilterde pagina niet — dus we knippen hem uit de HTML.
+ */
 function template(html) {
+  const m = html.match(
+    /<div[^>]*class="[^"]*facetwp-template[^"]*"[^>]*>([\s\S]*?)(?=<div[^>]*class="[^"]*facetwp-(?:pager|facet)|<footer)/i
+  );
+  if (m) return m[1];
   return jsObject(html, 'FWP_JSON')?.preload_data?.template ?? null;
 }
 
