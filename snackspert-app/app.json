@@ -9,7 +9,7 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "nl.snackspert.app",
       "config": {
         "googleMapsApiKey": "AIzaSyASmO1Ml_6yLt3JPInfd_5CJhA5eKMI9bg"
@@ -60,7 +60,8 @@
     "extra": {
       "eas": {
         "projectId": "fd962018-0ade-40ff-9d39-3f318f026d24"
-      }
+      },
+      "sentryDsn": ""
     },
     "updates": {
       "url": "https://u.expo.dev/fd962018-0ade-40ff-9d39-3f318f026d24",

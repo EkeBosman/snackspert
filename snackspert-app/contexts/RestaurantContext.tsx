@@ -6,6 +6,7 @@ import {
 } from '../services/api';
 import { fetchSiteIndex, SiteIndex, TermOptie } from '../services/lijst';
 import { loadCache, saveCache } from '../services/cache';
+import { meldFout } from '../services/foutmelding';
 
 interface RestaurantContextValue {
   restaurants: Restaurant[];
@@ -236,6 +237,9 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
       setLoadingProgress({ loaded: teLaden.length, total: teLaden.length });
       await saveCache(all);
     } catch (e) {
+      // Hier komt alleen een echte storing terecht: losse pagina's die mislukken
+      // worden per stuk opgevangen. Dit wil je dus weten.
+      meldFout(e, 'restaurants-laden', { heeftCache });
       setError(e instanceof Error ? e.message : 'Er ging iets mis bij het laden');
       setIsLoading(false);
     } finally {
