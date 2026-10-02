@@ -58,14 +58,34 @@ npx eas-cli build --profile production --platform ios
 npx eas-cli build --profile production --platform android
 ```
 
-Daarna inzenden naar Apple:
+`eas build` bouwt alleen — doorzetten naar de winkels is een aparte stap.
+
+### iOS
 
 ```
 npx eas-cli submit --platform ios --latest
 ```
 
-Voor Android levert de production-build een `.aab` op die je in de Google Play
-Console uploadt.
+Daarmee staat hij in App Store Connect en in TestFlight. **Hij is dan nog niet
+ingezonden voor review.** Dat doe je zelf: in App Store Connect bij je App
+Store-versie deze build selecteren (de nieuwe — niet de oude build 3, die heeft
+het kapotte filter nog), teksten en screenshots invullen, en dan *Submit for
+Review*.
+
+### Android
+
+De eerste keer moet handmatig: Google staat niet toe dat je je eerste release
+via de API uploadt.
+
+1. Download de `.aab` van de buildpagina op expo.dev
+2. Play Console → app aanmaken (als die er nog niet is)
+3. Winkelvermelding, data safety en contentclassificatie invullen
+4. De `.aab` uploaden bij een release — een gesloten test is genoeg
+5. Daarna **deel G** uit `SLEUTELS.md`: de SHA-1 van Google's app signing key
+   toevoegen aan je Maps-sleutel
+
+Vanaf de tweede keer kan het ook met `eas submit --platform android`, maar dat
+vraagt een service-account-sleutel.
 
 ---
 
