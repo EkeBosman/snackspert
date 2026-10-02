@@ -1,122 +1,121 @@
 # Google Maps-sleutels beveiligen — klik voor klik
 
-Je hebt twee sleutels nodig: één voor Android, één voor iOS. Ze komen straks
-allebei in hetzelfde Google Cloud-project te staan.
+Je krijgt **twee nieuwe sleutels**: één voor Android, één voor iOS. De sleutel
+die je nu hebt laat je met rust — die is van je website.
 
 Reken op een kwartier.
 
 ---
 
-## Deel A — Vraag je SHA-1 op
+## Waarom nieuwe sleutels?
 
-Je hebt er straks **twee** nodig. Lees eerst het kadertje hieronder, want dat
-is de valkuil in dit hele verhaal.
+De sleutel `AIzaSyDkif...` wordt op dit moment gebruikt voor geocoding,
+directions, places, static maps en street view. Je app gebruikt daar niets van,
+dus dat is **snackspert.nl zelf**: de kaart op je site, de routeknoppen op je
+recensiepagina's, en het geocoderen van adressen als je een restaurant
+toevoegt.
+
+Zet je op die sleutel een beperking als "alleen Android apps", dan gaat je
+website stuk. Daarom:
+
+| Waarvoor | Welke sleutel | Beperking |
+|---|---|---|
+| snackspert.nl | de bestaande `AIzaSyDkif...` | laat voorlopig staan — zie deel G |
+| Android-app | nieuw, deel B | Android apps + Maps SDK for Android |
+| iOS-app | nieuw, deel D | iOS apps + Maps SDK for iOS |
+
+Eén sleutel per gebruik betekent ook: gaat er ooit één fout, dan ligt niet
+alles plat.
+
+---
+
+## Deel A — Je SHA-1
+
+Die heb je al opgehaald:
+
+```
+D1:77:9E:4C:8A:12:35:50:3E:AC:23:43:E6:4B:2E:87:46:98:A5:BE
+```
+
+Je hebt er straks nog een tweede bij nodig, maar die bestaat nog niet.
 
 > ### Waarom twee?
 >
 > Google Play ondertekent je app opnieuw. Jouw keystore is alleen een
-> *uploadsleutel*; de app die gebruikers uit de Play Store installeren is
+> *uploadsleutel*; de app die mensen uit de Play Store installeren is
 > ondertekend met een sleutel van Google zelf. Dat is verplicht voor alle
 > nieuwe apps.
 >
-> Beperk je je Maps-sleutel dus alleen tot jouw eigen SHA-1, dan **werkt de
-> kaart niet voor iedereen die de app uit de Play Store haalt** — terwijl hij
-> bij jou op je testtoestel gewoon werkt. Dat is een fout die je pas na
-> publicatie ontdekt.
->
-> Daarom zet je er beide in:
+> Zet je alleen je eigen SHA-1 erin, dan werkt de kaart op je testtoestel wél
+> en voor Play Store-gebruikers **niet** — een fout die je pas na publicatie
+> ontdekt.
 >
 > | Welke | Waarvoor | Waar vandaan |
 > |---|---|---|
-> | Jouw uploadsleutel | preview-builds, APK's die je zelf installeert | `eas credentials` (deel A) |
-> | Google's app signing key | de app uit de Play Store | Play Console, **pas nadat je je eerste .aab hebt geüpload** |
->
-> Nu voeg je de eerste toe. De tweede doe je in deel F, na je eerste upload.
-
-**A1.** Open je terminal en typ:
-
-```
-cd ~/snackspert/snackspert-app
-npx eas-cli credentials --platform android
-```
-
-**A2.** Vraagt hij *"Which build profile do you want to configure?"* — kies
-**production**.
-
-**A3.** Nu staat er meteen een overzicht op je scherm, met daarin de regel
-**SHA1 Fingerprint**. Kopieer die waarde — een lange reeks met dubbele punten,
-zoiets als `A1:B2:C3:...`
-
-Je hoeft het menu eronder niet in; de vingerafdruk staat er al.
-
-**A4.** Kies **Exit** om af te sluiten.
-
-> Zo'n vingerafdruk is geen wachtwoord: hij zit in elk installatiebestand en is
-> openbaar. Je mag hem dus gewoon rondsturen.
+> | Jouw uploadsleutel | builds die je zelf installeert | hierboven |
+> | Google's app signing key | de app uit de Play Store | Play Console, ná je eerste `.aab`-upload → deel F |
 
 ---
 
-## Deel B — De Android-sleutel beveiligen
+## Deel B — Nieuwe Android-sleutel
 
 **B1.** Ga naar https://console.cloud.google.com/apis/credentials
 
-**B2.** Kijk bovenin, naast het Google Cloud-logo. Daar staat de naam van je
-project. Klik erop en kies het project waar je **Android**-sleutel in staat
-(dat is het project dat je laatst hebt aangemaakt).
+**B2.** Kijk bovenin naast het Google Cloud-logo. Daar staat je projectnaam.
+Zorg dat dit het project is waar je huidige sleutel in staat
+(`ecstatic-cosmos-420412`).
 
-**B3.** Je ziet nu een lijst **API keys**. Klik op de naam van de sleutel die
-begint met `AIzaSyDkif`.
+**B3.** Klik bovenaan op **+ CREATE CREDENTIALS** → **API key**.
 
-**B4.** Geef hem bovenaan een duidelijke naam: `Snackspert Android`
+**B4.** Er verschijnt een venster met je nieuwe sleutel. **Kopieer hem** en zet
+hem even in een kladbestand. Klik dan op **Edit API key**.
 
-**B5.** Zoek het kopje **Application restrictions**. Kies **Android apps**.
+**B5.** Geef hem bovenaan de naam: `Snackspert Android app`
 
-**B6.** Klik op **ADD** (of `+ Add an item`).
+**B6.** Bij **Application restrictions**: kies **Android apps**.
 
-**B7.** Vul in:
+**B7.** Klik op **ADD** en vul in:
 - *Package name:* `nl.snackspert.app`
-- *SHA-1 certificate fingerprint:* de waarde uit stap A4
+- *SHA-1 certificate fingerprint:* de reeks uit deel A
 
 **B8.** Klik **DONE**. (In deel F komt hier een tweede regel bij.)
 
-**B9.** Zoek het kopje **API restrictions**. Kies **Restrict key**.
+**B9.** Bij **API restrictions**: kies **Restrict key**.
 
 **B10.** Open de keuzelijst en vink alleen aan: **Maps SDK for Android**
 
 **B11.** Klik onderaan **SAVE**.
 
-> Het kan tot vijf minuten duren voordat dit werkt. Dat is normaal.
+> Nu krijg je **geen** waarschuwing over actief gebruik: deze sleutel is nieuw
+> en wordt nog nergens gebruikt. Krijg je die waarschuwing wél, dan zit je per
+> ongeluk in de oude sleutel — ga terug.
 
 ---
 
-## Deel C — Zet Maps SDK for iOS aan in dit project
+## Deel C — Zet Maps SDK for iOS aan
 
-Dit moet vóór deel D, anders werkt de nieuwe sleutel niet.
+Dit moet vóór deel D, anders werkt de nieuwe iOS-sleutel niet.
 
 **C1.** Ga naar https://console.cloud.google.com/apis/library
 
-**C2.** Let op dat bovenin nog hetzelfde project staat als bij B2.
+**C2.** Let op dat bovenin nog hetzelfde project staat.
 
 **C3.** Zoek op: `Maps SDK for iOS`
 
-**C4.** Klik op het resultaat en klik op **ENABLE**.
+**C4.** Klik op het resultaat en klik op **ENABLE**. (Staat er al *Manage*, dan
+is het goed.)
 
 ---
 
-## Deel D — Een nieuwe iOS-sleutel maken
-
-De oude iOS-sleutel staat in een ander project en is lastig te vinden. We maken
-een nieuwe; dat is sneller en netter.
+## Deel D — Nieuwe iOS-sleutel
 
 **D1.** Ga terug naar https://console.cloud.google.com/apis/credentials
 
-**D2.** Klik bovenaan op **+ CREATE CREDENTIALS** → **API key**.
+**D2.** Klik op **+ CREATE CREDENTIALS** → **API key**.
 
-**D3.** Er verschijnt een venster met je nieuwe sleutel. **Kopieer hem** en
-bewaar hem even. Klik dan op **Edit API key** (of sluit het venster en klik in
-de lijst op de nieuwe sleutel).
+**D3.** **Kopieer de sleutel** en klik op **Edit API key**.
 
-**D4.** Geef hem de naam: `Snackspert iOS`
+**D4.** Naam: `Snackspert iOS app`
 
 **D5.** Bij **Application restrictions**: kies **iOS apps**.
 
@@ -124,84 +123,96 @@ de lijst op de nieuwe sleutel).
 
 **D7.** Klik **DONE**.
 
-**D8.** Bij **API restrictions**: kies **Restrict key** en vink alleen aan:
+**D8.** Bij **API restrictions**: **Restrict key** → alleen
 **Maps SDK for iOS**
 
 **D9.** Klik **SAVE**.
 
-**D10.** Stuur me de nieuwe sleutel uit stap D3, dan zet ik hem in de app.
+---
+
+## Deel E — Stuur me beide sleutels
+
+Uit stap B4 en D3. Dan zet ik ze in `app.json` en kun je bouwen.
+
+Wil je het zelf doen: in `app.json` staan ze bij
+`ios.config.googleMapsApiKey` en `android.config.googleMaps.apiKey`.
 
 ---
 
-## Deel E — Budgetwaarschuwing
+## Deel F — Budgetwaarschuwing
 
-Zodat je het hoort als er iets misgaat, in plaats van het op de rekening te
-zien.
+Nu extra belangrijk, want de sleutel van je website blijft nog onbeperkt.
 
-**E1.** Ga naar https://console.cloud.google.com/billing
+**F1.** Ga naar https://console.cloud.google.com/billing
 
-**E2.** Klik op je factureringsaccount.
+**F2.** Klik op je factureringsaccount.
 
-**E3.** Klik links op **Budgets & alerts**.
+**F3.** Klik links op **Budgets & alerts**.
 
-**E4.** Klik **CREATE BUDGET**.
+**F4.** Klik **CREATE BUDGET**.
 
-**E5.** Naam: `Snackspert`. Bedrag: `20` euro per maand.
+**F5.** Naam: `Snackspert`. Bedrag: `20` euro per maand.
 
-**E6.** Laat de waarschuwingsdrempels staan zoals ze zijn (50%, 90%, 100%) en
-klik **FINISH**.
+**F6.** Laat de drempels staan (50%, 90%, 100%) en klik **FINISH**.
 
 ---
 
-## Deel F — Na je eerste upload naar Google Play
+## Deel G — Na je eerste upload naar Google Play
 
 **Niet vergeten.** Zonder deze stap blijft de kaart grijs voor iedereen die de
 app uit de Play Store installeert.
 
-**F1.** Upload je `.aab` naar de Play Console (dat hoeft nog niet publiek te
-zijn — een gesloten test is genoeg).
+**G1.** Upload je `.aab` naar de Play Console (een gesloten test is genoeg).
 
-**F2.** Ga in de Play Console naar **Release → Setup → App signing**
+**G2.** Ga naar **Release → Setup → App signing**
 (Nederlands: *Release → Instellen → App-ondertekening*).
 
-**F3.** Onder **App signing key certificate** staat een **SHA-1 certificate
+**G3.** Onder **App signing key certificate** staat een **SHA-1 certificate
 fingerprint**. Kopieer die.
 
-**F4.** Ga terug naar je Android-sleutel in de Google Cloud Console
-(deel B), klik bij *Application restrictions* op **ADD**, en voeg een tweede
-regel toe:
+**G4.** Ga terug naar je Android-sleutel uit deel B, klik bij *Application
+restrictions* op **ADD**, en voeg toe:
 - *Package name:* `nl.snackspert.app`
-- *SHA-1:* de waarde uit stap G3
+- *SHA-1:* de waarde uit G3
 
-**F5.** Klik **DONE** en **SAVE**.
-
-Nu werken beide: je eigen builds én de versie uit de Play Store.
+**G5.** **DONE** → **SAVE**.
 
 ---
 
-## Deel G — Pas later: de oude sleutel opruimen
+## Deel H — Later: de sleutel van je website
 
-**Doe dit niet nu.** De app die nu op je telefoon staat gebruikt de oude
-iOS-sleutel nog; verwijder je hem meteen, dan blijft de kaart daar leeg.
+Dit is een apart klusje, en het kan wachten tot na de lancering. Maar laat het
+niet liggen: die sleutel is nu onbeperkt, en hij staat in de broncode van je
+website — dus iedereen kan hem uit je pagina halen.
 
-Zodra je nieuwe build draait en je hebt gecontroleerd dat de kaart werkt:
+Het beveiligen gaat anders dan bij een app: een website beperk je op
+**HTTP referrer**, niet op een bundle-id.
 
-**G1.** Zoek het Cloud-project waar de oude sleutel `AIzaSyASmO` in staat.
+1. Open de sleutel `AIzaSyDkif...`
+2. *Application restrictions* → **Websites**
+3. Voeg toe: `https://snackspert.nl/*` en `https://www.snackspert.nl/*`
+4. *API restrictions* → laat voorlopig **alle** API's aan staan
 
-**G2.** Vink hem aan in de lijst en klik **DELETE**.
+Die laatste stap is bewust voorzichtig. Welke API's je site precies gebruikt
+weten we niet, en de waarschuwing noemde er elf. Beperk je de verkeerde, dan
+gaat je site stuk. Eerst de referrer vastzetten is al het grootste deel van de
+winst: dan kan niemand jouw sleutel meer vanaf zijn eigen site gebruiken.
+
+Wil je het daarna helemaal goed doen, dan kijken we samen in **Metrics
+Explorer** welke API's werkelijk gebruikt worden, en beperken we het tot die
+lijst.
 
 ---
 
 ## Als de kaart grijs blijft na de nieuwe build
 
-Dan is er iets met de sleutel, en bijna altijd is het één van deze drie:
+Bijna altijd één van deze drie:
 
 1. **De verkeerde API aangevinkt.** Android heeft *Maps SDK for Android*, iOS
    heeft *Maps SDK for iOS*. Ze zijn niet uitwisselbaar.
 2. **De SDK staat niet aan in het project** (deel C).
-3. **De SHA-1 klopt niet.** Werkt de kaart bij jou wél maar bij gebruikers uit
-   de Play Store niet, dan is deel F overgeslagen — dan mist Google's eigen
-   app signing-SHA-1.
+3. **Deel G overgeslagen.** Werkt de kaart bij jou wel en bij Play
+   Store-gebruikers niet, dan is dat het.
 
-Je kunt ook tijdelijk alle beperkingen weghalen om te zien of het dáár aan ligt.
-Zet ze er dan wel meteen weer op.
+Een beperking kan tot vijf minuten duren voordat hij werkt. Schrik dus niet als
+het meteen na SAVE nog niet klopt.
