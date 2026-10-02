@@ -7,9 +7,31 @@ Reken op een kwartier.
 
 ---
 
-## Deel A — Vraag eerst je SHA-1 op
+## Deel A — Vraag je SHA-1 op
 
-Die heb je nodig bij stap B7. Zet hem even in een kladbestand.
+Je hebt er straks **twee** nodig. Lees eerst het kadertje hieronder, want dat
+is de valkuil in dit hele verhaal.
+
+> ### Waarom twee?
+>
+> Google Play ondertekent je app opnieuw. Jouw keystore is alleen een
+> *uploadsleutel*; de app die gebruikers uit de Play Store installeren is
+> ondertekend met een sleutel van Google zelf. Dat is verplicht voor alle
+> nieuwe apps.
+>
+> Beperk je je Maps-sleutel dus alleen tot jouw eigen SHA-1, dan **werkt de
+> kaart niet voor iedereen die de app uit de Play Store haalt** — terwijl hij
+> bij jou op je testtoestel gewoon werkt. Dat is een fout die je pas na
+> publicatie ontdekt.
+>
+> Daarom zet je er beide in:
+>
+> | Welke | Waarvoor | Waar vandaan |
+> |---|---|---|
+> | Jouw uploadsleutel | preview-builds, APK's die je zelf installeert | `eas credentials` (deel A) |
+> | Google's app signing key | de app uit de Play Store | Play Console, **pas nadat je je eerste .aab hebt geüpload** |
+>
+> Nu voeg je de eerste toe. De tweede doe je in deel G, na je eerste upload.
 
 **A1.** Open je terminal en typ:
 
@@ -18,13 +40,13 @@ cd ~/snackspert/snackspert-app
 npx eas-cli credentials --platform android
 ```
 
-**A2.** Kies je project als hij dat vraagt.
+**A2.** Vraagt hij *"Which build profile do you want to configure?"* — kies
+**production**.
 
 **A3.** Kies in het menu: `Keystore: Manage everything needed to build your project`
 
-**A4.** Er verschijnt een overzicht met regels als `SHA1 Fingerprint`. Kopieer
-de waarde achter **SHA1** — een lange reeks met dubbele punten, zoiets als
-`A1:B2:C3:...`
+**A4.** Er verschijnt een overzicht. Kopieer de waarde achter **SHA1
+Fingerprint** — een lange reeks met dubbele punten, zoiets als `A1:B2:C3:...`
 
 **A5.** Druk op Ctrl+C om het menu te verlaten.
 
@@ -51,7 +73,7 @@ begint met `AIzaSyDkif`.
 - *Package name:* `nl.snackspert.app`
 - *SHA-1 certificate fingerprint:* de waarde uit stap A4
 
-**B8.** Klik **DONE**.
+**B8.** Klik **DONE**. (In deel F komt hier een tweede regel bij.)
 
 **B9.** Zoek het kopje **API restrictions**. Kies **Restrict key**.
 
@@ -127,16 +149,42 @@ klik **FINISH**.
 
 ---
 
-## Deel F — Pas later: de oude sleutel opruimen
+## Deel F — Na je eerste upload naar Google Play
+
+**Niet vergeten.** Zonder deze stap blijft de kaart grijs voor iedereen die de
+app uit de Play Store installeert.
+
+**F1.** Upload je `.aab` naar de Play Console (dat hoeft nog niet publiek te
+zijn — een gesloten test is genoeg).
+
+**F2.** Ga in de Play Console naar **Release → Setup → App signing**
+(Nederlands: *Release → Instellen → App-ondertekening*).
+
+**F3.** Onder **App signing key certificate** staat een **SHA-1 certificate
+fingerprint**. Kopieer die.
+
+**F4.** Ga terug naar je Android-sleutel in de Google Cloud Console
+(deel B), klik bij *Application restrictions* op **ADD**, en voeg een tweede
+regel toe:
+- *Package name:* `nl.snackspert.app`
+- *SHA-1:* de waarde uit stap G3
+
+**F5.** Klik **DONE** en **SAVE**.
+
+Nu werken beide: je eigen builds én de versie uit de Play Store.
+
+---
+
+## Deel G — Pas later: de oude sleutel opruimen
 
 **Doe dit niet nu.** De app die nu op je telefoon staat gebruikt de oude
 iOS-sleutel nog; verwijder je hem meteen, dan blijft de kaart daar leeg.
 
 Zodra je nieuwe build draait en je hebt gecontroleerd dat de kaart werkt:
 
-**F1.** Zoek het Cloud-project waar de oude sleutel `AIzaSyASmO` in staat.
+**G1.** Zoek het Cloud-project waar de oude sleutel `AIzaSyASmO` in staat.
 
-**F2.** Vink hem aan in de lijst en klik **DELETE**.
+**G2.** Vink hem aan in de lijst en klik **DELETE**.
 
 ---
 
@@ -147,8 +195,9 @@ Dan is er iets met de sleutel, en bijna altijd is het één van deze drie:
 1. **De verkeerde API aangevinkt.** Android heeft *Maps SDK for Android*, iOS
    heeft *Maps SDK for iOS*. Ze zijn niet uitwisselbaar.
 2. **De SDK staat niet aan in het project** (deel C).
-3. **De SHA-1 hoort bij de verkeerde keystore.** Bouw je met EAS, dan moet het
-   de SHA-1 zijn uit `eas credentials`, niet die van een lokale debug-keystore.
+3. **De SHA-1 klopt niet.** Werkt de kaart bij jou wél maar bij gebruikers uit
+   de Play Store niet, dan is deel F overgeslagen — dan mist Google's eigen
+   app signing-SHA-1.
 
 Je kunt ook tijdelijk alle beperkingen weghalen om te zien of het dáár aan ligt.
 Zet ze er dan wel meteen weer op.
