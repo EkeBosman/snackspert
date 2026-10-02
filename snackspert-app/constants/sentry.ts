@@ -12,4 +12,5 @@
  *
  * Leeg laten betekent: geen foutmeldingen, en de app doet niets extra.
  */
-export const SENTRY_DSN = '';
+export const SENTRY_DSN =
+  'https://d8b20384cbf99422f1bdb3dc6f910415@o4512186913390592.ingest.de.sentry.io/4512186915618896';
