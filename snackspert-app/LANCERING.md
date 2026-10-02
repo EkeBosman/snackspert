@@ -7,55 +7,16 @@ Afvinklijst voor de eerste publieke release. Van boven naar beneden.
 ## 1. Beveilig je Google Maps-sleutels — doe dit eerst
 
 Je sleutels staan in `app.json`, en dat kan niet anders: een app moet ze kunnen
-lezen. Maar daarmee staan ze ook in het installatiebestand, en dat is straks
-publiek te downloaden. Een onbeperkte sleutel kan iedereen gebruiken, en de
-rekening komt op jouw Google-account.
+lezen. Daarmee staan ze ook in het installatiebestand, en dat is straks publiek
+te downloaden. Een onbeperkte sleutel kan iedereen gebruiken, en de rekening
+komt op jouw Google-account.
 
-**Belangrijk:** deze sleutels staan *niet* in EAS. `eas credentials` beheert
-alleen je ondertekening voor Apple en Google (certificaten, keystore). API-
-sleutels regel je in de
-[Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials).
+**De stappen staan in [SLEUTELS.md](./SLEUTELS.md)** — klik voor klik, zo'n
+kwartier werk.
 
-### Android-sleutel (`AIzaSyDkif...Rf21tw`)
-
-Deze heb je zelf aangemaakt, dus die vind je terug in hetzelfde Cloud-project.
-
-- Application restrictions → **Android apps**
-- Package name: `nl.snackspert.app`
-- SHA-1: die van je release-keystore, op te vragen met
-
-```
-npx eas-cli credentials --platform android
-```
-
-(kies je project → *Keystore: Manage everything* → de SHA-1 staat in het
-overzicht)
-
-- API restrictions → alleen **Maps SDK for Android**
-
-### iOS-sleutel (`AIzaSyASmO...MI9bg`)
-
-Zie je deze niet in de lijst, dan hoort hij bij een **ander Cloud-project**. Je
-hebt de Android-sleutel later in een nieuw project aangemaakt; de iOS-sleutel is
-van eerder. Kijk in het projectmenu bovenin — er is geen zoekfunctie over alle
-projecten heen, dus je moet ze langslopen.
-
-Makkelijker is het om hem gewoon te vervangen, en dat is ook netter:
-
-1. Maak in **hetzelfde project als de Android-sleutel** een nieuwe sleutel aan
-2. Application restrictions → **iOS apps** → bundle ID: `nl.snackspert.app`
-3. API restrictions → alleen **Maps SDK for iOS**
-4. Stuur me de nieuwe sleutel, dan zet ik hem in `app.json` — of vervang zelf de
-   waarde bij `ios.config.googleMapsApiKey`
-
-Verwijder de oude pas nadat je nieuwe build draait: de preview-app die nu op je
-telefoon staat gebruikt hem nog, en zonder sleutel blijft de kaart daar leeg.
-
-### Budgetwaarschuwing
-
-Zet een waarschuwing op je Cloud-project (Billing → Budgets & alerts),
-bijvoorbeeld op € 20. Dan hoor je het als er iets misgaat in plaats van het pas
-op de rekening te zien.
+Let op: deze sleutels staan *niet* in EAS. `eas credentials` beheert alleen je
+ondertekening voor Apple en Google. API-sleutels regel je in de Google Cloud
+Console.
 
 ## 2. Zet je Sentry-DSN erin
 
