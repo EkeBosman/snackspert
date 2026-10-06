@@ -20,26 +20,28 @@ import sys
 from pathlib import Path
 from PIL import Image
 
-# iPhone 6,9 inch. Lever je deze aan, dan gebruikt Apple hem voor alle
-# schermformaten en hoef je niets anders te maken.
-DOEL = (1320, 2868)
+# Apple accepteert voor een iPhone-schermafbeelding deze afmetingen. Welke het
+# uploadvak precies wil verschilt, dus we maken ze allebei; je uploadt de map
+# die het accepteert.
+FORMATEN = {
+    '1320x2868': (1320, 2868),   # 6,9 inch
+    '1290x2796': (1290, 2796),   # 6,7 / 6,9 inch
+}
 
-UIT = Path(__file__).resolve().parent.parent / 'winkel-assets' / 'screenshots-ios'
+BASIS = Path(__file__).resolve().parent.parent / 'winkel-assets' / 'screenshots-ios'
 
 
-def pas_in(bron: Path, doel: Path) -> None:
+def pas_in(bron: Path, doel: Path, maat: tuple[int, int]) -> None:
     im = Image.open(bron).convert('RGB')
 
     # Opschalen tot hij beide zijden dekt, daarna centreren en bijsnijden.
-    schaal = max(DOEL[0] / im.width, DOEL[1] / im.height)
+    schaal = max(maat[0] / im.width, maat[1] / im.height)
     nieuw = (round(im.width * schaal), round(im.height * schaal))
     im = im.resize(nieuw, Image.LANCZOS)
 
-    links = (nieuw[0] - DOEL[0]) // 2
-    boven = (nieuw[1] - DOEL[1]) // 2
-    im = im.crop((links, boven, links + DOEL[0], boven + DOEL[1]))
-
-    im.save(doel, 'PNG')
+    links = (nieuw[0] - maat[0]) // 2
+    boven = (nieuw[1] - maat[1]) // 2
+    im.crop((links, boven, links + maat[0], boven + maat[1])).save(doel, 'PNG')
 
 
 def main(argumenten: list[str]) -> int:
@@ -47,19 +49,21 @@ def main(argumenten: list[str]) -> int:
         print(__doc__)
         return 1
 
-    UIT.mkdir(parents=True, exist_ok=True)
+    for label, maat in FORMATEN.items():
+        uit = BASIS / label
+        uit.mkdir(parents=True, exist_ok=True)
+        print(f'{label}:')
+        for nummer, pad in enumerate(argumenten, start=1):
+            bron = Path(pad)
+            if not bron.is_file():
+                print(f'  overgeslagen (bestaat niet): {bron}')
+                continue
+            naam = f'{nummer}-{bron.stem}.png'
+            pas_in(bron, uit / naam, maat)
+            print(f'  {bron.name:18} →  {naam}')
+        print()
 
-    for nummer, pad in enumerate(argumenten, start=1):
-        bron = Path(pad)
-        if not bron.is_file():
-            print(f'  overgeslagen (bestaat niet): {bron}')
-            continue
-        naam = f'{nummer}-{bron.stem}.png'
-        pas_in(bron, UIT / naam)
-        oorspronkelijk = Image.open(bron).size
-        print(f'  {bron.name:18} {oorspronkelijk[0]}x{oorspronkelijk[1]}  →  {naam}  {DOEL[0]}x{DOEL[1]}')
-
-    print(f'\nKlaar: {UIT}')
+    print(f'Klaar: {BASIS}')
     return 0
 
 
