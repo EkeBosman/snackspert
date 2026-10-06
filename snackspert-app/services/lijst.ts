@@ -21,9 +21,15 @@ const LIJST_URL = `${BASE_URL}/restaurants/`;
 
 // Eén verzoek mag de hele collectie teruggeven; ruim boven het huidige aantal
 // zodat nieuwe recensies er vanzelf in blijven passen.
-// 800 is de waarde die op de site is nagemeten: die gaf alle 761 in één
-// antwoord. haalVolledigeLijst() controleert alsnog of het compleet is.
-const ALLES_PER_PAGINA = 800;
+// Alles in één antwoord opvragen werkte in de proef, maar niet in het echt: de
+// server deed er te lang over en gaf een 504 terug (gezien in Sentry, bij een
+// echte gebruiker). Dat was meteen de eerste aanvraag die de app doet, dus die
+// zag alleen een foutmelding.
+//
+// Daarom vragen we nu een hanteerbaar aantal per keer en halen we de rest in
+// losse pagina's erbij — iets meer verzoeken, maar elk verzoek is klein genoeg
+// om te voltooien. haalVolledigeLijst() controleert alsnog of het compleet is.
+const ALLES_PER_PAGINA = 200;
 
 // De overzichtspagina met alles erop is een paar honderd kilobyte, dus hier mag
 // het wat langer duren dan bij een gewone API-call.
@@ -256,11 +262,37 @@ async function metPool<T>(taken: Array<() => Promise<T>>, max: number): Promise<
 }
 
 
-async function haalPagina(zoekArgumenten: string): Promise<string> {
+/**
+ * Eén pagina ophalen, met een paar nieuwe pogingen.
+ *
+ * Een 5xx of een afgebroken verbinding is bij een drukke WordPress-site vaak
+ * tijdelijk. Meteen opgeven zou betekenen dat de hele app niets laat zien,
+ * terwijl een seconde later wachten het wel had opgelost. Bij een 404 of een
+ * andere 4xx heeft opnieuw proberen geen zin, dus daar stoppen we direct.
+ */
+async function haalPagina(zoekArgumenten: string, pogingen = 3): Promise<string> {
   const url = zoekArgumenten ? `${LIJST_URL}?${zoekArgumenten}` : LIJST_URL;
-  const resp = await fetchMetTimeout(url, LIJST_TIMEOUT);
-  if (!resp.ok) throw new Error(`Overzichtspagina gaf ${resp.status}`);
-  return resp.text();
+
+  let laatsteFout: Error | null = null;
+  for (let poging = 1; poging <= pogingen; poging++) {
+    try {
+      const resp = await fetchMetTimeout(url, LIJST_TIMEOUT);
+      if (resp.ok) return await resp.text();
+
+      laatsteFout = new Error(`Overzichtspagina gaf ${resp.status}`);
+      if (resp.status < 500) throw laatsteFout;
+    } catch (e) {
+      laatsteFout = e instanceof Error ? e : new Error(String(e));
+      // Een 4xx hoeft niet opnieuw.
+      if (/gaf 4\d\d/.test(laatsteFout.message)) throw laatsteFout;
+    }
+
+    if (poging < pogingen) {
+      await new Promise((res) => setTimeout(res, 800 * poging));
+    }
+  }
+
+  throw laatsteFout ?? new Error('Overzichtspagina niet bereikbaar');
 }
 
 /**

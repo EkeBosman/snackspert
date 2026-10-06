@@ -240,7 +240,10 @@ export function RestaurantProvider({ children }: { children: ReactNode }) {
       // Hier komt alleen een echte storing terecht: losse pagina's die mislukken
       // worden per stuk opgevangen. Dit wil je dus weten.
       meldFout(e, 'restaurants-laden', { heeftCache });
-      setError(e instanceof Error ? e.message : 'Er ging iets mis bij het laden');
+      // De technische reden gaat naar Sentry; de gebruiker heeft daar niets
+      // aan. "Overzichtspagina gaf 504" zegt hem niets, en suggereert dat hij
+      // iets fout deed.
+      setError('De restaurants zijn even niet op te halen. Controleer je internetverbinding en probeer het zo nog eens.');
       setIsLoading(false);
     } finally {
       setIsLoadingDetails(false);
