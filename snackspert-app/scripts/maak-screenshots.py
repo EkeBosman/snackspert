@@ -20,12 +20,15 @@ import sys
 from pathlib import Path
 from PIL import Image
 
-# Apple accepteert voor een iPhone-schermafbeelding deze afmetingen. Welke het
-# uploadvak precies wil verschilt, dus we maken ze allebei; je uploadt de map
-# die het accepteert.
+# App Store Connect deelt toestellen tegenwoordig in op klasse in plaats van op
+# schermdiameter. Welke afmetingen een uploadvak accepteert, staat in het vak
+# zelf en bij "View All Sizes in Media Manager" — lees het daar af in plaats van
+# het af te leiden uit een inch-maat, want die indeling klopt niet meer.
+#
+# iPhone with Dynamic Island (medium display) = 6,1" / 6,3":
 FORMATEN = {
-    '1320x2868': (1320, 2868),   # 6,9 inch
-    '1290x2796': (1290, 2796),   # 6,7 / 6,9 inch
+    '1179x2556': (1179, 2556),
+    '1206x2622': (1206, 2622),
 }
 
 BASIS = Path(__file__).resolve().parent.parent / 'winkel-assets' / 'screenshots-ios'
