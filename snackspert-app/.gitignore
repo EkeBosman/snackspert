@@ -23,3 +23,5 @@ scripts/sterren-dump.json
 
 # Testbuild van de parser-test
 .test-build/
+scripts/vestigingen-cache.json
+scripts/vestigingen.csv
