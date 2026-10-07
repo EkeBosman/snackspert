@@ -6,7 +6,6 @@ import {
   ScrollView,
   StyleSheet,
   ActivityIndicator,
-  Linking,
   TouchableOpacity,
   Dimensions,
 } from 'react-native';
@@ -18,6 +17,7 @@ import { fetchRestaurantDetail } from '../../services/api';
 import { StarRating } from '../../components/StarRating';
 import { useFavorites } from '../../contexts/FavoritesContext';
 import { useRestaurants } from '../../contexts/RestaurantContext';
+import { openLink } from '../../constants/socials';
 import { useEngagement } from '../../contexts/EngagementContext';
 import { Colors, Spacing, BorderRadius, FontSize, Shadow } from '../../constants/theme';
 
@@ -120,10 +120,10 @@ export default function RestaurantDetailScreen() {
     // NB: geen query_place_id — dat veld verwacht een Google Place-ID, geen naam.
     if (restaurant?.adres) {
       const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${restaurant.naam}, ${restaurant.adres}`)}`;
-      Linking.openURL(url);
+      openLink(url, 'detail:maps-adres');
     } else if (restaurant?.latitude && restaurant?.longitude) {
       const url = `https://www.google.com/maps/search/?api=1&query=${restaurant.latitude},${restaurant.longitude}`;
-      Linking.openURL(url);
+      openLink(url, 'detail:maps-coords');
     }
   };
 

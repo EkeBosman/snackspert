@@ -6,7 +6,6 @@ import {
   ScrollView,
   TouchableOpacity,
   StyleSheet,
-  Linking,
 } from 'react-native';
 import { Stack } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
@@ -15,6 +14,7 @@ import {
   WEBSITE_URL,
   PRIVACY_URL,
   openSocialKanaal,
+  openLink,
 } from '../constants/socials';
 import { Colors, Spacing, BorderRadius, FontSize, Shadow } from '../constants/theme';
 
@@ -69,7 +69,7 @@ export default function OverScreen() {
         <Text style={[styles.sectie, { marginTop: Spacing.xl }]}>Meer</Text>
         <TouchableOpacity
           style={styles.rij}
-          onPress={() => Linking.openURL(WEBSITE_URL)}
+          onPress={() => openLink(WEBSITE_URL, 'over:website')}
           activeOpacity={0.7}
         >
           <Ionicons name="globe-outline" size={20} color={Colors.primary} />
@@ -78,7 +78,7 @@ export default function OverScreen() {
         </TouchableOpacity>
         <TouchableOpacity
           style={styles.rij}
-          onPress={() => Linking.openURL(PRIVACY_URL)}
+          onPress={() => openLink(PRIVACY_URL, 'over:privacy')}
           activeOpacity={0.7}
         >
           <Ionicons name="lock-closed-outline" size={20} color={Colors.primary} />
