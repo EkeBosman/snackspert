@@ -23,17 +23,33 @@ log = logging.getLogger(__name__)
 API = "https://api.apify.com/v2"
 
 
-def _ig_hashtag_input(values, limit):
-    return {"hashtags": values, "resultsLimit": limit, "resultsType": "posts"}
+# `since` (JJJJ-MM-DD) vraagt de actor alleen posts vanaf die datum terug te geven.
+# Apify rekent per resultaat, dus posts die we al hebben willen we niet nog eens
+# betalen. Negeert een actor het veld, dan zie je dat terug als een hoog
+# percentage 'dubbel' bij de bron.
+
+def _ig_hashtag_input(values, limit, since=None):
+    out = {"hashtags": values, "resultsLimit": limit, "resultsType": "posts"}
+    if since:
+        out["onlyPostsNewerThan"] = since
+    return out
 
 
-def _ig_profile_input(values, limit):
-    return {"directUrls": [f"https://www.instagram.com/{v}/" for v in values],
-            "resultsType": "posts", "resultsLimit": limit, "addParentData": False}
+def _ig_profile_input(values, limit, since=None):
+    out = {"directUrls": [f"https://www.instagram.com/{v}/" for v in values],
+           "resultsType": "posts", "resultsLimit": limit, "addParentData": False}
+    if since:
+        out["onlyPostsNewerThan"] = since
+    return out
+
+
+def _ig_post_input(urls, limit, since=None):
+    # Herhaalmeting: de actuele cijfers van losse posts.
+    return {"directUrls": urls, "resultsType": "posts", "resultsLimit": 1, "addParentData": False}
 
 
 def _tt_input(kind):
-    def build(values, limit):
+    def build(values, limit, since=None):
         base = {"resultsPerPage": limit, "shouldDownloadVideos": False,
                 "shouldDownloadCovers": False, "shouldDownloadSubtitles": False,
                 "shouldDownloadSlideshowImages": False}
@@ -41,25 +57,35 @@ def _tt_input(kind):
             base["hashtags"] = values
         elif kind == "account":
             base["profiles"] = values
+        elif kind == "post":
+            base["postURLs"] = values
+            base["resultsPerPage"] = 1
         else:
             base["searchQueries"] = values
+        if since and kind != "post":
+            base["oldestPostDateUnified"] = since
         return base
     return build
 
 
-def _fb_input(values, limit):
-    return {"startUrls": [{"url": v if v.startswith("http") else f"https://www.facebook.com/{v}"}
-                          for v in values],
-            "resultsLimit": limit}
+def _fb_input(values, limit, since=None):
+    out = {"startUrls": [{"url": v if v.startswith("http") else f"https://www.facebook.com/{v}"}
+                         for v in values],
+           "resultsLimit": limit}
+    if since:
+        out["onlyPostsNewerThan"] = since
+    return out
 
 
 # (platform, soort) -> (actor-id, invoerbouwer)
 ACTORS = {
     ("instagram", "hashtag"): ("apify~instagram-hashtag-scraper", _ig_hashtag_input),
     ("instagram", "account"): ("apify~instagram-scraper", _ig_profile_input),
+    ("instagram", "post"): ("apify~instagram-scraper", _ig_post_input),
     ("tiktok", "hashtag"): ("clockworks~tiktok-scraper", _tt_input("hashtag")),
     ("tiktok", "account"): ("clockworks~tiktok-scraper", _tt_input("account")),
     ("tiktok", "zoekterm"): ("clockworks~tiktok-scraper", _tt_input("zoekterm")),
+    ("tiktok", "post"): ("clockworks~tiktok-scraper", _tt_input("post")),
     ("facebook", "account"): ("apify~facebook-posts-scraper", _fb_input),
 }
 
@@ -82,7 +108,8 @@ def _auth() -> dict:
 
 
 def run_actor(platform: str, kind: str, values: list[str], per_value: int,
-              max_usd: float, timeout_s: int = 900) -> tuple[list[dict], float]:
+              max_usd: float, since: str | None = None,
+              timeout_s: int = 900) -> tuple[list[dict], float]:
     """Start een actor-run, wacht tot hij klaar is en geef (items, kosten_usd)."""
     actor, build = ACTORS[(platform, kind)]
     headers = _auth()
@@ -93,7 +120,7 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
         "waitForFinish": 60,
     }
     resp = requests.post(f"{API}/acts/{actor}/runs", params=params, headers=headers,
-                         json=build(values, per_value), timeout=90)
+                         json=build(values, per_value, since), timeout=90)
     if resp.status_code >= 400:
         raise ApifyError(f"{actor}: {resp.status_code} {resp.text[:300]}")
     run = resp.json()["data"]

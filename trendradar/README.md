@@ -8,11 +8,11 @@ Zonder sleutels start hij in **demomodus**, met verzonnen voorbeelddata. Zo kun 
 
 | Tabblad | Wat je ziet |
 |---|---|
-| **Trends** | De stijgers: hashtags, gerechten, producten, merken, zaken, steden en woordcombinaties, met groei ten opzichte van de periodes ervoor. Daarnaast nieuw opgedoken onderwerpen, posts die nu hard gaan, het volume per platform en de verdeling over categorieën. Klik op een onderwerp voor het verloop en de populairste posts. |
+| **Trends** | De stijgers: hashtags, gerechten, producten, merken, zaken, steden en woordcombinaties, met groei ten opzichte van de periodes ervoor, hoeveel verschillende makers het noemen en wat er opvalt (views, likes of doorsturen ver boven normaal). Daarnaast **doorbraken** (onbekende makers die viraal gaan), nieuw opgedoken onderwerpen, posts die nu hard gaan, het volume per platform en de verdeling over categorieën. Klik op een onderwerp voor het verloop en de populairste posts. |
 | **Posts** | Alle relevante posts, met zoeken, filteren en sorteren. |
-| **Supermarkt** | Nieuwe producten in het schap (AH en Jumbo), de producten waar het meest over gepost wordt, en nieuws over nieuwe producten. |
+| **Supermarkt** | Nieuwe producten in het schap (AH en Jumbo), met welke bronnen het bevestigen. **Vroege signalen**: producten waar makers al over posten maar die nog niet in de winkeldata staan. Plus de meest besproken producten en het nieuws. |
 | **Zaken & steden** | Eetzaken en foodtrucks die genoemd worden, met een **reviewkandidaat**-label als ze nog niet op snackspert.nl staan. Plus een kaart met steden. |
-| **Bronnen** | De gevolgde hashtags, accounts en zoektermen. De tool **voegt zelf bronnen toe** die in meerdere relevante posts opduiken, en pauzeert bronnen die weinig opleveren. |
+| **Bronnen** | De gevolgde hashtags, accounts en zoektermen. De tool **voegt zelf bronnen toe**: uit virale posts en uit onderwerpen die meerdere makers noemen. Bronnen die weinig opleveren pauzeert hij. Per bron zie je wat een nuttige post kost. |
 | **Budget & instellingen** | De kosten deze maand, een prognose, alle instellingen, de status van de koppelingen en een logboek per ophaalronde. |
 
 Je kunt de trends en de posts exporteren als CSV, bijvoorbeeld voor Google Sheets.
@@ -100,6 +100,16 @@ Indicatie bij de standaardinstellingen (€ 60 voor data, elke 6 uur ophalen):
 | TikTok | ± 370 posts | ± 17.000 posts |
 | Facebook | ± 115 posts | ± 5.500 posts |
 
+**Zo houdt de tool de kosten laag.** Apify rekent per opgehaalde post, ook als je die post al hebt. Daarom:
+
+- **Alleen nieuwe posts.** Bij elke bron vraagt de tool alleen posts op vanaf de vorige keer (datumfilter). Per ronde staat in het logboek hoeveel procent toch al bekend was. Is dat bij een bron structureel hoog, dan negeert die actor het filter.
+- **Ritme per bron.** Een bron die vooral bekende posts teruggeeft, komt pas na 2 of 4 rondes weer aan de beurt. Het geld gaat naar bronnen die wél nieuws opleveren.
+- **Opbrengst telt nieuwe posts.** De opbrengst van een bron is het aandeel *nieuwe* relevante posts per betaald resultaat. Bronnen met een lage opbrengst gaan op pauze.
+- **Kosten per nuttige post.** Per bron en voor de hele maand zie je wat één nieuwe, relevante Nederlandse post kost. Zo zie je direct welke bronnen hun geld waard zijn.
+- **Gratis eerst.** Wat via de gratis Meta-API kan, gaat niet via Apify.
+- **AI alleen waar nodig.** Duidelijk irrelevante en niet-Nederlandse posts gaan niet naar Claude.
+- **Herhaalmeting.** Elke ronde worden de 15 snelste posts per platform opnieuw gemeten, om te zien of ze echt doorschieten. Dat kost ongeveer € 7 per maand en is in te stellen onder **Kosten besparen**; 0 zet het uit.
+
 **Apify-abonnement.** Bij Apify heb je voor dit verbruik waarschijnlijk een betaald abonnement nodig. Het gratis plan heeft maar een klein maandtegoed. Kijk op [apify.com/pricing](https://apify.com/pricing) en zet het maandbudget in de tool op het tegoed dat je abonnement geeft.
 
 **AI-kosten.** De standaard is het model `claude-opus-5-5` op denkniveau `low`, met een plafond van € 10 per maand. Met deze hoeveelheden posts (ongeveer € 2 per 1.000 ingedeelde posts) is dat plafond naar schatting na ongeveer een week bereikt. Daarna werkt de tool verder met alleen de woordenlijsten. Wil je alle posts met AI laten indelen, dan kun je onder **Instellingen** kiezen voor `claude-haiku-5-5`. Dat kost ongeveer een veertigste en blijft binnen een paar euro per maand, maar is wat minder precies.
@@ -119,7 +129,23 @@ Een onderwerp is trending als het in de gekozen periode vaker voorkomt dan gemid
 score = log2(groei) × √(aantal verschillende makers) + klein gewicht voor interactie
 ```
 
-Door het aantal makers mee te wegen telt één account dat tien keer hetzelfde post niet als trend. Merk op dat "Nu" in de praktijk betekent: sinds de laatste ophaalronde. De tool haalt elke 6 uur op, en dat interval is instelbaar.
+Door het aantal makers mee te wegen telt één account dat tien keer hetzelfde post niet als trend. De kolom **Makers** laat zien hoeveel verschillende accounts een onderwerp noemen, met tussen haakjes hoeveel meer dan normaal.
+
+### Opvallend: views, likes en doorsturen
+
+Per post vergelijkt de tool de cijfers met een gewone post **van dezelfde leeftijd** op hetzelfde platform. Een video van 2 uur oud heeft nu eenmaal minder views dan een video van 3 dagen oud.
+
+| Label | Betekenis |
+|---|---|
+| ▶ views 8× | 8 keer zoveel views als een gewone post van dezelfde leeftijd |
+| ↗ gedeeld 5× | 5 keer zo vaak doorgestuurd per view als normaal |
+| ♥ likes 3× | 3 keer zoveel likes per view als normaal |
+| 👥 bereik 40× volgers | de post bereikte 40 keer zoveel mensen als de maker volgers heeft |
+| 🚀 doorbraak | een kleine maker (onder 20.000 volgers) die veel meer mensen bereikt dan het aantal volgers, of een post met 10× zoveel views als normaal |
+
+Deze signalen tellen mee in de trendscore. Een onderwerp met één **doorbraak** komt ook in de lijst als maar één maker het noemt. Dat is precies de onbekende maker die als eerste viraal gaat met een snack.
+
+De kaart **Doorbraken** op het Trends-tabblad toont die posts per maker. Bij Posts kun je sorteren op **Snelst groeiend**. Merk op dat "Nu" in de praktijk betekent: sinds de laatste ophaalronde. De tool haalt elke 6 uur op, en dat interval is instelbaar.
 
 **Opbouwfase.** In de eerste dagen is er nog weinig historie. De interface meldt dat zolang de vergelijking nog niet betrouwbaar is.
 
@@ -130,6 +156,7 @@ Na elke ronde zoekt de tool in de relevante Nederlandse posts van de afgelopen 7
 - **Hashtags** die bij minstens 3 verschillende makers voorkomen.
 - **Accounts** die minstens 2 relevante posts plaatsten.
 - **Accounts** die door meerdere makers genoemd worden.
+- **Hashtags en makers uit virale posts**, ook als het om één maker gaat. Deze gaan altijd voor. Bij de bron staat dan bijvoorbeeld: *"uit virale post van @maker (40× views, bereik 276× het aantal volgers)"*.
 
 Standaard worden per ronde maximaal 6 ontdekte bronnen direct geactiveerd. De rest komt als **kandidaat** in de lijst, zodat jij kunt kiezen. Omgekeerd ruimt de tool ook op:
 
@@ -140,13 +167,21 @@ Bronnen die je **zelf** toevoegt, worden nooit automatisch gepauzeerd. Wat de to
 
 ## Supermarkten
 
-AH en Jumbo hebben geen officiële open API. De tool gebruikt daarom de onofficiële API's die hun eigen apps ook gebruiken, en controleert die één keer per dag:
+De tool legt drie bronnen naast elkaar: de **winkeldata** van AH en Jumbo, **social posts** en **nieuws**.
 
-- **Nulmeting.** De eerste keer legt de tool alleen vast wat er in de snackcategorieën ligt.
+**Winkeldata.** AH en Jumbo hebben geen officiële open API. De tool gebruikt de onofficiële API's van hun eigen apps en controleert die twee keer per dag, met ruim 40 zoektermen (chips, snacks, sauzen, ijs, drinken, "nieuw", "limited edition" en meer):
+
+- **Nulmeting.** De eerste keer legt de tool alleen vast wat er ligt.
 - **Nieuw.** Alles wat daarna voor het eerst opduikt, telt als nieuw. Producten die de winkel zelf als "nieuw" markeert, tellen meteen mee.
 - **Storingen.** Deze API's kunnen zonder waarschuwing veranderen of geblokkeerd worden. De status per winkel staat bovenaan het tabblad, en bij een storing draait de rest gewoon door.
 
-Daarnaast haalt de tool nieuws over nieuwe producten op via Google News. Onder Instellingen kun je eigen RSS-feeds toevoegen, bijvoorbeeld van vakbladen.
+**Social.** Ook zonder AI herkent de tool productnamen in zinnen als *"Nieuw bij AH: Paprika Chips Limoen"* of *"Gespot bij Jumbo: Bitterbal Chips"*. Met een AI-sleutel herkent Claude productnamen in de hele post. Varianten van dezelfde naam worden samengevoegd, en per product telt de tool hoeveel verschillende makers het noemen.
+
+**Bevestigd door.** Bij elk nieuw product in het schap staat of makers en nieuws het ook oppikken (🏪 winkel, 📱 social, 📰 nieuws).
+
+**⚡ Vroege signalen.** Makers posten over een nieuw product dat (nog) niet in de winkeldata staat. Hier ben je eerder dan de supermarkt-app. Bij Lidl, Aldi en andere winkels zonder winkeldata staat dat erbij, want daar zegt "niet in winkeldata" niets.
+
+Nieuws over nieuwe producten komt via Google News. Onder Instellingen kun je eigen RSS-feeds toevoegen, bijvoorbeeld van vakbladen.
 
 ## Mappen en bestanden
 
@@ -164,6 +199,8 @@ trendradar/
 │   ├── seeds.py           # startlijst met hashtags, accounts en zoektermen
 │   ├── discovery.py       # zelf bronnen toevoegen en opruimen
 │   ├── trends.py          # trendberekening
+│   ├── signals.py         # views/likes/doorsturen t.o.v. normaal, doorbraken
+│   ├── products.py        # nieuwe producten: winkel, social en nieuws koppelen
 │   ├── budget.py          # budgetbewaking
 │   ├── snackspert.py      # koppeling met de recensies op snackspert.nl
 │   ├── demo.py            # verzonnen voorbeelddata

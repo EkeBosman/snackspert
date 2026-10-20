@@ -150,6 +150,16 @@ DUTCH_WORDS = {
     "alleen", "allemaal", "toch", "even", "lekkere", "lekkerste", "goed", "goede",
 }
 
+# Snacks die (bijna) alleen in Nederland en Vlaanderen bestaan: een post die
+# hierover gaat is vrijwel zeker Nederlandstalig, ook als hij heel kort is.
+DUTCH_FOODS = {
+    "frikandel", "kroket", "bitterbal", "kapsalon", "patat", "patatje", "friet", "frietje",
+    "snackbar", "frituur", "cafetaria", "kaassoufflé", "kaassouffle", "berenhap", "mexicano",
+    "viandel", "bamischijf", "nasischijf", "sitostick", "kipcorn", "oliebol", "stroopwafel",
+    "poffertjes", "broodje", "tosti", "softijs", "kibbeling", "lekkerbekje", "hagelslag",
+    "speculaas", "tompouce", "appeltaart", "bossche bol", "eierbal", "gehaktbal", "loempia",
+}
+
 # Grotere steden met coördinaten voor de kaart.
 CITIES: dict[str, tuple[float, float]] = {
     "Amsterdam": (52.3676, 4.9041), "Rotterdam": (51.9244, 4.4777),

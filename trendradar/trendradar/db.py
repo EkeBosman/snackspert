@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS posts (
     location      TEXT,
     posted_at     TEXT NOT NULL,             -- ISO, UTC
     fetched_at    TEXT NOT NULL,
+    first_fetched TEXT,
+    remeasured_at TEXT,                      -- laatste herhaalmeting van een snelle post
     likes         INTEGER DEFAULT 0,
     comments      INTEGER DEFAULT 0,
     shares        INTEGER DEFAULT 0,
@@ -69,6 +71,10 @@ CREATE TABLE IF NOT EXISTS sources (
     yield_score REAL,                        -- aandeel relevante posts, voortschrijdend
     empty_streak INTEGER DEFAULT 0,          -- opeenvolgende rondes zonder resultaat
     last_error  TEXT,
+    next_due    TEXT,                        -- eerder ophalen heeft geen zin (spaart geld)
+    last_new    INTEGER DEFAULT 0,           -- nieuwe posts in de laatste ronde
+    cost_usd    REAL DEFAULT 0,              -- totaal uitgegeven aan deze bron
+    useful_total INTEGER DEFAULT 0,          -- totaal nieuwe relevante posts
     demo        INTEGER DEFAULT 0,
     UNIQUE (platform, kind, value)
 );
@@ -182,9 +188,24 @@ def session():
             conn.close()
 
 
+# Kolommen die later zijn bijgekomen. Bestaande databases krijgen ze erbij.
+MIGRATIONS = [
+    ("posts", "first_fetched", "TEXT"),
+    ("posts", "remeasured_at", "TEXT"),
+    ("sources", "next_due", "TEXT"),
+    ("sources", "last_new", "INTEGER DEFAULT 0"),
+    ("sources", "cost_usd", "REAL DEFAULT 0"),
+    ("sources", "useful_total", "INTEGER DEFAULT 0"),
+]
+
+
 def init() -> None:
     with session() as conn:
         conn.executescript(SCHEMA)
+        for table, column, kind in MIGRATIONS:
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+            if column not in cols:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
 
 
 # --- instellingen ---------------------------------------------------------

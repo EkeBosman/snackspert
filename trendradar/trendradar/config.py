@@ -68,6 +68,9 @@ DEFAULTS: dict = {
     "ai_effort": "low",
     "ai_aan": True,
     "supermarkt_aan": True,
+    "supermarkt_interval_uren": 12,
+    "alleen_nieuwe_posts": True,      # datumfilter: niet betalen voor posts die we al hebben
+    "herhaalmeting_per_ronde": 15,    # snelste posts per platform opnieuw meten
     "nieuws_aan": True,
     "extra_rss": [],
 }

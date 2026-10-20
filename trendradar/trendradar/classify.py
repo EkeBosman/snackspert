@@ -161,6 +161,8 @@ def classify_rules(post: dict) -> dict:
     city = find_city(text, hashtags, post.get("location"))
     if city:
         nl = min(1.0, nl + 0.5)
+    if any(food in text or food.replace(" ", "") in tag_blob for food in lexicon.DUTCH_FOODS):
+        nl = min(1.0, nl + 0.5)
     if any(h in ("nederland", "holland", "netherlands", "dutchfood") for h in hashtags):
         nl = min(1.0, nl + 0.3)
     if is_store or any(b in ("FEBO", "Smullers", "Kwalitaria") for b in brands):
@@ -178,7 +180,10 @@ def classify_rules(post: dict) -> dict:
         if looks_like_business(m):
             places.append("@" + m)
 
+    from .products import guess_from_text  # hier, om een kringverwijzing te voorkomen
+
     return {
+        "products": guess_from_text(text_raw, _is_food_word) if is_store or "nieuw" in text else [],
         "hashtags": hashtags,
         "mentions": mentions,
         "relevance": round(food, 3),
@@ -324,7 +329,7 @@ def merge_ai(rule: dict, ai: dict) -> dict:
                          "winkel": p.get("winkel", ""), "nieuw": bool(p.get("nieuw"))})
         if p.get("merk") and p["merk"] not in out["brands"]:
             out["brands"].append(p["merk"])
-    out["products"] = products[:5]
+    out["products"] = products[:5] or rule.get("products", [])
     if ai.get("zaak"):
         out["places"] = list(dict.fromkeys([ai["zaak"].strip()] + rule["places"]))[:5]
     if ai.get("stad") and not rule.get("city"):

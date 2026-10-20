@@ -78,8 +78,32 @@
       `<span class="pdot" style="--c:${PLATFORM[p]?.color}" title="${esc(PLATFORM[p]?.name || p)}"></span>`).join("")}</span>`;
   }
 
+  // Hoe ver ligt iets boven normaal? Alleen tonen wat echt opvalt (≥ 2×).
+  function sigChips(sig, opts = {}) {
+    if (!sig) return "";
+    const out = [];
+    if (sig.breakouts) out.push(`<span class="sig hot" title="Posts die ver boven normaal scoren, vaak van kleine makers">🚀 ${sig.breakouts} doorbraak${sig.breakouts > 1 ? "en" : ""}</span>`);
+    if (sig.breakout) out.push(`<span class="sig hot" title="Veel meer bereik dan normaal voor deze maker of leeftijd">🚀 doorbraak</span>`);
+    const x = (v, icon, label, title) => v && v >= 2 ? out.push(`<span class="sig" title="${title}">${icon} ${label} ${fmtX(v)}</span>`) : null;
+    x(sig.views_x, "▶", "views", "Views vergeleken met een gewone post van dezelfde leeftijd");
+    x(sig.shares_x, "↗", "gedeeld", "Hoe vaak doorgestuurd per view, vergeleken met normaal");
+    x(sig.likes_x, "♥", "likes", "Likes per view, vergeleken met normaal");
+    if (opts.reach && sig.reach_x && sig.reach_x >= 3) out.push(`<span class="sig" title="Views gedeeld door het aantal volgers">👥 bereik ${fmtX(sig.reach_x)} volgers</span>`);
+    return `<span class="sigs">${out.join("")}</span>`;
+  }
+  const euro2 = v => "€ " + Number(v || 0).toFixed(v < 0.1 && v > 0 ? 3 : 2).replace(".", ",");
+  const fmtX = v => (v >= 10 ? Math.round(v) : Math.round(v * 10) / 10).toString().replace(".", ",") + "×";
+
+  function makers(t) {
+    const extra = t.authors - (t.authors_baseline || 0);
+    const tip = `${t.authors} makers nu, gemiddeld ${String(t.authors_baseline).replace(".", ",")} per periode ervoor`;
+    return `<span title="${tip}">${t.authors}${extra >= 2 ? ` <small class="up">+${Math.round(extra)}</small>` : ""}</span>`;
+  }
+
   function growth(t) {
-    if (t.new || t.growth_pct === null) return `<span class="badge new">nieuw</span>`;
+    // Was er in de periodes ervoor (bijna) niets, dan is een percentage misleidend.
+    if (t.new || t.growth_pct === null || t.baseline < 0.5) return `<span class="badge new">nieuw</span>`;
+    if (t.growth_pct >= 200) return `<span class="up" title="+${fmt(t.growth_pct)}%">×${fmt(t.growth_pct / 100 + 1)}</span>`;
     const cls = t.growth_pct > 0 ? "up" : t.growth_pct < 0 ? "down" : "";
     const sign = t.growth_pct > 0 ? "+" : "";
     return `<span class="${cls}">${sign}${fmt(t.growth_pct)}%</span>`;
@@ -136,7 +160,7 @@
     const kpis = [
       ["Relevante posts", fmt(d.totals.posts), delta === null ? "" : `${delta >= 0 ? "+" : ""}${delta}% t.o.v. periode ervoor`],
       ["Makers", fmt(d.totals.makers), "verschillende accounts"],
-      ["Interactie", compact(d.totals.engagement), "likes + reacties×2 + shares×3 + views/50"],
+      ["Doorbraken", fmt(d.totals.breakouts), "posts die ver boven normaal scoren"],
       ["Nieuwe onderwerpen", fmt(d.new_topics.length), "niet gezien in de periodes ervoor"],
     ];
     $("#kpis").innerHTML = kpis.map(([l, v, s]) =>
@@ -150,6 +174,16 @@
        <span class="meta">${t.posts} posts · ${t.authors} makers</span></div>
        <div class="meta"><span class="badge">${esc(t.type_label)}</span>${pdots(t.platforms)}</div></li>`).join("")
       : `<li class="meta">Niets nieuws in deze periode.</li>`;
+
+    $("#list-breakouts").innerHTML = d.breakouts.length ? d.breakouts.slice(0, 6).map(b => {
+      const p = d.post_lookup[b.id];
+      if (!p) return "";
+      const fol = b.signals.followers ? `${compact(b.signals.followers)} volgers` : "volgers onbekend";
+      return `<li><div class="row"><span><span class="ptag" style="--pc:${PLATFORM[p.platform]?.color}">${esc(PLATFORM[p.platform]?.name)}</span> @${esc(p.author || "?")} <span class="meta">· ${fol}</span></span>
+        <span class="meta">${compact(p.views)} views${b.count > 1 ? ` · ${b.count} virale posts` : ""}</span></div>
+        <div>${sigChips(b.signals, { reach: true })}</div>
+        <div class="meta">${esc((p.summary || p.text || "").slice(0, 120))}${p.url ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">bekijk</a>` : ""}</div></li>`;
+    }).join("") : `<li class="meta">Geen doorbraken in deze periode.</li>`;
 
     $("#list-rising").innerHTML = d.rising_posts.length ? d.rising_posts.slice(0, 6).map(p =>
       `<li><div class="row"><span><span class="ptag" style="--pc:${PLATFORM[p.platform]?.color}">${esc(PLATFORM[p.platform]?.name)}</span> @${esc(p.author || "?")}</span>
@@ -177,7 +211,7 @@
     if (!d) return;
     const rows = d.topics.filter(t => !state.typeFilter || t.type === state.typeFilter).slice(0, 25);
     const tbody = $("#tbl-topics tbody");
-    tbody.innerHTML = rows.length ? "" : `<tr><td colspan="7" class="muted">Geen onderwerpen gevonden. Probeer een langere periode of strengheid 'Breed'.</td></tr>`;
+    tbody.innerHTML = rows.length ? "" : `<tr><td colspan="8" class="muted">Geen onderwerpen gevonden. Probeer een langere periode of strengheid 'Breed'.</td></tr>`;
     rows.forEach((t, i) => {
       const tr = document.createElement("tr");
       tr.className = "click";
@@ -185,7 +219,8 @@
         <td><span class="badge">${esc(t.type_label)}</span><span class="topic-name">${esc(t.name)}</span></td>
         <td class="hide-s spark"></td>
         <td class="num">${fmt(t.posts)}</td><td class="num">${growth(t)}</td>
-        <td class="num hide-s">${t.authors}</td><td class="hide-s">${pdots(t.platforms)}</td>`;
+        <td class="num hide-s">${makers(t)}</td><td class="hide-s">${sigChips(t.signals)}</td>
+        <td class="hide-s">${pdots(t.platforms)}</td>`;
       tr.querySelector(".spark").appendChild(sparkline(t.series, d.baseline_buckets));
       tr.addEventListener("click", () => openTopic(t.type, t.name));
       tbody.appendChild(tr);
@@ -204,7 +239,8 @@
     const win = state.window === "nu" ? "24u" : state.window;
     const d = await api("/api/topic?" + new URLSearchParams({ type, name, window: win, min_rel: state.minRel }));
     columnChart($("#d-chart"), d.labels, d.series, { currentFrom: d.current_from, label: `Posts over ${name}` });
-    $("#d-meta").innerHTML = `<span class="chip static">${d.total} posts</span>` +
+    $("#d-meta").innerHTML = `<span class="chip static">${d.total} posts</span><span class="chip static">${d.makers} makers</span>` +
+      (d.signals ? sigChips(d.signals) : "") +
       Object.entries(d.platforms).map(([p, n]) => `<span class="chip static"><span class="pdot" style="--c:${PLATFORM[p]?.color}"></span> ${esc(PLATFORM[p]?.name || p)} ${n}</span>`).join("");
     $("#d-related").innerHTML = d.related.length ? d.related.map(([t, n]) =>
       `<button class="chip" data-topic="hashtag|${esc(t)}">${esc(t)} · ${n}</button>`).join("") : '<span class="muted">–</span>';
@@ -233,12 +269,14 @@
     if (p.comments) metrics.push(`💬 ${compact(p.comments)}`);
     if (p.shares) metrics.push(`↗ ${compact(p.shares)}`);
     if (p.views) metrics.push(`▶ ${compact(p.views)}`);
+    const sig = p.signals ? sigChips(p.signals, { reach: true }) : "";
     const tags = [...(p.categories || []), ...(p.brands || []).slice(0, 2)].slice(0, 4)
       .map(c => `<span class="badge">${esc(c)}</span>`).join("");
     const thumb = p.thumbnail ? `<img src="${esc(p.thumbnail)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : "";
     return `<article class="post">
       <div class="post-head"><span><span class="ptag" style="--pc:${plat.color}">${esc(plat.name)}</span> · <strong>${p.platform === "nieuws" ? esc(p.author || "") : "@" + esc(p.author || "onbekend")}</strong></span>
       <span title="${esc(new Date(p.posted_at).toLocaleString("nl-NL"))}">${ago(p.posted_at)}</span></div>
+      ${sig}
       ${p.summary ? `<div class="post-sum">${esc(p.summary)}</div>` : ""}
       <div class="post-body">${thumb}<div class="post-text">${esc(p.text)}</div></div>
       <div>${tags}${p.city ? `<span class="badge">📍 ${esc(p.city)}</span>` : ""}${p.demo ? '<span class="badge warn">demo</span>' : ""}</div>
@@ -278,17 +316,26 @@
     const st = Object.entries(d.status || {});
     $("#store-status").innerHTML = st.length ? st.map(([store, s]) =>
       `<span class="chip static"><span class="badge ${s.ok ? "ok" : "bad"}">${s.ok ? "✓ werkt" : "✗ storing"}</span>${esc(store)}: ${esc(s.melding)} · ${ago(s.t)}</span>`).join("")
-      : `<span class="chip static">Supermarkten worden één keer per dag gecontroleerd (eerste keer bij de eerstvolgende ronde).</span>`;
+      : `<span class="chip static">AH en Jumbo worden twee keer per dag gecontroleerd (eerste keer bij de eerstvolgende ronde).</span>`;
+    const CONF = { winkel: "🏪 winkel", social: "📱 social", nieuws: "📰 nieuws" };
+    $("#list-early").innerHTML = d.early.length ? d.early.map(m =>
+      `<li><div class="row"><button class="linkish" data-topic="product|${esc(m.name)}">${esc(m.name)}</button>
+        <span class="meta">${m.makers} maker${m.makers === 1 ? "" : "s"} · ${m.posts} posts</span></div>
+        <div class="meta">${esc(m.stores.join(", ") || "winkel onbekend")} · eerst gezien ${ago(m.first)} ${pdots(m.platforms)}
+        ${m.store_tracked ? '<span class="badge new">nog niet in winkeldata</span>' : '<span class="badge">geen winkeldata voor deze winkel</span>'}</div></li>`).join("")
+      : `<li class="meta">Geen vroege signalen deze week.</li>`;
     $("#tbl-products tbody").innerHTML = d.products.length ? d.products.map(p =>
       `<tr><td><span class="topic-name">${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>` : esc(p.name)}</span>${p.demo ? ' <span class="badge warn">demo</span>' : ""}<div class="meta muted">${esc(p.brand || "")}</div></td>
        <td>${esc(p.store)}</td><td class="hide-s">${esc(p.category || "")}</td>
        <td class="num">${p.price != null ? "€ " + Number(p.price).toFixed(2).replace(".", ",") : "–"}</td>
-       <td>${dateNl(p.first_seen)}</td><td class="num">${p.social ? `<span class="badge new">${p.social}</span>` : "–"}</td></tr>`).join("")
+       <td>${dateNl(p.first_seen)}</td>
+       <td><span class="sigs">${p.confirmed_by.map(c => `<span class="sig ${c !== "winkel" ? "hot" : ""}">${CONF[c]}${c === "social" ? " " + p.social_makers : ""}</span>`).join("")}</span></td></tr>`).join("")
       : `<tr><td colspan="6" class="muted">Nog geen nieuwe producten. De eerste controle legt alleen vast wat er ligt; daarna verschijnen nieuwkomers hier.</td></tr>`;
     $("#tbl-mentioned tbody").innerHTML = d.mentioned.length ? d.mentioned.map(m =>
-      `<tr class="click" data-topic="product|${esc(m.name)}"><td><span class="topic-name">${esc(m.name)}</span> ${pdots(m.platforms)}</td>
-       <td class="hide-s">${esc(m.stores.join(", "))}</td><td class="num">${m.posts}</td><td class="num">${compact(m.engagement)}</td></tr>`).join("")
-      : `<tr><td colspan="4" class="muted">Nog geen producten genoemd in deze week.</td></tr>`;
+      `<tr class="click" data-topic="product|${esc(m.name)}"><td><span class="topic-name">${esc(m.name)}</span> ${pdots(m.platforms)}
+       <div class="meta">${m.in_store ? "in winkeldata" : m.store_tracked ? '<span class="up">nog niet in winkeldata</span>' : ""}</div></td>
+       <td class="hide-s">${esc(m.stores.join(", "))}</td><td class="num">${m.makers}</td><td class="num">${m.posts}</td><td class="num hide-s">${compact(m.engagement)}</td></tr>`).join("")
+      : `<tr><td colspan="5" class="muted">Nog geen producten genoemd in deze week.</td></tr>`;
     $("#list-news").innerHTML = d.news.length ? d.news.map(n =>
       `<li><div class="row"><span>${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a>` : esc(n.title)}</span>
        <span class="meta">${esc(n.outlet || "")} · ${ago(n.published_at)}</span></div></li>`).join("")
@@ -357,9 +404,11 @@
         <td><span class="topic-name">${prefix}${esc(s.value)}</span>${s.last_error ? `<div class="meta down">${esc(s.last_error.slice(0, 90))}</div>` : ""}</td>
         <td><span class="badge ${badge[s.status] || ""}">${esc(s.status)}</span></td>
         <td class="hide-s"><span class="meta">${esc(s.origin)}${s.reason ? " · " + esc(s.reason) : ""}</span></td>
-        <td class="num">${yieldTxt}</td><td class="hide-s meta">${s.last_fetched ? ago(s.last_fetched) : "nog niet"}</td>
+        <td class="num" title="Aandeel nieuwe, relevante posts per betaald resultaat">${yieldTxt}${s.last_results ? `<div class="meta">${s.last_new}/${s.last_results} nieuw</div>` : ""}</td>
+        <td class="num hide-s" title="Kosten per nieuwe relevante post (totaal ${euro2(s.eur_total)})">${s.eur_per_useful != null ? euro2(s.eur_per_useful) : (s.eur_total ? euro2(s.eur_total) + " <span class='meta'>totaal</span>" : "–")}</td>
+        <td class="hide-s meta">${s.last_fetched ? ago(s.last_fetched) : "nog niet"}${s.next_due && new Date(s.next_due) > new Date() ? `<div>volgende ${ago(s.next_due)}</div>` : ""}</td>
         <td><div class="toolbar">${actions.join("")}</div></td></tr>`;
-    }).join("") : `<tr><td colspan="7" class="muted">Geen bronnen met deze status.</td></tr>`;
+    }).join("") : `<tr><td colspan="8" class="muted">Geen bronnen met deze status.</td></tr>`;
   }
 
   // --- budget & instellingen ------------------------------------------------
@@ -393,8 +442,13 @@
       ["ai_model", "Model", "select", ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]],
       ["ai_effort", "Denkniveau", "select", ["low", "medium", "high"]],
     ]],
+    ["Kosten besparen", [
+      ["alleen_nieuwe_posts", "Alleen posts sinds de vorige keer opvragen (datumfilter)", "checkbox"],
+      ["herhaalmeting_per_ronde", "Snelle posts opnieuw meten (per platform per ronde)", "number", 1],
+    ]],
     ["Overig", [
-      ["supermarkt_aan", "Supermarkten dagelijks controleren", "checkbox"],
+      ["supermarkt_interval_uren", "Supermarkten controleren elke … uur", "number", 1],
+      ["supermarkt_aan", "Supermarkten controleren", "checkbox"],
       ["nieuws_aan", "Nieuws ophalen", "checkbox"],
       ["extra_rss", "Extra RSS-feeds (één per regel)", "textarea"],
     ]],
@@ -413,8 +467,8 @@
         <div class="delta">van ${euro(b.data_budget_eur)}</div>${meter(b.data_uitgegeven_eur, b.data_budget_eur)}</div>
       <div class="kpi"><div class="label">AI deze maand</div><div class="value">${euro(b.ai_uitgegeven_eur)}</div>
         <div class="delta">van ${euro(b.ai_budget_eur)}</div>${meter(b.ai_uitgegeven_eur, b.ai_budget_eur)}</div>
-      <div class="kpi"><div class="label">Prognose hele maand</div><div class="value">${euro(b.prognose_eur)}</div>
-        <div class="delta">op basis van verbruik tot nu</div></div>
+      <div class="kpi"><div class="label">Kosten per nuttige post</div><div class="value">${b.per_nuttige_post_eur != null ? euro2(b.per_nuttige_post_eur) : "–"}</div>
+        <div class="delta">${fmt(b.nuttige_posts)} nieuwe relevante NL-posts deze maand · prognose ${euro(b.prognose_eur)}</div></div>
       <div class="kpi"><div class="label">Budget volgende ronde</div><div class="value">${euro(b.per_ronde_eur)}</div>
         <div class="delta">${b.rondes_over} rondes over deze maand · ${Object.entries(b.plan).map(([p, v]) => `${PLATFORM[p].name} ±${v.results}`).join(", ")} posts</div></div>`;
 

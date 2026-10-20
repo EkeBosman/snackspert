@@ -77,14 +77,19 @@
             <thead><tr>
               <th>#</th><th>Onderwerp</th><th class="hide-s">Verloop</th>
               <th class="num">Posts</th><th class="num">Groei</th><th class="num hide-s">Makers</th>
-              <th class="hide-s">Platforms</th>
+              <th class="hide-s">Opvallend</th><th class="hide-s">Platforms</th>
             </tr></thead>
             <tbody></tbody>
           </table>
         </div>
-        <p class="hint">Groei = deze periode vergeleken met het gemiddelde van de periodes ervoor. Klik op een onderwerp voor details.</p>
+        <p class="hint">Groei = deze periode vergeleken met het gemiddelde van de periodes ervoor. Makers = hoeveel verschillende accounts het noemen (+ = meer dan normaal). Opvallend = views, doorsturen en likes vergeleken met een gewone post van dezelfde leeftijd. Klik op een onderwerp voor details.</p>
       </article>
       <div class="stack">
+        <article class="card">
+          <h2>🚀 Doorbraken</h2>
+          <p class="hint">Posts die ver boven normaal scoren, vaak van onbekende makers die viraal gaan. Hun hashtags en accounts worden automatisch gevolgd.</p>
+          <ul class="list" id="list-breakouts"></ul>
+        </article>
         <article class="card">
           <h2>Nieuw opgedoken</h2>
           <p class="hint">Onderwerpen die er in de vorige periodes nog niet waren.</p>
@@ -122,6 +127,7 @@
         <option value="nieuw">Nieuwste eerst</option>
         <option value="interactie">Meeste interactie</option>
         <option value="relevantie">Meest relevant</option>
+        <option value="snelheid">Snelst groeiend (views per uur)</option>
       </select>
       <span class="muted" id="p-count"></span>
     </div>
@@ -136,18 +142,25 @@
     <div class="grid-2">
       <article class="card">
         <h2>Nieuw in het schap <span class="muted">laatste 30 dagen</span></h2>
-        <p class="hint">Producten die na de eerste meting voor het eerst opdoken, of die de winkel zelf als nieuw markeert.</p>
+        <p class="hint">Producten die na de eerste meting voor het eerst in de winkeldata opdoken, of die de winkel zelf als nieuw markeert. ‘Bevestigd door’ laat zien of makers en nieuws het ook oppikken.</p>
         <div class="table-wrap"><table class="data" id="tbl-products">
-          <thead><tr><th>Product</th><th>Winkel</th><th class="hide-s">Categorie</th><th class="num">Prijs</th><th>Sinds</th><th class="num">Social</th></tr></thead>
+          <thead><tr><th>Product</th><th>Winkel</th><th class="hide-s">Categorie</th><th class="num">Prijs</th><th>Sinds</th><th>Bevestigd door</th></tr></thead>
           <tbody></tbody></table></div>
       </article>
-      <article class="card">
-        <h2>Meest besproken producten <span class="muted">7 dagen</span></h2>
-        <p class="hint">Producten die in posts genoemd worden. Met een AI-sleutel herkent de tool productnamen; zonder AI merk + winkel.</p>
-        <div class="table-wrap"><table class="data" id="tbl-mentioned">
-          <thead><tr><th>Product</th><th class="hide-s">Winkel</th><th class="num">Posts</th><th class="num">Interactie</th></tr></thead>
-          <tbody></tbody></table></div>
-      </article>
+      <div class="stack">
+        <article class="card">
+          <h2>⚡ Vroege signalen</h2>
+          <p class="hint">Makers posten over een nieuw product dat (nog) niet in de winkeldata staat. Hier ben je eerder dan de supermarkt-app.</p>
+          <ul class="list" id="list-early"></ul>
+        </article>
+        <article class="card">
+          <h2>Meest besproken producten <span class="muted">7 dagen</span></h2>
+          <p class="hint">Gesorteerd op het aantal verschillende makers. Productnamen komen uit zinnen als ‘nieuw bij AH: …’ en, met een AI-sleutel, uit de hele post.</p>
+          <div class="table-wrap"><table class="data" id="tbl-mentioned">
+            <thead><tr><th>Product</th><th class="hide-s">Winkel</th><th class="num">Makers</th><th class="num">Posts</th><th class="num hide-s">Interactie</th></tr></thead>
+            <tbody></tbody></table></div>
+        </article>
+      </div>
     </div>
     <article class="card">
       <h2>Nieuws <span class="muted">7 dagen</span></h2>
@@ -198,9 +211,10 @@
         <h2>Bronnen</h2>
         <div class="chips" id="source-filter"></div>
       </div>
-      <p class="hint">De tool voegt zelf bronnen toe die in meerdere relevante posts opduiken (herkomst ‘ontdekt’) en pauzeert bronnen die weinig opleveren. ‘Kandidaat’ betekent: gevonden, maar wacht op jouw akkoord of op ruimte in het budget.</p>
+      <p class="hint">De tool voegt zelf bronnen toe die in meerdere relevante posts opduiken of uit virale posts komen (herkomst ‘ontdekt’), en pauzeert bronnen die weinig opleveren. ‘Kandidaat’ betekent: gevonden, maar wacht op jouw akkoord of op ruimte in het budget.<br>
+      Opbrengst = aandeel nieuwe, relevante posts per betaald resultaat. Bronnen die weinig nieuws opleveren, worden minder vaak opgehaald (‘volgende’); dat scheelt geld.</p>
       <div class="table-wrap"><table class="data" id="tbl-sources">
-        <thead><tr><th>Platform</th><th>Bron</th><th>Status</th><th class="hide-s">Herkomst</th><th class="num">Opbrengst</th><th class="hide-s">Laatst</th><th></th></tr></thead>
+        <thead><tr><th>Platform</th><th>Bron</th><th>Status</th><th class="hide-s">Herkomst</th><th class="num">Opbrengst</th><th class="num hide-s">€ per nuttige post</th><th class="hide-s">Opgehaald</th><th></th></tr></thead>
         <tbody></tbody></table></div>
     </article>
   </section>

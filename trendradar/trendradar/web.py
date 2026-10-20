@@ -9,7 +9,8 @@ from datetime import timedelta
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
-from . import budget, collector, config, db, lexicon, snackspert, trends
+from . import (budget, collector, config, db, lexicon, products, signals, snackspert,
+               trends)
 from .sources import apify, meta_graph
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
@@ -78,29 +79,34 @@ def api_trends():
                                 a["include_demo"])
         result["volume"] = trends.volume(conn, window, a["platform"], a["min_rel"], a["min_nl"],
                                          a["include_demo"])
-        result["rising_posts"] = trends.rising_posts(
-            conn, max(12, trends.WINDOWS[window]["hours"]), 8, a["include_demo"])
-        ids = {pid for t in result["topics"][:20] for pid in t["top_posts"]}
-        result["post_lookup"] = _posts_by_id(conn, ids)
+        base = signals.baselines(conn, include_demo=a["include_demo"])
+        result["rising_posts"] = [_slim(p, base) for p in trends.rising_posts(
+            conn, max(12, trends.WINDOWS[window]["hours"]), 8, a["include_demo"])]
+        ids = {b["id"] for b in result["breakouts"]}
+        result["post_lookup"] = _posts_by_id(conn, ids, base)
     return jsonify(result)
 
 
-def _posts_by_id(conn, ids) -> dict:
+def _posts_by_id(conn, ids, base) -> dict:
     if not ids:
         return {}
     marks = ",".join("?" * len(ids))
-    return {r["id"]: _slim(db.row_to_dict(r)) for r in conn.execute(
+    return {r["id"]: _slim(db.row_to_dict(r), base) for r in conn.execute(
         f"SELECT * FROM posts WHERE id IN ({marks})", list(ids))}
 
 
-def _slim(p: dict) -> dict:
-    keep = ("id", "platform", "author", "author_name", "text", "url", "thumbnail", "location",
-            "posted_at", "likes", "comments", "shares", "views", "relevance", "nl_score",
-            "categories", "brands", "products", "places", "city", "sentiment", "summary",
-            "hashtags", "demo", "gain_per_hour")
+def _slim(p: dict, base: dict | None = None) -> dict:
+    keep = ("id", "platform", "author", "author_name", "author_followers", "text", "url",
+            "thumbnail", "location", "posted_at", "likes", "comments", "shares", "views",
+            "relevance", "nl_score", "categories", "brands", "products", "places", "city",
+            "sentiment", "summary", "hashtags", "demo", "gain_per_hour")
     out = {k: p.get(k) for k in keep if k in p}
     if out.get("text") and len(out["text"]) > 600:
         out["text"] = out["text"][:600] + "…"
+    if base is not None and p.get("platform") != "nieuws":
+        sig = signals.of_post(p, base)
+        out["signals"] = sig
+        out["labels"] = signals.labels(sig)
     return out
 
 
@@ -148,6 +154,7 @@ def api_posts():
         "nieuw": "posted_at DESC",
         "interactie": "(likes + 2*comments + 3*shares + views/50.0) DESC",
         "relevantie": "relevance DESC, posted_at DESC",
+        "snelheid": "views / MAX(1.0, (julianday(fetched_at) - julianday(posted_at)) * 24) DESC",
     }.get(q.get("sort", "nieuw"), "posted_at DESC")
     limit = min(200, int(q.get("limit", 60)))
     offset = int(q.get("offset", 0))
@@ -157,7 +164,8 @@ def api_posts():
         rows = conn.execute(
             f"SELECT * FROM posts WHERE {' AND '.join(where)} ORDER BY {order} LIMIT ? OFFSET ?",
             args + [limit, offset]).fetchall()
-    return jsonify({"total": total, "posts": [_slim(db.row_to_dict(r)) for r in rows]})
+        base = signals.baselines(conn, include_demo=a["include_demo"])
+    return jsonify({"total": total, "posts": [_slim(db.row_to_dict(r), base) for r in rows]})
 
 
 @app.get("/api/topic")
@@ -181,6 +189,12 @@ def api_topic():
     with db.session() as conn:
         rows = [db.row_to_dict(r) for r in conn.execute(
             f"SELECT * FROM posts WHERE {where} ORDER BY posted_at DESC", args)]
+        base = signals.baselines(conn, include_demo=a["include_demo"])
+    sigs = []
+    for p in rows:
+        sig = signals.of_post(p, base)
+        sig["_views"] = p["views"] or 0
+        sigs.append(sig)
     series = [0] * n
     platforms: dict[str, int] = {}
     co: dict[str, int] = {}
@@ -192,6 +206,7 @@ def api_topic():
             if "#" + t != name and t not in lexicon.GENERIC_HASHTAGS:
                 co["#" + t] = co.get("#" + t, 0) + 1
     top = sorted(rows, key=lambda p: trends.engagement(p), reverse=True)[:12]
+    makers = {(p["platform"], p["author"] or p["id"]) for p in rows}
     return jsonify({
         "type": kind, "name": name, "window": window,
         "labels": [db.iso(start + bucket * i) for i in range(n)],
@@ -199,7 +214,9 @@ def api_topic():
         "current_from": n - int(w["hours"] / w["bucket_h"]),
         "platforms": platforms,
         "related": sorted(co.items(), key=lambda kv: kv[1], reverse=True)[:12],
-        "posts": [_slim(p) for p in top],
+        "posts": [_slim(p, base) for p in top],
+        "signals": signals.topic_summary(sigs),
+        "makers": len(makers),
         "total": len(rows),
     })
 
@@ -208,50 +225,14 @@ def api_topic():
 def api_supermarkt():
     a = _args()
     days = int(request.args.get("days", 30))
-    since = db.iso(db.now() - timedelta(days=days))
-    demo_clause = "" if a["include_demo"] else " AND demo = 0"
     with db.session() as conn:
-        products = [dict(r) for r in conn.execute(
-            f"SELECT * FROM products WHERE is_new = 1 AND first_seen >= ?{demo_clause} "
-            "ORDER BY first_seen DESC LIMIT 200", (since,))]
-        news_rows = [dict(r) for r in conn.execute(
-            f"SELECT * FROM news WHERE published_at >= ?{demo_clause} ORDER BY published_at DESC "
-            "LIMIT 80", (db.iso(db.now() - timedelta(days=7)),))]
-        posts = [db.row_to_dict(r) for r in conn.execute(
-            "SELECT * FROM posts WHERE posted_at >= ? AND relevance >= 0.35 AND nl_score >= 0.4 "
-            f"AND (categories LIKE '%Supermarkt%' OR products != '[]'){demo_clause}",
-            (db.iso(db.now() - timedelta(days=7)),))]
-        status = db.get_state(conn, "supermarkt_status", {})
-    stores = set(lexicon.SUPERMARKETS)
-    mentioned: dict[str, dict] = {}
-    for p in posts:
-        names = [pr["naam"] for pr in p["products"] if isinstance(pr, dict) and pr.get("naam")]
-        if not names:
-            # Zonder AI: gebruik merk + winkel als benadering van 'het product'.
-            shop = [b for b in p["brands"] if b in stores]
-            other = [b for b in p["brands"] if b not in stores]
-            if shop and other:
-                names = [f"{other[0]} ({shop[0]})"]
-        for name in names:
-            m = mentioned.setdefault(name, {"name": name, "posts": 0, "engagement": 0,
-                                            "platforms": set(), "stores": set(), "example": None})
-            m["posts"] += 1
-            m["engagement"] += trends.engagement(p)
-            m["platforms"].add(p["platform"])
-            m["stores"].update(b for b in p["brands"] if b in stores)
-            if not m["example"] or trends.engagement(p) > m["example"][0]:
-                m["example"] = (trends.engagement(p), _slim(p))
-    # Producten die ook als nieuw in het schap zijn gezien, krijgen een koppeling.
-    for prod in products:
-        key = prod["name"].lower()
-        prod["social"] = sum(m["posts"] for n, m in mentioned.items()
-                             if n.lower() in key or key in n.lower())
-    mentioned_list = sorted(
-        ({**m, "engagement": round(m["engagement"]), "platforms": sorted(m["platforms"]),
-          "stores": sorted(m["stores"]), "example": m["example"][1] if m["example"] else None}
-         for m in mentioned.values()), key=lambda m: (m["posts"], m["engagement"]), reverse=True)
-    return jsonify({"products": products, "news": news_rows, "mentioned": mentioned_list[:40],
-                    "status": status})
+        result = products.overview(conn, a["include_demo"], days)
+        result["status"] = db.get_state(conn, "supermarkt_status", {})
+        base = signals.baselines(conn, include_demo=a["include_demo"])
+    for m in result["mentioned"]:
+        if m["example"]:
+            m["example"] = _slim(m["example"], base)
+    return jsonify(result)
 
 
 @app.get("/api/zaken")
@@ -320,6 +301,11 @@ def api_sources():
             "SELECT * FROM sources ORDER BY CASE status WHEN 'kandidaat' THEN 0 WHEN 'actief' THEN 1 "
             "WHEN 'gepauzeerd' THEN 2 ELSE 3 END, platform, kind, value")]
         used, free = meta_graph.hashtag_slots(conn)
+        rate = db.get_settings(conn)["eur_per_usd"] or 0.92
+    for r in rows:
+        r["eur_per_useful"] = (round(r["cost_usd"] * rate / r["useful_total"], 3)
+                               if r.get("useful_total") and r.get("cost_usd") else None)
+        r["eur_total"] = round((r.get("cost_usd") or 0) * rate, 2)
     return jsonify({"sources": rows, "graph_slots_free": free, "graph_used": sorted(used)})
 
 

@@ -11,6 +11,8 @@ trendradar ze vindt:
 - 'Kapsalon Chips' (fictief nieuw product bij AH) piekt in de laatste 24 uur
 - '#frikandelijs' ontploft in de laatste 6 uur
 - 'dubai chocolade' was vorige week hot en zakt nu weg
+- 'Bitterbal Chips' (fictief) duikt op social op, maar staat nog niet in de winkeldata
+- @demo_kleinemaker (900 volgers) gaat viraal met #frikandelijs
 """
 from __future__ import annotations
 
@@ -90,6 +92,12 @@ TRENDS = [
       "Dubai chocolade donut bij {zaak}. Pistache overload"],
      ["dubaichocolade", "nieuwbijlidl", "pistache"],
      lambda h: 3.0 * math.exp(-((h - 220) / 60) ** 2), None),
+    ("bitterbal chips",
+     ["Gespot bij Jumbo: Bitterbal Chips?! Nieuwe smaak, eerlijke smaaktest",
+      "Bitterbal Chips van Smaakmakers bij de Jumbo gevonden. Lijkt nergens op 😂",
+      "Nieuwe chips met bitterbalsmaak, wie heeft ze al geproefd?"],
+     ["bitterbalchips", "nieuwbijjumbo", "supermarktvondst"],
+     lambda h: 2.2 * math.exp(-h / 8) if h < 20 else 0.0, None),
 ]
 
 DEMO_PRODUCTS = [
@@ -137,13 +145,23 @@ def _make_post(rng: random.Random, key: str, texts, tags, hours_ago: float, boos
                      "winkel": "Albert Heijn", "nieuw": True}]
     elif key == "dubai chocolade" and "Lidl" in text:
         products = [{"naam": "Dubai chocolade reep", "merk": "", "winkel": "Lidl", "nieuw": True}]
+    elif key == "bitterbal chips":
+        products = [{"naam": "Smaakmakers Bitterbal Chips", "merk": "Smaakmakers",
+                     "winkel": "Jumbo", "nieuw": True}]
+    author = rng.choice(AUTHORS[platform]).lower()
+    followers = int(rng.lognormvariate(8.5, 1.2))
+    # Een onbekende maker met 900 volgers die viraal gaat met #frikandelijs.
+    if key == "frikandelijs" and rng.random() < 0.3:
+        platform, author, followers = "tiktok", "demo_kleinemaker", 900
+        views = int(rng.uniform(60_000, 220_000))
+        base = views * rng.uniform(0.06, 0.1)
     return {
         "products": products,
         "id": f"{platform}:demo{native}",
         "platform": platform,
-        "author": rng.choice(AUTHORS[platform]).lower(),
+        "author": author,
         "author_name": None,
-        "author_followers": int(rng.lognormvariate(8.5, 1.2)),
+        "author_followers": followers,
         "text": text,
         "url": None,
         "thumbnail": None,
@@ -151,7 +169,8 @@ def _make_post(rng: random.Random, key: str, texts, tags, hours_ago: float, boos
         "posted_at": db.iso(posted),
         "likes": int(base),
         "comments": int(base * rng.uniform(0.02, 0.12)),
-        "shares": int(base * rng.uniform(0, 0.2)) if platform != "instagram" else 0,
+        "shares": int(base * rng.uniform(0, 0.2) * (4 if key == "frikandelijs" else 1))
+        if platform != "instagram" else 0,
         "views": views,
         "snapshot_at": db.iso(min(now, posted + timedelta(hours=rng.uniform(1, 6)))),
     }

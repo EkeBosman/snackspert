@@ -76,7 +76,7 @@ a { color: inherit; }
 code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
 .muted { color: var(--muted); font-weight: 400; }
 .hint { color: var(--muted); font-size: .82rem; margin: 6px 0 10px; }
-.num { text-align: right; font-variant-numeric: tabular-nums; }
+.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .center { text-align: center; margin: 16px 0; }
 
 .topbar {
@@ -185,6 +185,12 @@ table.data tbody tr.click:hover { background: var(--surface-2); }
 .badge.bad { background: color-mix(in srgb, var(--critical) 13%, var(--surface)); color: var(--critical-ink); }
 .badge.warn { background: color-mix(in srgb, var(--warning) 22%, var(--surface)); color: var(--text); }
 .up { color: var(--good-ink); }
+.sigs { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.sig {
+  font-size: .72rem; padding: 1px 7px; border-radius: 999px; white-space: nowrap;
+  background: var(--surface-2); color: var(--text-2); border: 1px solid var(--border);
+}
+.sig.hot { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); color: var(--accent); border-color: color-mix(in srgb, var(--accent) 35%, var(--border)); font-weight: 600; }
 .down { color: var(--critical-ink); }
 .pdots { display: inline-flex; gap: 4px; }
 .pdot {

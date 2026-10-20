@@ -80,7 +80,13 @@ def overview(conn, settings: dict) -> dict:
     by_platform = {r["platform"]: r["s"] for r in conn.execute(
         "SELECT platform, SUM(usd) AS s FROM spend WHERE kind = 'apify' AND at >= ? GROUP BY platform",
         (db.iso(month_start(now)),))}
+    useful = conn.execute(
+        "SELECT COUNT(*) AS n FROM posts WHERE first_fetched >= ? AND demo = 0 AND platform != 'nieuws' "
+        "AND relevance >= 0.35 AND nl_score >= 0.4", (db.iso(month_start(now)),)).fetchone()["n"]
+    total_eur = (p["spent_usd"] + ai_spent) * rate
     return {
+        "nuttige_posts": useful,
+        "per_nuttige_post_eur": round(total_eur / useful, 4) if useful else None,
         "maand": now.strftime("%Y-%m"),
         "data_budget_eur": settings["maandbudget_eur"],
         "data_uitgegeven_eur": round(p["spent_usd"] * rate, 2),

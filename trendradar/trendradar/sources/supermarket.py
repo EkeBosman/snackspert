@@ -20,11 +20,16 @@ import requests
 
 log = logging.getLogger(__name__)
 
+# Breed genoeg om nieuwkomers te zien, smal genoeg om het snel te houden.
+# Elke zoekterm is één verzoek; de supermarkt-API's zijn gratis.
 QUERIES = [
-    "chips", "snacks", "borrelhapjes", "frituursnacks", "diepvriessnacks", "kroket",
-    "frikandel", "nootjes", "popcorn", "ijs", "chocolade", "koekjes", "snoep",
-    "frisdrank", "energiedrank", "ijsthee", "saus", "pizza", "kant en klaar",
-    "wraps", "dip", "nieuw",
+    "nieuw", "nieuwe smaak", "limited edition",
+    "chips", "tortilla chips", "snacks", "borrelhapjes", "borrelnoten", "nootjes", "popcorn",
+    "zoutjes", "crackers", "frituursnacks", "diepvriessnacks", "kroket", "bitterballen",
+    "frikandel", "loempia", "kipnuggets", "friet", "airfryer", "pizza", "snackpizza",
+    "kant en klaar", "maaltijdsalade", "wraps", "dip", "saus", "mayonaise", "ketchup",
+    "ijs", "softijs", "chocolade", "chocoladereep", "koekjes", "snoep", "drop", "mueslireep",
+    "frisdrank", "energiedrank", "ijsthee", "sportdrank", "milkshake", "proteine",
 ]
 
 UA = "Appie/8.22.3 Model/phone Android/13"

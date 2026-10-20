@@ -20,7 +20,7 @@ import math
 from collections import defaultdict
 from datetime import timedelta
 
-from . import db, lexicon
+from . import db, lexicon, signals
 
 WINDOWS = {
     "nu": {"hours": 6, "baseline": 4, "bucket_h": 1, "label": "Nu (6 uur)"},
@@ -95,40 +95,60 @@ def compute(conn, window: str = "24u", platform: str | None = None, limit: int =
     bucket_span = timedelta(hours=w["bucket_h"])
 
     stats = defaultdict(lambda: {"cur": 0, "base": 0, "eng": 0.0, "authors": set(),
-                                 "platforms": set(), "series": [0] * n_buckets, "posts": []})
+                                 "base_authors": set(), "platforms": set(),
+                                 "series": [0] * n_buckets, "posts": [], "sigs": []})
+    base_sig = signals.baselines(conn, include_demo=include_demo)
     cur_posts = 0
     cur_eng = 0.0
     cur_authors = set()
+    breakout_posts = []
     for p in posts:
         t = db.parse_iso(p["posted_at"])
         idx = min(n_buckets - 1, max(0, int((t - base_start) / bucket_span)))
         is_cur = t >= cur_start
         eng = engagement(p)
+        sig = None
         if is_cur:
             cur_posts += 1
             cur_eng += eng
             cur_authors.add((p["platform"], p["author"]))
+            sig = signals.of_post(p, base_sig)
+            sig["_views"] = p["views"] or 0
+            if sig["breakout"]:
+                breakout_posts.append((sig["reach_x"] or 0, sig["views_x"] or 0, p["id"], sig))
         for key in topics_of(p):
             s = stats[key]
             s["series"][idx] += 1
+            author = (p["platform"], p["author"] or p["id"])
             if is_cur:
                 s["cur"] += 1
                 s["eng"] += eng
-                s["authors"].add((p["platform"], p["author"] or p["id"]))
+                s["authors"].add(author)
                 s["platforms"].add(p["platform"])
                 s["posts"].append((eng, p["id"]))
+                s["sigs"].append(sig)
             else:
                 s["base"] += 1
+                s["base_authors"].add(author)
 
     first_seen = _first_seen(conn, include_demo)
     rows = []
     for (kind, name), s in stats.items():
         n_auth = len(s["authors"])
-        if s["cur"] == 0 or n_auth < MIN_AUTHORS.get(kind, 1):
+        if s["cur"] == 0:
+            continue
+        summary = signals.topic_summary(s["sigs"])
+        # Eén onbekende maker die viraal gaat telt wél: dat is precies wat we
+        # vroeg willen zien. Anders moeten meerdere makers het noemen.
+        if n_auth < MIN_AUTHORS.get(kind, 1) and not summary["breakouts"]:
             continue
         base_avg = s["base"] / w["baseline"]
+        base_auth = len(s["base_authors"]) / w["baseline"]
         growth = (s["cur"] + 1) / (base_avg + 1)
-        score = math.log2(growth) * math.sqrt(n_auth) + math.log10(1 + s["eng"]) * 0.4
+        score = (math.log2(growth) * math.sqrt(n_auth) + math.log10(1 + s["eng"]) * 0.4
+                 + 0.6 * math.log2(max(1.0, summary["views_x"] or 1))
+                 + 0.4 * math.log2(max(1.0, summary["shares_x"] or 1))
+                 + min(3, summary["breakouts"]))
         fs = first_seen.get((kind, name))
         rows.append({
             "type": kind,
@@ -139,7 +159,9 @@ def compute(conn, window: str = "24u", platform: str | None = None, limit: int =
             "growth_pct": None if base_avg == 0 else round((s["cur"] / base_avg - 1) * 100),
             "new": s["base"] == 0 and (fs is None or fs >= db.iso(cur_start)),
             "authors": n_auth,
+            "authors_baseline": round(base_auth, 1),
             "engagement": round(s["eng"]),
+            "signals": summary,
             "platforms": sorted(s["platforms"]),
             "series": s["series"],
             "score": round(score, 3),
@@ -148,7 +170,17 @@ def compute(conn, window: str = "24u", platform: str | None = None, limit: int =
     # "pistache kroket" en "#pistachekroket" zijn hetzelfde onderwerp: toon het één keer.
     tag_names = {r["name"] for r in rows if r["type"] == "hashtag"}
     rows = [r for r in rows if not (r["type"] == "zin" and "#" + r["name"].replace(" ", "") in tag_names)]
-    rows.sort(key=lambda r: r["score"], reverse=True)
+    # Woordcombinaties uit precies dezelfde posts ("birria taco", "taco gespot"): houd er één.
+    seen_sets = set()
+    kept = []
+    for r in sorted(rows, key=lambda r: r["score"], reverse=True):
+        if r["type"] == "zin":
+            fingerprint = (r["posts"], r["authors"], r["engagement"])
+            if fingerprint in seen_sets:
+                continue
+            seen_sets.add(fingerprint)
+        kept.append(r)
+    rows = kept
 
     # Historie: hoe ver terug hebben we data? Te kort = baseline onbetrouwbaar.
     oldest = conn.execute("SELECT MIN(started_at) AS m FROM runs WHERE status != 'fout'").fetchone()["m"]
@@ -166,7 +198,9 @@ def compute(conn, window: str = "24u", platform: str | None = None, limit: int =
         "history_ok": history_h >= needed_h,
         "history_hours": round(history_h, 1),
         "needed_hours": needed_h,
-        "totals": {"posts": cur_posts, "engagement": round(cur_eng), "makers": len(cur_authors)},
+        "totals": {"posts": cur_posts, "engagement": round(cur_eng), "makers": len(cur_authors),
+                   "breakouts": len(breakout_posts)},
+        "breakouts": _one_per_maker(conn, breakout_posts),
         "topics": rows[:limit],
         "new_topics": [r for r in rows if r["new"] and r["type"] != "categorie"][:15],
         "categories": sorted([r for r in rows if r["type"] == "categorie"],
@@ -174,6 +208,28 @@ def compute(conn, window: str = "24u", platform: str | None = None, limit: int =
         "cities": sorted([dict(r, coords=lexicon.CITIES.get(r["name"])) for r in rows
                           if r["type"] == "stad"], key=lambda r: r["posts"], reverse=True),
     }
+
+
+def _one_per_maker(conn, breakout_posts: list, limit: int = 12) -> list[dict]:
+    """De sterkste doorbraak per maker, met hoeveel virale posts die maker had."""
+    best: dict = {}
+    counts: dict = {}
+    ranked = sorted(breakout_posts, key=lambda b: (b[0], b[1]), reverse=True)
+    ids = [pid for _, _, pid, _ in ranked]
+    authors = {}
+    for i in range(0, len(ids), 500):
+        chunk = ids[i:i + 500]
+        authors.update({r["id"]: (r["platform"], r["author"] or r["id"]) for r in conn.execute(
+            f"SELECT id, platform, author FROM posts WHERE id IN ({','.join('?' * len(chunk))})", chunk)})
+    for _, _, pid, sig in ranked:
+        who = authors.get(pid, pid)
+        counts[who] = counts.get(who, 0) + 1
+        best.setdefault(who, {"id": pid, "signals": sig})
+    out = []
+    for who, item in best.items():
+        item["count"] = counts[who]
+        out.append(item)
+    return out[:limit]
 
 
 def _first_seen(conn, include_demo: bool) -> dict:

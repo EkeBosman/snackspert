@@ -306,3 +306,125 @@ def test_ai_classification_request_and_parsing(monkeypatch):
 def test_secrets_are_redacted(monkeypatch):
     monkeypatch.setenv("APIFY_TOKEN", "apify_api_geheim123")
     assert "geheim" not in config.redact("fout bij ...?token=apify_api_geheim123&x=1")
+
+
+# --- signalen, virale makers, supermarkt, kosten ------------------------------
+
+def _p(i, views, followers, hours_ago, platform="tiktok", **kw):
+    return post(f"s{i}", kw.pop("text", "Lekkere frikandel bij de snackbar #frikandel"),
+                hours_ago=hours_ago, platform=platform, views=views, author_followers=followers,
+                snapshot_at=db.iso(db.now()), **kw)
+
+
+def test_signals_compare_with_posts_of_same_age(conn):
+    from trendradar import signals
+    # Oude posts hebben veel views (ze staan er al lang), nieuwe weinig: dat is normaal.
+    store_posts(conn, [_p(i, 50_000, 5000, 60) for i in range(20)]
+                + [_p(100 + i, 1_000, 5000, 2) for i in range(20)], None)
+    base = signals.baselines(conn)
+    fresh_normal = signals.of_post(_p(900, 1_000, 5000, 2) | {"fetched_at": db.iso(db.now())}, base)
+    assert fresh_normal["views_x"] == 1.0 and not fresh_normal["breakout"]
+    viral = signals.of_post(_p(901, 40_000, 900, 2) | {"fetched_at": db.iso(db.now())}, base)
+    assert viral["breakout"] and viral["small_creator"] and viral["views_x"] >= 30
+    assert "doorbraak" in signals.labels(viral)
+
+
+def test_breakout_from_unknown_creator_becomes_source_first(conn):
+    store_posts(conn, [_p(i, 1_000, 5000, 2 + i % 3) for i in range(20)], None)
+    store_posts(conn, [_p(500, 80_000, 700, 3, text="Frikandelijs?! Moet je proberen #frikandelijs #snackbar",
+                         author="kleine_maker")], None)
+    added = discovery.run(conn, dict(config.DEFAULTS, max_nieuwe_bronnen_per_run=2))
+    first = [(a["kind"], a["value"]) for a in added if a["status"] == "actief"]
+    assert ("hashtag", "frikandelijs") in first or ("account", "kleine_maker") in first
+    assert any("viraal" in a["reason"] for a in added)
+
+
+def test_trends_show_single_viral_creator(conn):
+    store_posts(conn, [_p(i, 1_000, 5000, 1 + i % 4) for i in range(20)], None)
+    store_posts(conn, [_p(600, 90_000, 800, 2, text="Bitterbal softijs gespot! #bitterbalijs",
+                         author="eenling")], None)
+    r = trends.compute(conn, "24u")
+    names = [t["name"] for t in r["topics"]]
+    assert "#bitterbalijs" in names
+    assert r["totals"]["breakouts"] >= 1 and r["breakouts"][0]["signals"]["followers"] == 800
+
+
+def test_product_names_and_early_signals(conn):
+    from trendradar import products
+    assert products.same("Kapsalon Chips", "Smaakmakers Kapsalon Chips 150g")
+    assert not products.same("Paprika Chips", "Naturel Chips")
+    c = classify.classify_rules({"text": "Nieuw bij AH: Paprika Chips Limoen! #ahnieuw", "platform": "tiktok"})
+    assert c["products"][0]["naam"] == "Paprika Chips Limoen" and c["products"][0]["winkel"] == "Albert Heijn"
+    assert classify.classify_rules({"text": "Nieuw bij AH: mijn collega Jan", "platform": "tiktok"})["products"] == []
+
+    now = db.iso(db.now())
+    conn.execute("INSERT INTO products(id, store, name, first_seen, last_seen, is_new) "
+                 "VALUES ('ah:1', 'Albert Heijn', 'AH Paprika Chips Limoen', ?, ?, 1)", (now, now))
+    store_posts(conn, [post(f"pr{i}", "Nieuw bij AH: Paprika Chips Limoen! Echt lekker", hours_ago=3)
+                       for i in range(3)]
+                + [post(f"bj{i}", "Gespot bij Jumbo: Bitterbal Chips! Nieuwe smaak", hours_ago=2)
+                   for i in range(2)], None)
+    o = products.overview(conn)
+    assert o["products"][0]["confirmed_by"] == ["winkel", "social"]
+    assert o["products"][0]["social_makers"] == 3
+    early = {m["name"]: m for m in o["early"]}
+    assert "Bitterbal Chips" in early and early["Bitterbal Chips"]["store_tracked"]
+    assert "Paprika Chips Limoen" not in early
+
+
+def test_apify_round_saves_money(conn, monkeypatch):
+    """Datumfilter, kosten per bron, en bronnen met weinig nieuws later opnieuw."""
+    from trendradar import collector
+    from trendradar.sources import apify as ap
+
+    conn.execute("INSERT INTO sources(platform, kind, value, added_at) VALUES "
+                 "('tiktok', 'hashtag', 'frikandel', ?), ('tiktok', 'hashtag', 'kroket', ?)",
+                 (db.iso(db.now()), db.iso(db.now())))
+    conn.commit()
+    calls = []
+
+    def fake_run(platform, kind, values, per_value, max_usd, since=None):
+        calls.append({"kind": kind, "values": values, "since": since, "max_usd": max_usd})
+        items = [{"id": f"{v}{i}", "text": f"Lekkere {v} bij de snackbar #{v}", "createTime": 1760868000,
+                  "authorMeta": {"name": f"m{i}", "fans": 100}, "playCount": 10,
+                  "hashtags": [{"name": v}]} for v in values for i in range(per_value)]
+        return items, 0.50
+
+    monkeypatch.setattr(ap, "available", lambda: True)
+    monkeypatch.setattr(ap, "run_actor", fake_run)
+    settings = dict(config.DEFAULTS, maandbudget_eur=600.0)
+    run = collector.Run("test")
+    collector.step_apify(run, settings, set())
+    assert calls and calls[0]["since"]  # datumfilter meegestuurd
+    assert all(c["max_usd"] > 0 for c in calls)
+    rows = {r["value"]: dict(r) for r in conn.execute("SELECT * FROM sources")}
+    assert sum(r["cost_usd"] for r in rows.values()) == pytest.approx(0.5 * len(calls))
+    assert all(r["useful_total"] > 0 and r["next_due"] for r in rows.values())
+
+    # Tweede ronde direct erna: bronnen zijn nog niet aan de beurt.
+    calls.clear()
+    collector.step_apify(run, settings, set())
+    assert calls == []
+
+    # Na de wachttijd: zelfde posts terug = 0% nieuw -> volgende keer pas na 4 rondes.
+    conn.execute("UPDATE sources SET next_due = ?", (db.iso(db.now() - timedelta(minutes=1)),))
+    conn.commit()
+    collector.step_apify(run, settings, set())
+    r = conn.execute("SELECT next_due, last_new FROM sources WHERE value = 'frikandel'").fetchone()
+    assert r["last_new"] == 0
+    assert db.parse_iso(r["next_due"]) > db.now() + timedelta(hours=20)
+
+
+def test_migration_adds_new_columns(tmp_path, monkeypatch):
+    import sqlite3
+    monkeypatch.setattr(config, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(config, "DB_PATH", tmp_path / "oud.db")
+    old = sqlite3.connect(tmp_path / "oud.db")
+    old.execute("CREATE TABLE sources (id INTEGER PRIMARY KEY, platform TEXT, kind TEXT, value TEXT, "
+                "status TEXT, origin TEXT, added_at TEXT)")
+    old.commit()
+    old.close()
+    db.init()
+    with db.session() as c:
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(sources)")}
+    assert {"next_due", "cost_usd", "useful_total", "last_new"} <= cols

@@ -5,7 +5,7 @@ import logging
 import threading
 from datetime import timedelta
 
-from . import budget, classify, config, db, discovery, seeds, snackspert
+from . import budget, classify, config, db, discovery, seeds, signals, snackspert
 from .sources import apify, meta_graph, news, supermarket
 
 log = logging.getLogger(__name__)
@@ -55,10 +55,11 @@ class Run:
 
 # --- opslaan ---------------------------------------------------------------
 
-def store_posts(conn, posts: list[dict], source_id: int | None, demo: bool = False) -> tuple[int, int]:
-    """Slaat posts op (of werkt cijfers bij). Geeft (nieuw, relevant) terug."""
+def store_posts(conn, posts: list[dict], source_id: int | None,
+                demo: bool = False) -> tuple[int, int, int]:
+    """Slaat posts op (of werkt cijfers bij). Geeft (nieuw, relevant, nieuw én relevant)."""
     now = db.iso(db.now())
-    new = relevant = 0
+    new = relevant = new_relevant = 0
     for p in posts:
         existing = conn.execute("SELECT id, ai_done FROM posts WHERE id = ?", (p["id"],)).fetchone()
         if existing:
@@ -66,34 +67,38 @@ def store_posts(conn, posts: list[dict], source_id: int | None, demo: bool = Fal
                 "UPDATE posts SET likes = MAX(likes, ?), comments = MAX(comments, ?), "
                 "shares = MAX(shares, ?), views = MAX(views, ?), fetched_at = ?, "
                 "thumbnail = COALESCE(thumbnail, ?), location = COALESCE(location, ?), "
-                "author = COALESCE(author, ?) WHERE id = ?",
+                "author = COALESCE(author, ?), "
+                "author_followers = MAX(author_followers, ?) WHERE id = ?",
                 (p.get("likes", 0), p.get("comments", 0), p.get("shares", 0), p.get("views", 0),
-                 now, p.get("thumbnail"), p.get("location"), p.get("author"), p["id"]))
+                 p.get("snapshot_at", now), p.get("thumbnail"), p.get("location"), p.get("author"),
+                 p.get("author_followers") or 0, p["id"]))
             row = conn.execute("SELECT relevance FROM posts WHERE id = ?", (p["id"],)).fetchone()
             relevant += row["relevance"] >= 0.35
         else:
             c = classify.classify_rules(p)
             conn.execute(
                 "INSERT INTO posts(id, platform, source_id, author, author_name, author_followers, "
-                "text, url, thumbnail, location, posted_at, fetched_at, likes, comments, shares, "
+                "text, url, thumbnail, location, posted_at, first_fetched, likes, comments, shares, "
                 "views, hashtags, mentions, relevance, nl_score, categories, brands, products, "
-                "places, phrases, city, demo) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "places, phrases, city, demo, fetched_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (p["id"], p["platform"], source_id, p.get("author"), p.get("author_name"),
                  p.get("author_followers") or 0, p.get("text") or "", p.get("url"),
                  p.get("thumbnail"), p.get("location"), p["posted_at"], now,
                  p.get("likes", 0), p.get("comments", 0), p.get("shares", 0), p.get("views", 0),
                  config.dumps(c["hashtags"]), config.dumps(c["mentions"]), c["relevance"],
                  c["nl_score"], config.dumps(c["categories"]), config.dumps(c["brands"]),
-                 config.dumps(p.get("products", [])), config.dumps(c["places"]),
-                 config.dumps(c["phrases"]), c["city"], int(demo)))
+                 config.dumps(p.get("products") or c["products"]), config.dumps(c["places"]),
+                 config.dumps(c["phrases"]), c["city"], int(demo), p.get("snapshot_at", now)))
             new += 1
             relevant += c["relevance"] >= 0.35
+            new_relevant += c["relevance"] >= 0.35 and c["nl_score"] >= 0.4
         conn.execute(
             "INSERT OR REPLACE INTO metric_snapshots(post_id, taken_at, likes, comments, shares, views) "
             "VALUES (?, ?, ?, ?, ?, ?)",
             (p["id"], p.get("snapshot_at", now), p.get("likes", 0), p.get("comments", 0),
              p.get("shares", 0), p.get("views", 0)))
-    return new, relevant
+    return new, relevant, new_relevant
 
 
 def _attribute(posts: list[dict], kind: str, values: list[str]) -> dict[str, list[dict]]:
@@ -139,8 +144,9 @@ def step_graph(run: Run, settings: dict) -> set[int]:
         try:
             with db.session() as conn:
                 posts = meta_graph.fetch_hashtag(conn, s["value"])
-                new, rel = store_posts(conn, posts, s["id"])
-                discovery.update_source_stats(conn, s["id"], len(posts), rel)
+                new, rel, useful = store_posts(conn, posts, s["id"])
+                discovery.update_source_stats(conn, s["id"], len(posts), rel, new, useful,
+                                              0.0, settings["interval_uren"])
             run.results += len(posts)
             run.new_posts += new
             done.add(s["id"])
@@ -151,8 +157,9 @@ def step_graph(run: Run, settings: dict) -> set[int]:
         try:
             posts, _ = meta_graph.fetch_account(s["value"])
             with db.session() as conn:
-                new, rel = store_posts(conn, posts, s["id"])
-                discovery.update_source_stats(conn, s["id"], len(posts), rel)
+                new, rel, useful = store_posts(conn, posts, s["id"])
+                discovery.update_source_stats(conn, s["id"], len(posts), rel, new, useful,
+                                              0.0, settings["interval_uren"])
             run.results += len(posts)
             run.new_posts += new
             done.add(s["id"])
@@ -176,8 +183,10 @@ def step_apify(run: Run, settings: dict, skip: set[int]) -> None:
     for platform in budget.PLATFORMS:
         plan = p["platforms"][platform]
         price = settings[f"prijs_{platform}_per_1000"]
+        now_iso = db.iso(db.now())
         eligible = [s for s in sources if s["platform"] == platform and s["id"] not in skip
-                    and apify.supports(platform, s["kind"])]
+                    and apify.supports(platform, s["kind"])
+                    and (not s["next_due"] or s["next_due"] <= now_iso)]
         chosen = budget.allocate(eligible, plan["results"], settings["min_per_bron"],
                                  settings["max_per_bron"])
         if not chosen:
@@ -195,8 +204,15 @@ def step_apify(run: Run, settings: dict, skip: set[int]) -> None:
                 cap = min(usd_left, per_value * len(values) * price / 1000 * 1.25)
                 if cap < 0.01:
                     break
+                since = None
+                if settings.get("alleen_nieuwe_posts", True):
+                    # Vanaf de oudste laatste ophaalbeurt in deze groep, min een dag marge.
+                    fetched = [db.parse_iso(s["last_fetched"]) for s in batch if s["last_fetched"]]
+                    start = (min(fetched) if len(fetched) == len(batch) else db.now()
+                             - timedelta(days=2)) - timedelta(days=1)
+                    since = start.strftime("%Y-%m-%d")
                 try:
-                    items, cost = apify.run_actor(platform, kind, values, per_value, cap)
+                    items, cost = apify.run_actor(platform, kind, values, per_value, cap, since)
                 except Exception as exc:  # noqa: BLE001
                     run.note(f"Apify {platform}/{kind}: {exc}", "fout")
                     with db.session() as conn:
@@ -207,16 +223,63 @@ def step_apify(run: Run, settings: dict, skip: set[int]) -> None:
                 run.cost += cost
                 posts = [x for x in (apify.normalize(platform, it) for it in items) if x]
                 by_value = _attribute(posts, kind, values)
+                batch_new = 0
                 with db.session() as conn:
                     budget.record(conn, "apify", cost, platform, f"{kind}: {', '.join(values)}")
                     for s in batch:
                         mine = by_value.get(s["value"], [])
-                        new, rel = store_posts(conn, mine, s["id"])
+                        share = cost * (len(mine) / len(posts) if posts else 1 / len(batch))
+                        new, rel, useful = store_posts(conn, mine, s["id"])
                         run.new_posts += new
-                        discovery.update_source_stats(conn, s["id"], len(mine), rel)
+                        batch_new += new
+                        discovery.update_source_stats(conn, s["id"], len(mine), rel, new, useful,
+                                                      share, settings["interval_uren"])
                 run.results += len(posts)
+                dup = 1 - batch_new / len(posts) if posts else 0
                 run.note(f"Apify {platform}/{kind}: {len(posts)} posts uit {len(values)} bronnen, "
-                         f"${cost:.3f}")
+                         f"{batch_new} nieuw ({dup:.0%} al bekend), ${cost:.3f}")
+
+
+def step_remeasure(run: Run, settings: dict) -> None:
+    """Meet de snelste posts van de afgelopen 2 dagen opnieuw.
+
+    Zo zie je of een video echt doorschiet (views per uur sinds de vorige
+    meting) in plaats van één momentopname. Kost per post één resultaat.
+    """
+    per_platform = int(settings.get("herhaalmeting_per_ronde", 0))
+    if not per_platform or not apify.available():
+        return
+    since = db.iso(db.now() - timedelta(hours=48))
+    recent = db.iso(db.now() - timedelta(hours=settings["interval_uren"] - 0.5))
+    with db.session() as conn:
+        base = signals.baselines(conn, include_demo=False)
+        rows = conn.execute(
+            "SELECT * FROM posts WHERE posted_at >= ? AND demo = 0 AND url IS NOT NULL "
+            "AND platform IN ('tiktok', 'instagram') AND relevance >= 0.35 AND nl_score >= 0.4 "
+            "AND (remeasured_at IS NULL OR remeasured_at < ?) AND fetched_at < ?",
+            (since, recent, recent)).fetchall()
+    ranked: dict[str, list] = {}
+    for p in rows:
+        sig = signals.of_post(p, base)
+        ranked.setdefault(p["platform"], []).append(
+            ((sig["breakout"], sig["views_x"] or 0, sig["shares_x"] or 0), p["url"], p["id"]))
+    for platform, items in ranked.items():
+        chosen = sorted(items, reverse=True)[:per_platform]
+        urls = [u for _, u, _ in chosen]
+        cap = len(urls) * settings[f"prijs_{platform}_per_1000"] / 1000 * 1.5
+        try:
+            found, cost = apify.run_actor(platform, "post", urls, 1, max(cap, 0.02))
+        except Exception as exc:  # noqa: BLE001
+            run.note(f"Herhaalmeting {platform}: {exc}", "waarschuwing")
+            continue
+        posts = [x for x in (apify.normalize(platform, it) for it in found) if x]
+        with db.session() as conn:
+            budget.record(conn, "apify", cost, platform, f"herhaalmeting: {len(urls)} posts")
+            store_posts(conn, posts, None)
+            conn.executemany("UPDATE posts SET remeasured_at = ? WHERE id = ?",
+                             [(db.iso(db.now()), pid) for _, _, pid in chosen])
+        run.cost += cost
+        run.note(f"Herhaalmeting {platform}: {len(posts)} snelle posts opnieuw gemeten, ${cost:.3f}")
 
 
 def step_ai(run: Run, settings: dict) -> None:
@@ -226,7 +289,10 @@ def step_ai(run: Run, settings: dict) -> None:
         spent = budget.spent_usd(conn, "ai")
         limit_usd = settings["ai_maandbudget_eur"] / (settings["eur_per_usd"] or 0.92)
         rows = [db.row_to_dict(r) for r in conn.execute(
-            "SELECT * FROM posts WHERE ai_done = 0 AND demo = 0 AND relevance >= 0.2 "
+            # Alleen twijfelgevallen en relevante posts; duidelijk niet-Nederlandse
+            # posts slaan we over. Scheelt de helft van de AI-kosten.
+            "SELECT * FROM posts WHERE ai_done = 0 AND demo = 0 AND relevance >= 0.3 "
+            "AND nl_score >= 0.15 AND platform != 'nieuws' "
             "ORDER BY posted_at DESC LIMIT ?", (AI_MAX_PER_RUN,))]
     if not rows:
         return
@@ -281,7 +347,7 @@ def step_news(run: Run, settings: dict) -> None:
                 posts.append({"id": it["id"], "platform": "nieuws", "author": it["outlet"],
                               "text": it["title"], "url": it["url"],
                               "posted_at": it["published_at"]})
-        new, _ = store_posts(conn, posts, None)
+        new, _, _ = store_posts(conn, posts, None)
     run.new_posts += new
     run.note(f"Nieuws: {len(items)} berichten bekeken, {new} nieuw")
 
@@ -291,7 +357,8 @@ def step_supermarkets(run: Run, settings: dict, force: bool = False) -> None:
         return
     with db.session() as conn:
         last = db.get_state(conn, "supermarkt_laatst")
-    if last and not force and db.now() - db.parse_iso(last) < timedelta(hours=20):
+    every = max(1, settings.get("supermarkt_interval_uren", 12)) - 0.5
+    if last and not force and db.now() - db.parse_iso(last) < timedelta(hours=every):
         return
     status = {}
     for store, fetch in supermarket.STORES.items():
@@ -384,6 +451,7 @@ def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict 
                         run.note("Echte databron gevonden: demodata gewist")
                 done = step_graph(run, settings)
                 step_apify(run, settings, done)
+                step_remeasure(run, settings)
                 step_news(run, settings)
                 step_ai(run, settings)
                 step_supermarkets(run, settings, force_supermarkets)

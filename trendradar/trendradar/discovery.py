@@ -1,7 +1,9 @@
 """Vult de bronnenlijst automatisch aan en ruimt hem op.
 
 Toevoegen: hashtags en accounts die de afgelopen 7 dagen in meerdere relevante
-Nederlandse posts opduiken, van verschillende makers.
+Nederlandse posts opduiken, van verschillende makers. Hashtags en makers uit
+posts die viraal gaan (zie signals.py) gaan altijd voor, ook bij één maker.
+Gewone kandidaten scoren maximaal 15, virale minimaal 20.
 Opruimen: bronnen die structureel weinig relevants opleveren gaan op pauze;
 accounts die twee keer niets teruggeven worden 'ongeldig'.
 Handmatig toegevoegde bronnen worden nooit automatisch gepauzeerd.
@@ -12,7 +14,7 @@ import json
 from collections import defaultdict
 from datetime import timedelta
 
-from . import db, lexicon
+from . import db, lexicon, signals
 from .classify import looks_like_business
 
 MIN_REL = 0.5
@@ -61,14 +63,14 @@ def candidates(conn, days: int = 7) -> list[dict]:
         if n_auth >= 3 or (n_auth >= 2 and d["posts"] >= 4):
             avg = d["rel"] / d["posts"]
             out.append({"platform": p, "kind": "hashtag", "value": t,
-                        "score": round(n_auth * avg, 2),
+                        "score": round(min(15, n_auth * avg), 2),
                         "reason": f"in {d['posts']} relevante posts van {n_auth} makers"})
     for (p, a), d in authors.items():
         if (p, "account", a) in known or d["posts"] < 2:
             continue
         avg = d["rel"] / d["posts"]
         out.append({"platform": p, "kind": "account", "value": a,
-                    "score": round(d["posts"] * avg * 1.2, 2),
+                    "score": round(min(15, d["posts"] * avg * 1.2), 2),
                     "reason": f"plaatste {d['posts']} relevante posts"})
     for (p, m), d in mentions.items():
         if (p, "account", m) in known or p == "facebook":
@@ -77,8 +79,9 @@ def candidates(conn, days: int = 7) -> list[dict]:
         if n_auth >= 2 and d["posts"] >= 3:
             bonus = 1.5 if looks_like_business(m) else 1.0
             out.append({"platform": p, "kind": "account", "value": m,
-                        "score": round(n_auth * bonus, 2),
+                        "score": round(min(15, n_auth * bonus), 2),
                         "reason": f"genoemd in {d['posts']} posts door {n_auth} makers"})
+    out += breakout_candidates(conn, known)
     # Eén ontdekking per (platform, soort, waarde), hoogste score wint.
     best: dict = {}
     for c in out:
@@ -86,6 +89,39 @@ def candidates(conn, days: int = 7) -> list[dict]:
         if key not in best or c["score"] > best[key]["score"]:
             best[key] = c
     return sorted(best.values(), key=lambda c: c["score"], reverse=True)
+
+
+def breakout_candidates(conn, known: set, days: int = 3) -> list[dict]:
+    """Hashtags en makers uit posts die viraal gaan, ook als het maar één maker is.
+
+    Juist de onbekende maker die met één video over een snack ontploft, wil je
+    als eerste zien. Deze kandidaten krijgen daarom een hoge score en gaan voor.
+    """
+    base = signals.baselines(conn)
+    since = db.iso(db.now() - timedelta(days=days))
+    out = []
+    rows = conn.execute(
+        "SELECT * FROM posts WHERE posted_at >= ? AND relevance >= ? AND nl_score >= ? "
+        "AND platform IN ('instagram', 'tiktok') AND views > 0", (since, MIN_REL, MIN_NL))
+    for p in rows:
+        sig = signals.of_post(p, base)
+        if not sig["breakout"]:
+            continue
+        who = f"@{p['author']}" if p["author"] else "een maker"
+        why = f"{sig['views_x']:g}× views" if sig["views_x"] else "veel views"
+        if sig["small_creator"] and (sig["reach_x"] or 0) >= 3:
+            why += f", bereik {sig['reach_x']:g}× het aantal volgers"
+        score = 20 + min(30, sig["views_x"] or 0)
+        for t in json.loads(p["hashtags"] or "[]"):
+            if len(t) < 4 or t.isdigit() or t in lexicon.GENERIC_HASHTAGS:
+                continue
+            if (p["platform"], "hashtag", t) not in known:
+                out.append({"platform": p["platform"], "kind": "hashtag", "value": t, "score": score,
+                            "reason": f"uit virale post van {who} ({why})"})
+        if p["author"] and sig["small_creator"] and (p["platform"], "account", p["author"]) not in known:
+            out.append({"platform": p["platform"], "kind": "account", "value": p["author"],
+                        "score": score - 5, "reason": f"kleine maker ging viraal ({why})"})
+    return out
 
 
 def run(conn, settings: dict, demo: bool = False) -> list[dict]:
@@ -115,11 +151,21 @@ def run(conn, settings: dict, demo: bool = False) -> list[dict]:
     return added
 
 
-def update_source_stats(conn, source_id: int, results: int, relevant: int) -> None:
+def update_source_stats(conn, source_id: int, results: int, relevant: int,
+                        new: int | None = None, new_relevant: int | None = None,
+                        cost_usd: float = 0.0, interval_h: float = 6) -> None:
+    """Werk de cijfers van een bron bij na een ophaalronde.
+
+    Opbrengst = aandeel *nieuwe* relevante posts per betaald resultaat: een bron
+    die steeds dezelfde posts teruggeeft, kost geld maar levert niets op.
+    Daarnaast bepalen we wanneer ophalen weer zin heeft: een bron die weinig
+    nieuws oplevert, komt pas na 2 of 4 rondes weer aan de beurt.
+    """
     s = conn.execute("SELECT * FROM sources WHERE id = ?", (source_id,)).fetchone()
     if not s:
         return
-    ratio = relevant / results if results else 0.0
+    useful = relevant if new_relevant is None else new_relevant
+    ratio = useful / results if results else 0.0
     yield_ = ratio if s["yield_score"] is None else round(0.6 * s["yield_score"] + 0.4 * ratio, 3)
     streak = 0 if results else (s["empty_streak"] or 0) + 1
     status, reason = s["status"], s["reason"]
@@ -127,9 +173,14 @@ def update_source_stats(conn, source_id: int, results: int, relevant: int) -> No
         if s["kind"] == "account" and streak >= 2:
             status, reason = "ongeldig", "twee rondes zonder resultaat (bestaat niet of is privé?)"
         elif (s["fetch_count"] or 0) + 1 >= 3 and yield_ < 0.15 and results:
-            status, reason = "gepauzeerd", f"levert weinig relevants op ({yield_:.0%})"
+            status, reason = "gepauzeerd", f"levert weinig nieuws en relevants op ({yield_:.0%})"
+    new_ratio = (new / results) if (new is not None and results) else (1.0 if results else 0.0)
+    rounds = 1 if new_ratio >= 0.3 else 2 if new_ratio >= 0.1 else 4
+    next_due = db.iso(db.now() + timedelta(hours=interval_h * rounds - 0.5))
     conn.execute(
         "UPDATE sources SET last_fetched = ?, fetch_count = fetch_count + 1, last_results = ?, "
         "last_relevant = ?, yield_score = ?, empty_streak = ?, status = ?, reason = ?, "
-        "last_error = NULL WHERE id = ?",
-        (db.iso(db.now()), results, relevant, yield_, streak, status, reason, source_id))
+        "last_error = NULL, next_due = ?, last_new = ?, cost_usd = cost_usd + ?, "
+        "useful_total = useful_total + ? WHERE id = ?",
+        (db.iso(db.now()), results, relevant, yield_, streak, status, reason, next_due,
+         new if new is not None else results, cost_usd, useful, source_id))
