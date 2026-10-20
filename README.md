@@ -33,6 +33,10 @@ Verzamelt alle recensies van [snackspert.nl/restaurant](https://snackspert.nl/re
 - Stap 4 kan 10-30 minuten duren (er zijn ~700 restaurants)
 - Je kunt `MAX_RECENSIES` instellen op bijv. `10` om eerst te testen
 
+## Trendradar
+
+In de map `trendradar/` staat een lokale webtool die Nederlandse posts over snacks, streetfood en nieuwe supermarktproducten volgt op Instagram, TikTok en Facebook, met trends over 6 uur, 24 uur, 3 dagen en 7 dagen. Zie [trendradar/README.md](trendradar/README.md).
+
 ## iPhone App
 
 In de map `snackspert-app/` staat een React Native (Expo) app voor de iPhone. Zie [snackspert-app/README.md](snackspert-app/README.md) voor installatie-instructies.
