@@ -383,7 +383,7 @@ def test_apify_round_saves_money(conn, monkeypatch):
     conn.commit()
     calls = []
 
-    def fake_run(platform, kind, values, per_value, max_usd, since=None):
+    def fake_run(platform, kind, values, per_value, max_usd, since=None, **kw):
         calls.append({"kind": kind, "values": values, "since": since, "max_usd": max_usd})
         items = [{"id": f"{v}{i}", "text": f"Lekkere {v} bij de snackbar #{v}", "createTime": 1760868000,
                   "authorMeta": {"name": f"m{i}", "fans": 100}, "playCount": 10,
@@ -457,3 +457,76 @@ def _fast_connect(original):
         c.execute("PRAGMA busy_timeout = 1000")
         return c
     return connect
+
+
+def test_supermarket_new_products_via_checkjebon(conn, monkeypatch):
+    from trendradar import collector
+    from trendradar.sources import supermarket
+
+    raw = [{"n": "ah", "u": "https://www.ah.nl/producten/product/", "d": [
+               {"n": "AH Naturel chips", "l": "wi1/chips", "p": 1.29, "s": "200 g"}]},
+           {"n": "lidl", "u": "https://x/", "d": [{"n": "Kip gyros", "l": "77", "p": 6.19, "s": "750 g"}]},
+           {"n": "aldi", "u": "https://y/", "d": []}]
+    first = supermarket.parse(raw)
+    assert first["Albert Heijn"][0]["url"] == "https://www.ah.nl/producten/product/wi1/chips"
+    second = supermarket.parse(raw)
+    second["Albert Heijn"] += [
+        {"id": "ah:wi2/kapsalon", "store": "Albert Heijn", "name": "AH Kapsalon chips", "size": "150 g",
+         "price": 1.99, "url": None},
+        {"id": "ah:wi3/shampoo", "store": "Albert Heijn", "name": "AH Shampoo kokos", "size": "300 ml",
+         "price": 2.49, "url": None}]
+    responses = iter([(first, '"a"'), (None, '"a"'), (second, '"b"')])
+    monkeypatch.setattr(supermarket, "fetch", lambda etag=None: next(responses))
+    settings = dict(config.DEFAULTS)
+
+    run = collector.Run("test")
+    collector.step_supermarkets(run, settings, force=True)   # nulmeting: niets nieuw
+    assert conn.execute("SELECT COUNT(*) FROM products WHERE is_new = 1").fetchone()[0] == 0
+    collector.step_supermarkets(run, settings, force=True)   # 304: niets veranderd
+    assert "geen nieuwe" in run.lines[-1]["tekst"]
+    collector.step_supermarkets(run, settings, force=True)
+    new = {r["name"]: r["relevant"] for r in conn.execute("SELECT * FROM products WHERE is_new = 1")}
+    assert new == {"AH Kapsalon chips": 1, "AH Shampoo kokos": 0}
+
+    from trendradar import products
+    o = products.overview(conn)
+    assert [p["name"] for p in o["products"]] == ["AH Kapsalon chips"]
+    assert len(products.overview(conn, only_relevant=False)["products"]) == 2
+    with db.session() as c:
+        status = db.get_state(c, "supermarkt_status")
+    assert status["Albert Heijn"]["ok"] and not status["Aldi"]["ok"]
+
+
+def test_apify_minimum_charge_and_cost_estimate(monkeypatch):
+    from trendradar.sources import apify as ap
+
+    sent = {}
+
+    class Resp:
+        def __init__(self, data, status=200):
+            self._d, self.status_code, self.ok = data, status, status < 400
+            self.text = ""
+
+        def json(self):
+            return self._d
+
+        def raise_for_status(self):
+            pass
+
+    def post(url, params=None, headers=None, json=None, timeout=None):
+        sent.update(params or {})
+        sent["auth"] = headers.get("Authorization")
+        return Resp({"data": {"id": "r1", "status": "SUCCEEDED", "defaultDatasetId": "d1"}})
+
+    def get(url, params=None, headers=None, timeout=None):
+        if "/datasets/" in url:
+            return Resp([{"id": i} for i in range(40)])
+        return Resp({"data": {"id": "r1", "status": "SUCCEEDED", "usageTotalUsd": 0}})
+
+    monkeypatch.setenv("APIFY_TOKEN", "tok")
+    monkeypatch.setattr(ap.requests, "post", post)
+    monkeypatch.setattr(ap.requests, "get", get)
+    items, cost = ap.run_actor("tiktok", "hashtag", ["kroket"], 40, 0.05, price_per_1000=1.70)
+    assert sent["maxTotalChargeUsd"] == "0.50" and sent["maxItems"] == 40
+    assert "token" not in sent and sent["auth"] == "Bearer tok"
+    assert cost == pytest.approx(40 * 1.70 / 1000)

@@ -113,12 +113,14 @@ CREATE TABLE IF NOT EXISTS products (
     name        TEXT NOT NULL,
     brand       TEXT,
     category    TEXT,
+    size        TEXT,
     price       REAL,
     url         TEXT,
     image       TEXT,
     first_seen  TEXT NOT NULL,
     last_seen   TEXT NOT NULL,
-    is_new      INTEGER DEFAULT 0,  -- 1 = na de nulmeting verschenen of als 'nieuw' gemarkeerd
+    is_new      INTEGER DEFAULT 0,  -- 1 = na de nulmeting verschenen
+    relevant    INTEGER DEFAULT 1,  -- 1 = snack/streetfood-relevant volgens de woordenlijsten
     demo        INTEGER DEFAULT 0
 );
 
@@ -204,6 +206,8 @@ def session():
 MIGRATIONS = [
     ("posts", "first_fetched", "TEXT"),
     ("posts", "remeasured_at", "TEXT"),
+    ("products", "relevant", "INTEGER DEFAULT 1"),
+    ("products", "size", "TEXT"),
     ("sources", "next_due", "TEXT"),
     ("sources", "last_new", "INTEGER DEFAULT 0"),
     ("sources", "cost_usd", "REAL DEFAULT 0"),

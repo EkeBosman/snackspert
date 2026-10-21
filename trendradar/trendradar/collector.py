@@ -5,7 +5,7 @@ import logging
 import threading
 from datetime import timedelta
 
-from . import budget, classify, config, db, discovery, seeds, signals, snackspert
+from . import budget, classify, config, db, discovery, lexicon, seeds, signals, snackspert
 from .sources import apify, meta_graph, news, supermarket
 
 log = logging.getLogger(__name__)
@@ -212,7 +212,8 @@ def step_apify(run: Run, settings: dict, skip: set[int]) -> None:
                              - timedelta(days=2)) - timedelta(days=1)
                     since = start.strftime("%Y-%m-%d")
                 try:
-                    items, cost = apify.run_actor(platform, kind, values, per_value, cap, since)
+                    items, cost = apify.run_actor(platform, kind, values, per_value, cap, since,
+                                                  price_per_1000=price)
                 except Exception as exc:  # noqa: BLE001
                     run.note(f"Apify {platform}/{kind}: {exc}", "fout")
                     with db.session() as conn:
@@ -268,7 +269,8 @@ def step_remeasure(run: Run, settings: dict) -> None:
         urls = [u for _, u, _ in chosen]
         cap = len(urls) * settings[f"prijs_{platform}_per_1000"] / 1000 * 1.5
         try:
-            found, cost = apify.run_actor(platform, "post", urls, 1, max(cap, 0.02))
+            found, cost = apify.run_actor(platform, "post", urls, 1, cap,
+                                          price_per_1000=settings[f"prijs_{platform}_per_1000"])
         except Exception as exc:  # noqa: BLE001
             run.note(f"Herhaalmeting {platform}: {exc}", "waarschuwing")
             continue
@@ -352,48 +354,70 @@ def step_news(run: Run, settings: dict) -> None:
     run.note(f"Nieuws: {len(items)} berichten bekeken, {new} nieuw")
 
 
+def is_snack_product(name: str) -> bool:
+    lower = name.lower()
+    if any(word in lower for word in lexicon.NON_FOOD):
+        return False
+    return classify.classify_rules({"text": name, "platform": "winkel"})["relevance"] >= 0.4
+
+
 def step_supermarkets(run: Run, settings: dict, force: bool = False) -> None:
     if not settings.get("supermarkt_aan", True):
         return
     with db.session() as conn:
         last = db.get_state(conn, "supermarkt_laatst")
+        etag = None if force else db.get_state(conn, "supermarkt_etag")
     every = max(1, settings.get("supermarkt_interval_uren", 12)) - 0.5
     if last and not force and db.now() - db.parse_iso(last) < timedelta(hours=every):
         return
-    status = {}
-    for store, fetch in supermarket.STORES.items():
-        try:
-            products = fetch()
-        except Exception as exc:  # noqa: BLE001
-            status[store] = {"ok": False, "melding": str(exc)[:200], "t": db.iso(db.now())}
-            run.note(f"Supermarkt {store}: {exc}", "waarschuwing")
-            continue
-        now = db.iso(db.now())
-        new = 0
-        with db.session() as conn:
-            baseline_done = db.get_state(conn, f"nulmeting_{store}", False)
-            for p in products:
-                exists = conn.execute("SELECT 1 FROM products WHERE id = ?", (p["id"],)).fetchone()
-                if exists:
-                    conn.execute("UPDATE products SET last_seen = ?, price = ?, "
-                                 "is_new = MAX(is_new, ?) WHERE id = ?",
-                                 (now, p["price"], int(p["labelled_new"]), p["id"]))
-                    continue
-                is_new = int(baseline_done or p["labelled_new"])
-                new += is_new
-                conn.execute(
-                    "INSERT INTO products(id, store, name, brand, category, price, url, image, "
-                    "first_seen, last_seen, is_new) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                    (p["id"], p["store"], p["name"], p["brand"], p["category"], p["price"],
-                     p["url"], p["image"], now, now, is_new))
-            db.set_state(conn, f"nulmeting_{store}", True)
-        status[store] = {"ok": True, "melding": f"{len(products)} producten, {new} nieuw",
-                         "t": db.iso(db.now())}
-        run.note(f"Supermarkt {store}: {len(products)} producten bekeken, {new} nieuw"
-                 + ("" if baseline_done else " (eerste keer: nulmeting vastgelegd)"))
+    try:
+        stores, etag = supermarket.fetch(etag)
+    except Exception as exc:  # noqa: BLE001
+        run.note(f"Supermarkten (checkjebon): {exc}", "waarschuwing")
+        return
     with db.session() as conn:
         db.set_state(conn, "supermarkt_laatst", db.iso(db.now()))
+        db.set_state(conn, "supermarkt_etag", etag)
+    if stores is None:
+        run.note("Supermarkten: geen nieuwe assortimentsgegevens sinds de vorige keer")
+        return
+
+    now = db.iso(db.now())
+    status = {}
+    summary = []
+    with db.session() as conn:
+        for store, products in stores.items():
+            if not products:
+                status[store] = {"ok": False, "melding": "geen assortiment beschikbaar", "t": now}
+                continue
+            baseline_done = db.get_state(conn, f"nulmeting_cjb_{store}", False)
+            known = {r["id"] for r in conn.execute("SELECT id FROM products WHERE store = ?", (store,))}
+            fresh = [p for p in products if p["id"] not in known]
+            rows = []
+            new_relevant = 0
+            for p in fresh:
+                # Bij de nulmeting is niets nieuw, dus beoordelen is niet nodig (scheelt een minuut).
+                relevant = baseline_done and is_snack_product(p["name"])
+                is_new = int(baseline_done)
+                new_relevant += is_new and relevant
+                rows.append((p["id"], p["store"], p["name"], p["size"], p["price"], p["url"],
+                             now, now, is_new, int(relevant)))
+            conn.executemany(
+                "INSERT OR IGNORE INTO products(id, store, name, size, price, url, first_seen, "
+                "last_seen, is_new, relevant) VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+            conn.execute("UPDATE products SET last_seen = ? WHERE store = ? AND demo = 0", (now, store))
+            db.set_state(conn, f"nulmeting_cjb_{store}", True)
+            if baseline_done:
+                status[store] = {"ok": True, "t": now, "producten": len(products),
+                                 "melding": f"{len(products)} producten, {len(fresh)} nieuw "
+                                            f"({new_relevant} snack-relevant)"}
+                summary.append(f"{store} {len(fresh)} ({new_relevant})")
+            else:
+                status[store] = {"ok": True, "t": now, "producten": len(products),
+                                 "melding": f"{len(products)} producten vastgelegd (nulmeting)"}
+                summary.append(f"{store} nulmeting")
         db.set_state(conn, "supermarkt_status", status)
+    run.note("Supermarkten (nieuw, waarvan snack-relevant): " + ", ".join(summary))
 
 
 def step_snackspert(run: Run) -> None:

@@ -312,11 +312,11 @@
   // --- supermarkt ---------------------------------------------------------
 
   async function loadSupermarkt() {
-    const d = await api("/api/supermarkt?" + qs());
+    const d = await api("/api/supermarkt?" + qs(state.allProducts ? { alles: "1" } : {}));
     const st = Object.entries(d.status || {});
     $("#store-status").innerHTML = st.length ? st.map(([store, s]) =>
       `<span class="chip static"><span class="badge ${s.ok ? "ok" : "bad"}">${s.ok ? "✓ werkt" : "✗ storing"}</span>${esc(store)}: ${esc(s.melding)} · ${ago(s.t)}</span>`).join("")
-      : `<span class="chip static">AH en Jumbo worden twee keer per dag gecontroleerd (eerste keer bij de eerstvolgende ronde).</span>`;
+      : `<span class="chip static">Het assortiment van AH, Jumbo, Lidl, Plus en andere winkels wordt twee keer per dag vergeleken (eerste keer bij de eerstvolgende ronde).</span>`;
     const CONF = { winkel: "🏪 winkel", social: "📱 social", nieuws: "📰 nieuws" };
     $("#list-early").innerHTML = d.early.length ? d.early.map(m =>
       `<li><div class="row"><button class="linkish" data-topic="product|${esc(m.name)}">${esc(m.name)}</button>
@@ -326,7 +326,7 @@
       : `<li class="meta">Geen vroege signalen deze week.</li>`;
     $("#tbl-products tbody").innerHTML = d.products.length ? d.products.map(p =>
       `<tr><td><span class="topic-name">${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>` : esc(p.name)}</span>${p.demo ? ' <span class="badge warn">demo</span>' : ""}<div class="meta muted">${esc(p.brand || "")}</div></td>
-       <td>${esc(p.store)}</td><td class="hide-s">${esc(p.category || "")}</td>
+       <td>${esc(p.store)}</td><td class="hide-s">${esc(p.size || p.category || "")}</td>
        <td class="num">${p.price != null ? "€ " + Number(p.price).toFixed(2).replace(".", ",") : "–"}</td>
        <td>${dateNl(p.first_seen)}</td>
        <td><span class="sigs">${p.confirmed_by.map(c => `<span class="sig ${c !== "winkel" ? "hot" : ""}">${CONF[c]}${c === "social" ? " " + p.social_makers : ""}</span>`).join("")}</span></td></tr>`).join("")
@@ -585,6 +585,7 @@
       try { await api("/api/run", { method: "POST" }); toast("Ophaalronde gestart"); wasRunning = true; poll(); }
       catch (e) { toast(e.message); }
     });
+    $("#p-all-products").addEventListener("change", e => { state.allProducts = e.target.checked; loadSupermarkt(); });
     $("#btn-supermarkt").addEventListener("click", async () => {
       try {
         await api("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supermarkt: true }) });

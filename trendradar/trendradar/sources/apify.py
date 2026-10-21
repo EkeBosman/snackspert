@@ -107,8 +107,14 @@ def _auth() -> dict:
     return {"Authorization": f"Bearer {config.secret('APIFY_TOKEN')}"}
 
 
+# Sommige actors (zoals de TikTok-scraper) weigeren een run met een
+# maximumbedrag onder $0,50. Het echte plafond is dan `maxItems`: Apify rekent
+# per resultaat, dus minder resultaten betekent minder kosten.
+MIN_CHARGE_USD = 0.50
+
+
 def run_actor(platform: str, kind: str, values: list[str], per_value: int,
-              max_usd: float, since: str | None = None,
+              max_usd: float, since: str | None = None, price_per_1000: float = 0.0,
               timeout_s: int = 900) -> tuple[list[dict], float]:
     """Start een actor-run, wacht tot hij klaar is en geef (items, kosten_usd)."""
     actor, build = ACTORS[(platform, kind)]
@@ -116,7 +122,7 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
     max_items = per_value * len(values)
     params = {
         "maxItems": max_items,
-        "maxTotalChargeUsd": f"{max_usd:.2f}",
+        "maxTotalChargeUsd": f"{max(MIN_CHARGE_USD, max_usd):.2f}",
         "waitForFinish": 60,
     }
     resp = requests.post(f"{API}/acts/{actor}/runs", params=params, headers=headers,
@@ -145,10 +151,20 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
                          timeout=120)
         r.raise_for_status()
         items = r.json()
-    cost = float(run.get("usageTotalUsd") or 0.0)
     if run.get("status") not in ("SUCCEEDED", "ABORTED", "TIMED-OUT") and not items:
         raise ApifyError(f"{actor}: run eindigde met status {run.get('status')}")
-    return items, cost
+    # De kosten staan soms pas even na afloop in de run; vraag ze nog één keer op.
+    try:
+        r = requests.get(f"{API}/actor-runs/{run['id']}", headers=headers, timeout=30)
+        if r.ok:
+            run = r.json()["data"]
+    except requests.RequestException:
+        pass
+    reported = float(run.get("usageTotalUsd") or 0.0)
+    # Meldt Apify (nog) niets, tel dan de prijs per resultaat: liever te hoog
+    # dan te laag ingeschat, anders loopt het budget ongemerkt uit.
+    estimated = len(items) * price_per_1000 / 1000
+    return items, max(reported, estimated)
 
 
 def account_usage() -> dict | None:
