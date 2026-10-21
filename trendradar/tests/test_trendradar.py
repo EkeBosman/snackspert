@@ -428,3 +428,32 @@ def test_migration_adds_new_columns(tmp_path, monkeypatch):
     with db.session() as c:
         cols = {r["name"] for r in c.execute("PRAGMA table_info(sources)")}
     assert {"next_due", "cost_usd", "useful_total", "last_new"} <= cols
+
+
+def test_first_real_round_after_demo_does_not_lock(conn, monkeypatch):
+    """Eerste echte ronde na de demo: demodata wissen en loggen mag niet vastlopen."""
+    from trendradar import collector, demo
+    from trendradar.sources import apify as ap
+
+    demo.simulate_round(conn)
+    conn.commit()
+    monkeypatch.setattr(db, "connect", _fast_connect(db.connect))
+    monkeypatch.setattr(ap, "available", lambda: True)
+    monkeypatch.setattr(ap, "run_actor", lambda *a, **k: ([], 0.0))
+    for step in ("step_news", "step_supermarkets", "step_snackspert", "step_remeasure", "step_ai"):
+        monkeypatch.setattr(collector, step, lambda *a, **k: None)
+    collector.run_once("test")
+    with db.session() as c:
+        run = collector.last_run(c)
+        demo_left = c.execute("SELECT COUNT(*) FROM posts WHERE demo = 1").fetchone()[0]
+    assert run["status"] != "fout", run["log"]
+    assert demo_left == 0
+
+
+def _fast_connect(original):
+    # Kortere wachttijd, zodat een vastlopende database de test niet 30 s ophoudt.
+    def connect():
+        c = original()
+        c.execute("PRAGMA busy_timeout = 1000")
+        return c
+    return connect
