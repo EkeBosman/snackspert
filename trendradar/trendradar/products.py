@@ -1,7 +1,7 @@
 """Nieuwe producten: winkeldata, social en nieuws aan elkaar koppelen.
 
 Drie bronnen kunnen een nieuw product melden:
-1. de winkel zelf (het product duikt op in de app-data van AH of Jumbo)
+1. de winkel zelf (het product duikt op in het assortiment, via checkjebon)
 2. social (makers posten erover, vaak met "nieuw bij ...")
 3. nieuws (vakbladen, persberichten)
 
@@ -17,7 +17,6 @@ from datetime import timedelta
 from . import db, lexicon, trends
 from .classify import norm
 
-TRACKED_STORES = ("Albert Heijn", "Jumbo")  # zie sources/supermarket.py
 FILLER = {"de", "het", "een", "met", "van", "en", "st", "stuks", "g", "gr", "ml", "l", "kg",
           "nieuw", "nieuwe", "smaak", "x", "pak", "zak", "per"}
 STORE_WORDS = {w for names in lexicon.SUPERMARKETS.values() for n in names
@@ -40,13 +39,22 @@ def same(a: str | set, b: str | set) -> bool:
         overlap / len(ka | kb) >= 0.6
 
 
-def overview(conn, include_demo: bool = True, days: int = 30) -> dict:
+def tracked_stores(conn) -> set[str]:
+    """Winkels waarvan we het assortiment kennen. Alleen daar zegt
+    'niet in winkeldata' iets."""
+    status = db.get_state(conn, "supermarkt_status", {}) or {}
+    return {store for store, s in status.items() if s.get("ok")} | {"Albert Heijn", "Jumbo"}
+
+
+def overview(conn, include_demo: bool = True, days: int = 30, only_relevant: bool = True) -> dict:
     demo = "" if include_demo else " AND demo = 0"
+    relevant = " AND relevant = 1" if only_relevant else ""
     since = db.iso(db.now() - timedelta(days=days))
     week = db.iso(db.now() - timedelta(days=7))
+    tracked = tracked_stores(conn)
     new_products = [dict(r) for r in conn.execute(
-        f"SELECT * FROM products WHERE is_new = 1 AND first_seen >= ?{demo} "
-        "ORDER BY first_seen DESC LIMIT 200", (since,))]
+        f"SELECT * FROM products WHERE is_new = 1 AND first_seen >= ?{demo}{relevant} "
+        "ORDER BY first_seen DESC LIMIT 300", (since,))]
     all_keys = [(key(r["name"]), r["is_new"]) for r in conn.execute(
         f"SELECT name, is_new FROM products WHERE 1=1{demo}")]
     news_rows = [dict(r) for r in conn.execute(
@@ -98,7 +106,7 @@ def overview(conn, include_demo: bool = True, days: int = 30) -> dict:
             "stores": sorted(m["stores"]), "first": m["first"], "said_new": m["said_new"],
             "in_store": in_store,
             # Alleen bij winkels die we zelf controleren zegt 'niet in winkeldata' iets.
-            "store_tracked": any(st in TRACKED_STORES for st in m["stores"]),
+            "store_tracked": any(st in tracked for st in m["stores"]),
             "news": sum(1 for n in news_rows if same(m["_key"], n["title"])),
             "example": m["example"][1] if m["example"] else None,
         })

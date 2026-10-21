@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import difflib
 import re
+import time
 
 import requests
 
@@ -24,10 +25,7 @@ def fetch_reviewed() -> list[dict]:
     out = []
     page, pages = 1, 1
     while page <= pages:
-        r = requests.get(API, params={"per_page": 100, "page": page,
-                                      "_fields": "id,slug,title,link"},
-                         headers=HEADERS, timeout=30)
-        r.raise_for_status()
+        r = _get(page)
         pages = int(r.headers.get("X-WP-TotalPages", "1"))
         for item in r.json():
             name = re.sub(r"<[^>]+>", "", item["title"]["rendered"])
@@ -36,6 +34,19 @@ def fetch_reviewed() -> list[dict]:
                         "norm": core_name(name)})
         page += 1
     return out
+
+
+def _get(page: int) -> requests.Response:
+    """Eén pagina; bij een haperende server (5xx) nog twee keer proberen."""
+    for attempt in range(3):
+        r = requests.get(API, params={"per_page": 50, "page": page,
+                                      "_fields": "id,slug,title,link"},
+                         headers=HEADERS, timeout=60)
+        if r.status_code < 500:
+            break
+        time.sleep(10 * (attempt + 1))
+    r.raise_for_status()
+    return r
 
 
 def core_name(name: str) -> str:

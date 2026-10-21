@@ -101,6 +101,9 @@ SUPERMARKETS: dict[str, list[str]] = {
     "Hoogvliet": ["hoogvliet"],
     "DekaMarkt": ["dekamarkt"],
     "Ekoplaza": ["ekoplaza"],
+    "Poiesz": ["poiesz"],
+    "Jan Linders": ["jan linders", "janlinders"],
+    "Picnic": ["picnic"],
     "Action": ["action"],
     "Kruidvat": ["kruidvat"],
 }
@@ -149,6 +152,17 @@ DUTCH_WORDS = {
     "hebben", "heb", "hebt", "heeft", "word", "wordt", "kun", "kunnen", "omdat",
     "alleen", "allemaal", "toch", "even", "lekkere", "lekkerste", "goed", "goede",
 }
+
+# Woorden in productnamen die geen eten voor mensen zijn ("hondenbrokken met kip").
+NON_FOOD = (
+    "hond", "kat ", "katten", "kitten", "puppy", "dierenvoer", "brokken", "vogelzaad",
+    "knaagdier", "wasmiddel", "wasverzachter", "afwas", "vaatwas", "reiniger", "schoonmaak",
+    "toiletpapier", "keukenrol", "shampoo", "douchegel", "deodorant", "tandpasta", "luier",
+    "billendoek", "maandverband", "scheer", "make-up", "nagellak", "batterij", "lampen",
+    "kaars", "zonnebrand", "bodylotion", "zeep", "wc-", "vuilniszak",
+    # dierenvoermerken; niet 'plant' of 'bloem' (plantaardig, bloemkool)
+    "sheba", "whiskas", "felix ", "pedigree", "frolic", "kitekat", "jerkies", "dreamies",
+)
 
 # Snacks die (bijna) alleen in Nederland en Vlaanderen bestaan: een post die
 # hierover gaat is vrijwel zeker Nederlandstalig, ook als hij heel kort is.

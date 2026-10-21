@@ -226,7 +226,8 @@ def api_supermarkt():
     a = _args()
     days = int(request.args.get("days", 30))
     with db.session() as conn:
-        result = products.overview(conn, a["include_demo"], days)
+        result = products.overview(conn, a["include_demo"], days,
+                                   only_relevant=request.args.get("alles") != "1")
         result["status"] = db.get_state(conn, "supermarkt_status", {})
         base = signals.baselines(conn, include_demo=a["include_demo"])
     for m in result["mentioned"]:

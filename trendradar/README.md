@@ -10,7 +10,7 @@ Zonder sleutels start hij in **demomodus**, met verzonnen voorbeelddata. Zo kun 
 |---|---|
 | **Trends** | De stijgers: hashtags, gerechten, producten, merken, zaken, steden en woordcombinaties, met groei ten opzichte van de periodes ervoor, hoeveel verschillende makers het noemen en wat er opvalt (views, likes of doorsturen ver boven normaal). Daarnaast **doorbraken** (onbekende makers die viraal gaan), nieuw opgedoken onderwerpen, posts die nu hard gaan, het volume per platform en de verdeling over categorieën. Klik op een onderwerp voor het verloop en de populairste posts. |
 | **Posts** | Alle relevante posts, met zoeken, filteren en sorteren. |
-| **Supermarkt** | Nieuwe producten in het schap (AH en Jumbo), met welke bronnen het bevestigen. **Vroege signalen**: producten waar makers al over posten maar die nog niet in de winkeldata staan. Plus de meest besproken producten en het nieuws. |
+| **Supermarkt** | Nieuwe producten bij tien supermarkten (AH, Jumbo, Lidl, Plus, Dirk en meer), met welke bronnen het bevestigen. **Vroege signalen**: producten waar makers al over posten maar die nog niet in de winkeldata staan. Plus de meest besproken producten en het nieuws. |
 | **Zaken & steden** | Eetzaken en foodtrucks die genoemd worden, met een **reviewkandidaat**-label als ze nog niet op snackspert.nl staan. Plus een kaart met steden. |
 | **Bronnen** | De gevolgde hashtags, accounts en zoektermen. De tool **voegt zelf bronnen toe**: uit virale posts en uit onderwerpen die meerdere makers noemen. Bronnen die weinig opleveren pauzeert hij. Per bron zie je wat een nuttige post kost. |
 | **Budget & instellingen** | De kosten deze maand, een prognose, alle instellingen, de status van de koppelingen en een logboek per ophaalronde. |
@@ -167,19 +167,20 @@ Bronnen die je **zelf** toevoegt, worden nooit automatisch gepauzeerd. Wat de to
 
 ## Supermarkten
 
-De tool legt drie bronnen naast elkaar: de **winkeldata** van AH en Jumbo, **social posts** en **nieuws**.
+De tool legt drie bronnen naast elkaar: het **assortiment** van de supermarkten, **social posts** en **nieuws**.
 
-**Winkeldata.** AH en Jumbo hebben geen officiële open API. De tool gebruikt de onofficiële API's van hun eigen apps en controleert die twee keer per dag, met ruim 40 zoektermen (chips, snacks, sauzen, ijs, drinken, "nieuw", "limited edition" en meer):
+**Assortiment.** Dat komt van [checkjebon](https://github.com/supermarkt/checkjebon). Dat open project (MIT-licentie, de data mag hergebruikt worden) verzamelt elke dag het online assortiment van Albert Heijn, Jumbo, Lidl, Plus, Dirk, Hoogvliet, DekaMarkt, Spar, Vomar en Poiesz. Samen zijn dat ruim 100.000 producten. De tool vergelijkt dat twee keer per dag:
 
-- **Nulmeting.** De eerste keer legt de tool alleen vast wat er ligt.
-- **Nieuw.** Alles wat daarna voor het eerst opduikt, telt als nieuw. Producten die de winkel zelf als "nieuw" markeert, tellen meteen mee.
-- **Storingen.** Deze API's kunnen zonder waarschuwing veranderen of geblokkeerd worden. De status per winkel staat bovenaan het tabblad, en bij een storing draait de rest gewoon door.
+- **Nulmeting.** De eerste keer legt de tool alleen vast wat elke winkel verkoopt.
+- **Nieuw.** Alles wat daarna voor het eerst opduikt, is nieuw. Een product dat even uitverkocht was en terugkomt, telt niet opnieuw.
+- **Alleen snacks.** Standaard zie je alleen nieuwe producten die over snacks, streetfood, snoep of drinken gaan. Een vinkje toont ook de rest. Dierenvoer en schoonmaakmiddelen worden altijd overgeslagen.
+- **Zuinig.** Is het bestand niet veranderd, dan downloadt de tool de 10 MB niet opnieuw.
 
 **Social.** Ook zonder AI herkent de tool productnamen in zinnen als *"Nieuw bij AH: Paprika Chips Limoen"* of *"Gespot bij Jumbo: Bitterbal Chips"*. Met een AI-sleutel herkent Claude productnamen in de hele post. Varianten van dezelfde naam worden samengevoegd, en per product telt de tool hoeveel verschillende makers het noemen.
 
 **Bevestigd door.** Bij elk nieuw product in het schap staat of makers en nieuws het ook oppikken (🏪 winkel, 📱 social, 📰 nieuws).
 
-**⚡ Vroege signalen.** Makers posten over een nieuw product dat (nog) niet in de winkeldata staat. Hier ben je eerder dan de supermarkt-app. Bij Lidl, Aldi en andere winkels zonder winkeldata staat dat erbij, want daar zegt "niet in winkeldata" niets.
+**⚡ Vroege signalen.** Makers posten over een nieuw product dat (nog) niet in de winkeldata staat. Hier ben je eerder dan de supermarkt-app. Bij winkels waarvan we geen assortiment hebben (zoals Aldi) staat dat erbij, want daar zegt "niet in winkeldata" niets.
 
 Nieuws over nieuwe producten komt via Google News. Onder Instellingen kun je eigen RSS-feeds toevoegen, bijvoorbeeld van vakbladen.
 

@@ -1,114 +1,69 @@
-"""Nieuwe supermarktproducten (experimenteel).
+"""Nieuwe supermarktproducten via checkjebon.
 
-Supermarkten hebben geen officiële open API. Deze module gebruikt de
-onofficiële app-API's van Albert Heijn en Jumbo, die ook door hun eigen apps
-worden gebruikt. Die kunnen zonder waarschuwing veranderen of geblokkeerd
-worden; dan staat de status in de interface op rood en draait de rest gewoon
-door.
+checkjebon (github.com/supermarkt/checkjebon, MIT-licentie) verzamelt elke dag
+het online assortiment van een tiental Nederlandse supermarkten en publiceert
+dat als één JSON-bestand. De makers geven aan dat de data hergebruikt mag
+worden. Dat is betrouwbaarder dan zelf de onofficiële app-API's van elke
+winkel aanspreken: die veranderen of blokkeren zonder waarschuwing.
 
-Hoe 'nieuw' wordt bepaald: bij de eerste keer ophalen leggen we vast wat er in
-de snack-categorieën ligt (de nulmeting). Alles wat daarna voor het eerst
-opduikt, telt als nieuw. Producten met een 'nieuw'-label van de winkel zelf
-tellen meteen als nieuw.
+Hoe 'nieuw' wordt bepaald: bij de eerste keer leggen we vast wat elke winkel
+verkoopt (de nulmeting). Alles wat daarna voor het eerst opduikt, is nieuw.
+Een product dat even uitverkocht was en terugkomt, kennen we al en telt dus
+niet opnieuw.
 """
 from __future__ import annotations
 
-import json
-import logging
-
 import requests
 
-log = logging.getLogger(__name__)
+DATA_URL = "https://raw.githubusercontent.com/supermarkt/checkjebon/main/data/supermarkets.json"
 
-# Breed genoeg om nieuwkomers te zien, smal genoeg om het snel te houden.
-# Elke zoekterm is één verzoek; de supermarkt-API's zijn gratis.
-QUERIES = [
-    "nieuw", "nieuwe smaak", "limited edition",
-    "chips", "tortilla chips", "snacks", "borrelhapjes", "borrelnoten", "nootjes", "popcorn",
-    "zoutjes", "crackers", "frituursnacks", "diepvriessnacks", "kroket", "bitterballen",
-    "frikandel", "loempia", "kipnuggets", "friet", "airfryer", "pizza", "snackpizza",
-    "kant en klaar", "maaltijdsalade", "wraps", "dip", "saus", "mayonaise", "ketchup",
-    "ijs", "softijs", "chocolade", "chocoladereep", "koekjes", "snoep", "drop", "mueslireep",
-    "frisdrank", "energiedrank", "ijsthee", "sportdrank", "milkshake", "proteine",
-]
-
-UA = "Appie/8.22.3 Model/phone Android/13"
+# checkjebon-code -> naam zoals in de rest van de tool (lexicon.SUPERMARKETS)
+STORE_NAMES = {
+    "ah": "Albert Heijn", "jumbo": "Jumbo", "lidl": "Lidl", "aldi": "Aldi", "plus": "Plus",
+    "dirk": "Dirk", "hoogvliet": "Hoogvliet", "dekamarkt": "DekaMarkt", "spar": "Spar",
+    "vomar": "Vomar", "poiesz": "Poiesz", "ekoplaza": "Ekoplaza", "coop": "Coop",
+    "janlinders": "Jan Linders", "picnic": "Picnic",
+}
 
 
 class StoreError(RuntimeError):
     pass
 
 
-def _has_new_label(product: dict, keys: tuple[str, ...]) -> bool:
-    for key in keys:
-        if key in product and "nieuw" in json.dumps(product[key], ensure_ascii=False).lower():
-            return True
-    return False
+def fetch(etag: str | None = None) -> tuple[dict[str, list[dict]] | None, str | None]:
+    """Haal het bestand op. Geeft (winkels, etag), of (None, etag) als er niets veranderd is.
 
-
-def fetch_ah(queries: list[str] = QUERIES) -> list[dict]:
-    session = requests.Session()
-    session.headers.update({"User-Agent": UA, "x-application": "AHWEBSHOP",
-                            "Content-Type": "application/json"})
-    r = session.post("https://api.ah.nl/mobile-auth/v1/auth/token/anonymous",
-                     json={"clientId": "appie"}, timeout=30)
+    Met de etag van de vorige keer stuurt GitHub '304 Not Modified' als het
+    bestand niet veranderd is; dan downloaden we de 10 MB niet opnieuw.
+    """
+    headers = {"User-Agent": "Snackspert-Trendradar/1.0"}
+    if etag:
+        headers["If-None-Match"] = etag
+    r = requests.get(DATA_URL, headers=headers, timeout=120)
+    if r.status_code == 304:
+        return None, etag
     if r.status_code >= 400:
-        raise StoreError(f"AH-token geweigerd ({r.status_code})")
-    session.headers["Authorization"] = f"Bearer {r.json()['access_token']}"
+        raise StoreError(f"checkjebon gaf {r.status_code}")
+    return parse(r.json()), r.headers.get("ETag")
 
-    products: dict[str, dict] = {}
-    for q in queries:
-        r = session.get("https://api.ah.nl/mobile-services/product/search/v2",
-                        params={"query": q, "sortOn": "RELEVANCE", "page": 0, "size": 60},
-                        timeout=30)
-        if r.status_code >= 400:
-            raise StoreError(f"AH-zoeken '{q}' gaf {r.status_code}")
-        for p in r.json().get("products", []):
-            pid = p.get("webshopId") or p.get("hqId")
-            if not pid or not p.get("title"):
+
+def parse(data: list) -> dict[str, list[dict]]:
+    stores: dict[str, list[dict]] = {}
+    for store in data:
+        code = store.get("n", "")
+        name = STORE_NAMES.get(code, code.title())
+        base = store.get("u") or ""
+        items = []
+        for it in store.get("d") or []:
+            if not it.get("n") or not it.get("l"):
                 continue
-            images = sorted(p.get("images") or [], key=lambda i: i.get("width", 0))
-            products[f"ah:{pid}"] = {
-                "id": f"ah:{pid}",
-                "store": "Albert Heijn",
-                "name": p["title"],
-                "brand": p.get("brand"),
-                "category": p.get("subCategory") or p.get("mainCategory"),
-                "price": p.get("currentPrice") or p.get("priceBeforeBonus"),
-                "url": f"https://www.ah.nl/producten/product/wi{pid}",
-                "image": images[len(images) // 2]["url"] if images else None,
-                "labelled_new": _has_new_label(p, ("propertyIcons", "shield", "stickers",
-                                                   "highlights", "descriptionHighlights")),
-            }
-    return list(products.values())
-
-
-def fetch_jumbo(queries: list[str] = QUERIES) -> list[dict]:
-    products: dict[str, dict] = {}
-    headers = {"User-Agent": "Jumbo/10.0 (Android)"}
-    for q in queries:
-        r = requests.get("https://mobileapi.jumbo.com/v17/search",
-                         params={"q": q, "limit": 30, "offset": 0}, headers=headers, timeout=30)
-        if r.status_code >= 400:
-            raise StoreError(f"Jumbo-zoeken '{q}' gaf {r.status_code}")
-        for p in (r.json().get("products") or {}).get("data", []):
-            pid = p.get("id")
-            if not pid or not p.get("title"):
-                continue
-            price = ((p.get("prices") or {}).get("price") or {}).get("amount")
-            views = ((p.get("imageInfo") or {}).get("primaryView") or [])
-            products[f"jumbo:{pid}"] = {
-                "id": f"jumbo:{pid}",
-                "store": "Jumbo",
-                "name": p["title"],
-                "brand": p.get("brand"),
-                "category": p.get("topLevelCategory"),
-                "price": price / 100 if isinstance(price, (int, float)) else None,
-                "url": f"https://www.jumbo.com/producten/{pid}",
-                "image": views[0].get("url") if views else None,
-                "labelled_new": _has_new_label(p, ("badgeDescription", "badges", "stickers", "labels")),
-            }
-    return list(products.values())
-
-
-STORES = {"Albert Heijn": fetch_ah, "Jumbo": fetch_jumbo}
+            items.append({
+                "id": f"{code}:{it['l']}",
+                "store": name,
+                "name": it["n"].strip(),
+                "size": it.get("s"),
+                "price": it.get("p"),
+                "url": base + it["l"] if base else None,
+            })
+        stores[name] = items
+    return stores
