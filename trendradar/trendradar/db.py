@@ -152,6 +152,7 @@ CREATE TABLE IF NOT EXISTS state (
 """
 
 _lock = threading.RLock()
+_local = threading.local()
 
 
 def now() -> datetime:
@@ -178,13 +179,24 @@ def connect() -> sqlite3.Connection:
 @contextmanager
 def session():
     """Eén verbinding per blok; de lock voorkomt dat de ophaal-thread en de
-    webserver tegelijk schrijven."""
+    webserver tegelijk schrijven.
+
+    Een session binnen een session (in dezelfde thread) gebruikt dezelfde
+    verbinding. Een tweede verbinding zou wachten op de schrijfrechten van de
+    eerste en na 30 seconden opgeven met 'database is locked'.
+    """
     with _lock:
+        outer = getattr(_local, "conn", None)
+        if outer is not None:
+            yield outer
+            return
         conn = connect()
+        _local.conn = conn
         try:
             yield conn
             conn.commit()
         finally:
+            _local.conn = None
             conn.close()
 
 
