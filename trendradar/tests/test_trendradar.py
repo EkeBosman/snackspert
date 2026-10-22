@@ -766,14 +766,14 @@ def test_saved_items_teach_vandaag(conn):
                        post("nieuw", "Vandaag loaded kipcorn gehaald bij de cafetaria #snackbar", hours_ago=2,
                             platform="tiktok", author="tweede")], None)
     before = {c["id"]: c for c in trends.candidates(conn, include_demo=False)}
-    assert "Lijkt op je lijst" not in " ".join(before.get("tiktok:nieuw", {}).get("reasons", []))
+    assert "Past bij jou" not in " ".join(before.get("tiktok:nieuw", {}).get("reasons", []))
 
     _save(conn, "post", "tiktok:oud", "Loaded kipcorn")
     prof = taste.profile(conn)
     assert prof["twist:loaded kipcorn"] > 0 and prof["snack:kipcorn"] > 0
     after = {c["id"]: c for c in trends.candidates(conn, include_demo=False)}
     assert "tiktok:oud" not in after  # al bewaard
-    assert any(r.startswith("Lijkt op je lijst") for r in after["tiktok:nieuw"]["reasons"])
+    assert any(r.startswith("Past bij jou") for r in after["tiktok:nieuw"]["reasons"])
     assert after["tiktok:nieuw"]["score"] > before.get("tiktok:nieuw", {"score": 0})["score"]
     learned = taste.summary(prof)
     assert learned[0]["kenmerk"] == "loaded kipcorn" and learned[0]["soort"] == "twist"
@@ -785,7 +785,7 @@ def test_rejected_items_count_against(conn):
 
     _save(conn, "onderwerp", "zin|loaded kipcorn", "loaded kipcorn", status="afgevallen")
     assert taste.profile(conn)["zin:loaded kipcorn"] < 0
-    bonus, _ = taste.match(taste.profile(conn), {"zin:loaded kipcorn"})
+    bonus, _, _ = taste.match(taste.profile(conn), {"zin:loaded kipcorn"})
     assert bonus < 0
 
 
@@ -798,3 +798,149 @@ def test_saved_items_become_sources(conn):
     assert ("tiktok", "zoekterm", "loaded kipcorn") in values
     assert ("tiktok", "account", "kleinemaker") in values
     assert all(f["reason"].startswith("uit Mijn lijst") for f in found)
+    # Tips alleen (gewicht 0,5) worden geen bron.
+    conn.execute("INSERT INTO spots(name, place, specialty, added_at, updated_at) "
+                 "VALUES ('Snackbar de Poppe', 'Coevorden', 'broodje lammert', 'x', 'x')")
+    later = discovery.list_searches(conn, discovery._known(conn), limit=10)
+    assert not any("poppe" in f["value"] for f in later)
+
+
+# --- ♥/👎, mijn posts, tips & routes ------------------------------------------------
+
+def _workbook() -> bytes:
+    import io as _io
+
+    import openpyxl
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Posts"
+    ws.append(["Maand", "Jaar", "Datum", "Type", "Caption (begin)", "Link", "Weergaven", "Bereik", "Likes",
+               "Reacties", "Gedeeld", "Opgeslagen", "Volgers", "Format", "Kanaal", "Locatie", "Herkenbaarheid",
+               "Indeling", "Volgers telt mee"])
+    rows = [
+        ("2026-01", "De grote frikandel uit de supermarkt test is hierrrr! Met friet. 1. AH", 400000, "Supermarkttest", "Ja"),
+        ("2026-01", "Friet bij Snackbar de Poppe in Coevorden, broodje lammert!", 300000, "Snackbar review", "Ja"),
+        ("2026-02", "Friet special in Utrecht", 250000, "Snackbar review", "Ja"),
+        ("2026-02", "Friet met mayo bij @frietboer", 220000, "Snackbar review", "Ja"),
+        ("2026-02", "Frietje in Den Haag", 210000, "Snackbar review", "Ja"),
+        ("2026-03", "Friet in Leiden, krokant", 205000, "Snackbar review", "Ja"),
+        ("2026-03", "Pizza in Amsterdam", 100000, "Streetfood review", "Ja"),
+        ("2026-03", "ad | Pizza samenwerking #samenwerking", 90000, "Samenwerking", "Nee"),
+    ]
+    for i, (month, caption, views, fmt, counts) in enumerate(rows):
+        ws.append([month, 2026, f"{month}-1{i}", "IG-reel", caption, "open post", views, views // 2, 100, 10,
+                   50 + i, 5, 30 + i, fmt, "Snackbar", "Buiten Amsterdam", "Mainstream", "Gecontroleerd", counts])
+        ws.cell(ws.max_row, 6).hyperlink = f"https://www.instagram.com/reel/test{i}/"
+    # Een afgeleid tabblad met dezelfde post (ingekorte caption): mag geen dubbele post opleveren.
+    dup = wb.create_sheet("Samenwerkingen")
+    dup.append(["Maand", "Datum", "Caption (begin)", "Weergaven", "Volgers", "Gedeeld", "Link"])
+    dup.append(["2026-03", "2026-03-17", "ad | Pizza samenwerking", 90000, 37, 57, "open post"])
+    dup.cell(2, 7).hyperlink = "https://www.instagram.com/reel/test7/"
+    spots = wb.create_sheet("Alle Spots (buiten A'dam)")
+    spots.append(["Naam", "Locatie", "Specialiteit", "Regio"])
+    spots.append(["Snackbar de Poppe", "Coevorden", "broodje lammert (hamburger met kaassoufflé)", "Drenthe"])
+    spots.append(["Frietboerderij", "ONBEKEND", None, "Utrecht"])
+    ams = wb.create_sheet("Amsterdam")
+    ams.append(["Naam", "Specialiteit"])
+    ams.append(["Döner Father", "croissant döner"])
+    routes = wb.create_sheet("Routes")
+    routes.append(["#", "Route", "Regio", "Stop 1", "Stop 2", "Stop 3", "KM Retour", "Rijtijd", "Opmerkingen"])
+    routes.append([1, "Drenthe kort", "Drenthe", "Snackbar de Poppe (Coevorden) - broodje lammert",
+                   "Snackbar City (Hoogeveen) - gehaktbal", "Pizza Pazza (Norg)", "~400 km", "5u", "test"])
+    summary = wb.create_sheet("Samenvatting")
+    summary.append([None, None])
+    summary.append(["TOTAAL", 3])
+    buf = _io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def test_import_own_posts_tips_and_routes(conn):
+    import io as _io
+
+    from trendradar import ownposts, spots
+    from trendradar.web import app
+
+    client = app.test_client()
+    r = client.post("/api/import", data={"bestand": (_io.BytesIO(_workbook()), "overzicht.xlsx")},
+                    content_type="multipart/form-data")
+    assert r.status_code == 200, r.get_json()
+    res = r.get_json()
+    assert (res["posts"], res["spots"], res["routes"]) == (8, 3, 1)
+    bad = client.post("/api/import", data={"bestand": (_io.BytesIO(b"geen excel"), "x.xlsx")},
+                      content_type="multipart/form-data")
+    assert bad.status_code == 400
+
+    o = ownposts.overview(conn, "2026")
+    assert o["kpis"]["posts"] == 8
+    assert o["kpis"]["followers"] == sum(30 + i for i in range(7))  # collab telt niet mee
+    assert o["supermarket_tests"][0]["product"] == "frikandel"
+    assert o["groups"]["format"][0]["name"] == "Supermarkttest"  # gesorteerd op mediaan views
+    assert any("Snackbar review" in i for i in o["insights"])
+    assert ownposts.lifts(conn)["friet"]["lift"] > 1
+    assert "frietboer" in ownposts.posted_handles(conn)
+
+    listing = spots.listing(conn)
+    poppe = next(s for s in listing["spots"] if s["name"] == "Snackbar de Poppe")
+    assert poppe["posted"]["date"] == "2026-01-11"  # genoemd in een eigen caption
+    assert next(s for s in listing["spots"] if s["name"] == "Frietboerderij")["place"] == ""
+    assert next(s for s in listing["spots"] if s["name"] == "Döner Father")["place"] == "Amsterdam"
+    route = spots.routes(conn)[0]
+    assert route["stops"][0] == {"name": "Snackbar de Poppe", "place": "Coevorden", "specialty": "broodje lammert",
+                                 "text": "Snackbar de Poppe (Coevorden) - broodje lammert", "status": "te proberen"}
+    assert route["maps"].startswith("https://www.google.com/maps/dir/") and "Pizza%20Pazza%20Norg" in route["maps"]
+
+    # Opnieuw importeren: geen dubbele posts of tips, en je status blijft staan.
+    assert client.patch(f"/api/tips/{poppe['id']}", json={"status": "gepland", "note": "zaterdag"}).status_code == 200
+    client.post("/api/import", data={"bestand": (_io.BytesIO(_workbook()), "overzicht.xlsx")},
+                content_type="multipart/form-data")
+    assert conn.execute("SELECT COUNT(*) FROM own_posts").fetchone()[0] == 8
+    again = conn.execute("SELECT status, note FROM spots WHERE name = 'Snackbar de Poppe'").fetchone()
+    assert (again["status"], again["note"]) == ("gepland", "zaterdag")
+    assert conn.execute("SELECT COUNT(*) FROM routes").fetchone()[0] == 1
+    for url in ("/api/mijnposts", "/api/mijnposts?jaar=2026", "/api/tips", "/api/routes", "/api/export/tips.csv",
+                "/api/vandaag", "/api/zaken"):
+        assert client.get(url).status_code == 200, url
+    assert client.post("/api/tips", json={"name": "Nieuwe Zaak", "place": "Gouda"}).status_code == 200
+    assert client.post("/api/tips", json={}).status_code == 400
+
+
+def test_tip_in_radar_and_in_candidates(conn):
+    from trendradar import spots
+
+    conn.execute("INSERT INTO spots(name, place, specialty, added_at, updated_at) "
+                 "VALUES ('Snackbar de Poppe', 'Coevorden', 'broodje lammert', 'x', 'x')")
+    store_posts(conn, [post("pop", "Nieuw op de kaart bij Snackbar De Poppe: broodje met kroket en pizza",
+                            platform="tiktok", author="poppefan")], None)
+    hits = spots.radar_hits(conn, include_demo=False)
+    assert list(hits.values())[0]["posts"] == 1
+    cand = {c["id"]: c for c in trends.candidates(conn, include_demo=False)}["tiktok:pop"]
+    assert any(r == "Past bij jou: Snackbar de Poppe" for r in cand["reasons"])
+
+
+def test_feedback_teaches_and_hides(conn):
+    from trendradar import taste
+    from trendradar.web import app
+
+    store_posts(conn, [post("a", "Nieuw op de kaart: broodje kroket met kaassoufflé", platform="tiktok", author="fan"),
+                       post("b", "Nieuw op de kaart: friet met frikandel en kipcorn speciaal", platform="tiktok",
+                            author="fan"),
+                       post("c", "Nieuw op de kaart bij ons: kroket met pindasaus", platform="tiktok", author="ander")],
+                None)
+    conn.commit()
+    client = app.test_client()
+    assert client.post("/api/feedback", json={"post_id": "tiktok:a", "value": 1}).status_code == 200
+    assert client.post("/api/feedback", json={"post_id": "tiktok:b", "value": -1}).status_code == 200
+    assert client.post("/api/feedback", json={"post_id": "tiktok:b", "value": 5}).status_code == 400
+    assert client.get("/api/feedback").get_json() == {"tiktok:a": 1, "tiktok:b": -1}
+    prof = taste.profile(conn)
+    assert prof.sources["likes"] == 1 and prof.sources["dislikes"] == 1
+    assert "maker:tiktok:fan" not in prof  # ♥ en 👎 voor dezelfde maker heffen elkaar op
+    assert prof["snack:kroket"] > 0 and prof["snack:frikandel"] < 0
+    ids = [c["id"] for c in trends.candidates(conn, include_demo=False)]
+    assert "tiktok:a" not in ids and "tiktok:b" not in ids  # al beoordeeld
+    cand = next(c for c in trends.candidates(conn, include_demo=False) if c["id"] == "tiktok:c")
+    assert "Past bij jou: kroket" in cand["reasons"]
+    client.post("/api/feedback", json={"post_id": "tiktok:a", "value": 0})
+    assert client.get("/api/feedback").get_json() == {"tiktok:b": -1}

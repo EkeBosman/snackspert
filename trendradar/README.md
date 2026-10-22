@@ -14,6 +14,8 @@ Zonder sleutels start hij in **demomodus**, met verzonnen voorbeelddata. Zo kun 
 | **Amsterdam** | Alles uit Amsterdam, ook herkend aan wijken als De Pijp, Jordaan, Oud-West en Noord en aan plekken als de Foodhallen en de Albert Cuyp. Je ziet de kandidaten, waar Amsterdam het over heeft (met fase), de genoemde zaken, het Amsterdamse eetnieuws en de nieuwste posts. |
 | **Supermarkt** | Nieuwe producten bij tien supermarkten (AH, Jumbo, Lidl, Plus, Dirk en meer), met welke bronnen het bevestigen. **Vroege signalen**: producten waar makers al over posten maar die nog niet in de winkeldata staan. Plus de meest besproken producten en het nieuws. |
 | **Zaken & steden** | Eetzaken en foodtrucks die genoemd worden, met een **reviewkandidaat**-label als ze nog niet op snackspert.nl staan. Plus een kaart met steden. |
+| **Tips & routes** | Je tiplijst en routes uit Excel, met status, notities, Google Maps-routes en 🔥 als een tip nu besproken wordt. |
+| **Mijn posts** | Analyse van je eigen Instagram-posts uit Excel: per maand, per format, wat werkt, en welke snacks het bij jouw publiek goed doen. |
 | **Mijn lijst** | Alles wat je met ☆ bewaart: posts, zaken, producten en onderwerpen. Geef elk item een status (*te proberen*, *gepland*, *bezocht*, *gereviewd*, *afgevallen*) en een notitie. Je kunt de lijst exporteren als CSV. |
 | **Bronnen** | De gevolgde hashtags, accounts en zoektermen. De tool **voegt zelf bronnen toe**: uit virale posts en uit onderwerpen die meerdere makers noemen. Bronnen die weinig opleveren pauzeert hij. Per bron zie je wat een nuttige post kost. |
 | **Budget & instellingen** | De kosten deze maand, een prognose, alle instellingen, de status van de koppelingen en een logboek per ophaalronde. |
@@ -179,16 +181,61 @@ Snackhits beginnen vaak hetzelfde: een kleine zaak zet iets nieuws op de kaart, 
 
 **TikTok** zoekt naast hashtags vooral op zoektermen. Zoekresultaten bevatten nieuwe video's van kleine makers, terwijl hashtagpagina's steeds dezelfde bekende video's tonen. Daarom krijgen TikTok-hashtags minder budget. De tool haalt de nieuwste video's op (niet de vastgepinde) en zoekt vanuit Nederland. Woorden en combinaties die opkomen (in de fase vroeg of groeit) worden **automatisch nieuwe TikTok-zoektermen**.
 
-### Leren van Mijn lijst
+### Leren van jou
 
-Alles wat je met ☆ bewaart, maakt de tool slimmer. Hij kijkt wat je bewaarde posts, zaken, producten en onderwerpen gemeen hebben: een woordcombinatie (*loaded kipcorn*), een twist, een combinatie, een snack, een zaak of een maker.
+De tool leert uit vier dingen:
 
-- **Vandaag** geeft posts die daarop lijken extra punten, met de reden erbij: *⭐ Lijkt op je lijst: loaded kipcorn*. Wat je al bewaard hebt, verdwijnt uit de kandidaten.
-- **Bronnen**: een bewaarde woordcombinatie, twist of zaak wordt een TikTok-zoekopdracht, en de maker van een bewaarde post wordt een gevolgd account. Bij de bron staat dan *"uit Mijn lijst"*.
-- **Afgevallen** telt juist tegen: lijkt een post op iets wat je hebt afgewezen, dan zakt hij.
-- **Gereviewd** telt half mee: je weet dan al wat je ervan vindt.
+| Bron | Hoe het meetelt |
+|---|---|
+| **☆ Mijn lijst** | Wat je bewaart telt het zwaarst. *Afgevallen* telt juist tegen, *gereviewd* telt half mee. |
+| **♥ en 👎** bij elke post | Niet om te bewaren, wel om de tool te laten weten wat je waardeert. ♥ betekent "meer zoals dit", 👎 "minder zoals dit". Klik nog een keer om het weg te halen. |
+| **Je tips** (Tips & routes) | De zaken en specialiteiten uit je tiplijst. Duikt een tip op in een post, dan krijgt die post voorrang. |
+| **Je eigen posts** (Mijn posts) | Welke snacks het bij jouw publiek beter doen dan je gemiddelde post. |
 
-Op Vandaag zie je bij **⭐ Geleerd van Mijn lijst** wat de tool tot nu toe van je heeft geleerd.
+Van wat je bewaart, ♥ of 👎 geeft, kijkt de tool wat ze gemeen hebben: een woordcombinatie (*loaded kipcorn*), een twist, een combinatie, een snack, een zaak of een maker.
+
+- **Vandaag** geeft posts die daarop lijken extra punten, met de reden erbij:
+  - *⭐ Past bij jou: loaded kipcorn* (lijkt op wat je bewaarde, een ♥ gaf of in je tips hebt)
+  - *📈 Jouw publiek: friet 1,27× je mediaan* (uit je eigen posts)
+  - *Al gepost op 2025-03-16* (deze zaak noemde je al in een eigen post; hij zakt dan iets)
+- Posts die je al bewaarde of beoordeelde, verdwijnen uit de kandidaten. Zo zie je steeds nieuwe dingen.
+- Een losse snack (bijvoorbeeld kaassoufflé) telt alleen mee als je hem zelf bewaarde of een ♥ gaf. Anders zou door je ruim 200 tips elke kaassoufflé-post "bij jou passen".
+- **Bronnen**: een woordcombinatie, twist of zaak die je bewaart of een ♥ geeft, wordt een TikTok-zoekopdracht. De maker van zo'n post wordt een gevolgd account. Bij de bron staat dan *"uit Mijn lijst of ♥"*. Je tips worden geen zoekopdrachten: dat zou het budget over te veel bronnen verdelen.
+
+Op Vandaag zie je bij **⭐ Wat de tool van jou leert** wat de tool heeft opgepikt en op basis waarvan.
+
+## Mijn posts
+
+Klik op **Excel importeren** en kies je totaaloverzicht. De tool leest het tabblad met *Weergaven* en *Caption*. Afgeleide tabbladen als *Samenwerkingen* en *Per maand* herkent hij: posts die daar nog eens in staan, worden niet dubbel geteld. Opnieuw importeren vervangt je posts, dus je kunt elke maand het nieuwe overzicht inladen.
+
+Je ziet per jaar (of alles):
+- views en nieuwe volgers per maand, met dezelfde maand een jaar eerder;
+- **Wat werkt**: conclusies in gewone taal, zoals je best bekeken format en of zaken buiten Amsterdam het beter doen;
+- per format, kanaal, locatie en herkenbaarheid de mediaan views, de index (100 = je mediaan) en de volgers per post. Groepen met minder dan 5 posts staan grijs: die zeggen nog weinig;
+- **Snacks bij jouw publiek**: snacks met minstens 6 posts, vergeleken met je mediaan;
+- je toppers (op views, volgers of doorgestuurd) en je supermarkttests.
+
+Volgers bij collabs tellen niet mee: die worden gedeeld met een ander account (zoals in je eigen overzicht).
+
+## Tips & routes
+
+Klik op **Excel importeren** en kies je tips- en routebestand.
+- Tabbladen met *Naam* (of *Naam zaak*) worden **tips**, met de tabbladnaam als lijst (Burgers, Amsterdam, Broodje Bal, Buiten Amsterdam).
+- Tabbladen met *Route* en *Stop 1* worden **routes**.
+- Opnieuw importeren voegt nieuwe tips toe. Je status en notities blijven bewaard.
+
+Bij elke tip:
+- zet je een status (*te proberen* → *gepland* → *bezocht* → *gereviewd*) en een notitie;
+- opent de naam de zaak in Google Maps;
+- zie je 🔥 als er in de afgelopen 30 dagen over de zaak gepost is. Klik erop en je ziet die posts;
+- zie je ✓ als je de zaak al eens noemde in een eigen post.
+
+Elke route heeft een knop **Route in Google Maps**: Maps opent met alle stops, vanaf waar je bent.
+
+Je tips komen ook terug op andere plekken:
+- **Vandaag** (📍 Je tips in de radar);
+- **Amsterdam** (Jouw Amsterdam-tips);
+- **Zaken & steden** (📍 tip en ✓ gepost).
 
 ## Bronnen ontdekken
 
@@ -197,7 +244,7 @@ Na elke ronde zoekt de tool in de relevante Nederlandse posts van de afgelopen 7
 - **Hashtags** die bij minstens 3 verschillende makers voorkomen.
 - **Accounts** die minstens 2 relevante posts plaatsten.
 - **Accounts** die door meerdere makers genoemd worden.
-- **Wat je bewaart in Mijn lijst** (zie hierboven). Deze gaan voor alles.
+- **Wat je bewaart in Mijn lijst of een ♥ geeft** (zie hierboven). Deze gaan voor alles.
 - **Opkomende woorden en combinaties** (zoals *frikandelijs*) als TikTok-zoekterm.
 - **Hashtags en makers uit virale posts**, ook als het om één maker gaat. Deze gaan altijd voor. Bij de bron staat dan bijvoorbeeld: *"uit virale post van @maker (40× views, bereik 276× het aantal volgers)"*.
 
@@ -247,6 +294,10 @@ trendradar/
 │   ├── products.py        # nieuwe producten: winkel, social en nieuws koppelen
 │   ├── budget.py          # budgetbewaking
 │   ├── snackspert.py      # koppeling met de recensies op snackspert.nl
+│   ├── taste.py           # smaakprofiel: leren van je lijst, ♥/👎 en tips
+│   ├── ownposts.py        # analyse van je eigen posts
+│   ├── spots.py           # tips en routes, gekoppeld aan de radar
+│   ├── imports.py         # Excel-bestanden inlezen
 │   ├── demo.py            # verzonnen voorbeelddata
 │   ├── web.py             # API voor de interface
 │   └── static/            # de interface (HTML/CSS/JS)

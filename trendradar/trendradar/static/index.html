@@ -35,6 +35,8 @@
   <button role="tab" data-tab="supermarkt">Supermarkt</button>
   <button role="tab" data-tab="zaken">Zaken &amp; steden</button>
   <button role="tab" data-tab="lijst">Mijn lijst <span class="count" id="lijst-count"></span></button>
+  <button role="tab" data-tab="tips">Tips &amp; routes</button>
+  <button role="tab" data-tab="mijnposts">Mijn posts</button>
   <button role="tab" data-tab="bronnen">Bronnen</button>
   <button role="tab" data-tab="beheer">Budget &amp; instellingen</button>
 </nav>
@@ -76,9 +78,16 @@
       </article>
       <div class="stack">
         <article class="card">
-          <h2>⭐ Geleerd van Mijn lijst</h2>
-          <p class="hint">Hierop lijkende posts krijgen voorrang, en de tool zoekt er actief naar. Zet iets op <em>afgevallen</em> en het telt juist tegen.</p>
+          <h2>⭐ Wat de tool van jou leert</h2>
+          <p class="hint">Uit wat je bewaart, je ♥ en 👎, je tips en je eigen posts. Posts die hierop lijken krijgen voorrang. Wat je bewaart of een ♥ geeft, gaat de tool ook actief zoeken.</p>
           <div class="sigs" id="v-learned"></div>
+          <p class="hint" id="v-learned-from"></p>
+          <div id="v-audience"></div>
+        </article>
+        <article class="card" id="v-tips-card" hidden>
+          <h2>📍 Je tips in de radar <span class="muted">7 dagen</span></h2>
+          <p class="hint">Zaken uit Tips &amp; routes waar nu over gepost wordt.</p>
+          <ul class="list" id="v-tips"></ul>
         </article>
         <article class="card">
           <h2>🌱 Vroeg en groeiend</h2>
@@ -131,12 +140,133 @@
           <h2>📰 Nieuws uit Amsterdam</h2>
           <ul class="list" id="a-news"></ul>
         </article>
+        <article class="card">
+          <h2>📍 Jouw Amsterdam-tips</h2>
+          <p class="hint">Uit Tips &amp; routes. Bovenaan wat nog <em>te proberen</em> is.</p>
+          <ul class="list" id="a-tips"></ul>
+          <button class="btn ghost small" data-goto="tips">Alle tips →</button>
+        </article>
       </div>
     </div>
     <article class="card">
       <h2>Nieuwste posts uit Amsterdam</h2>
       <div class="posts" id="a-posts"></div>
     </article>
+  </section>
+
+  <!-- TIPS & ROUTES -->
+  <section class="panel" data-panel="tips" hidden>
+    <article class="card">
+      <div class="card-head">
+        <h2>Tips &amp; routes</h2>
+        <div class="toolbar">
+          <label class="btn small"><input type="file" accept=".xlsx" class="import-file" hidden>Excel importeren</label>
+          <a class="btn ghost small" href="/api/export/tips.csv">Tips als CSV</a>
+        </div>
+      </div>
+      <p class="hint">Je tips en routes op één plek. Importeer je Excel-bestand (tabbladen met <em>Naam</em> worden tips, tabbladen met <em>Route</em> en <em>Stop 1</em> worden routes). Opnieuw importeren kan altijd: je status en notities blijven bewaard. 🔥 betekent dat er nu over de zaak gepost wordt; ✓ dat je hem al eens hebt gepost.</p>
+      <div class="kpis" id="t-kpis"></div>
+    </article>
+    <div class="seg" role="group" aria-label="Weergave" id="t-view">
+      <button data-v="tips" class="on">Tips</button>
+      <button data-v="routes">Routes</button>
+    </div>
+    <article class="card" id="t-tips-card">
+      <div class="toolbar">
+        <input type="search" id="t-q" placeholder="Zoek op naam, plaats of specialiteit…">
+        <select id="t-list" aria-label="Lijst"><option value="">Alle lijsten</option></select>
+        <select id="t-region" aria-label="Regio"><option value="">Alle regio's</option></select>
+        <select id="t-status" aria-label="Status"><option value="">Alle statussen</option></select>
+        <label class="hint"><input type="checkbox" id="t-radar"> Alleen 🔥 in de radar</label>
+      </div>
+      <div class="table-wrap"><table class="data" id="tbl-tips">
+        <thead><tr><th>Zaak</th><th>Specialiteit</th><th class="hide-s">Lijst</th><th>Status</th><th class="hide-s">Notitie</th><th></th></tr></thead>
+        <tbody></tbody></table></div>
+      <details class="add-tip">
+        <summary>+ Tip toevoegen</summary>
+        <form id="form-tip" class="toolbar">
+          <input name="name" placeholder="Naam zaak" required>
+          <input name="place" placeholder="Plaats">
+          <input name="specialty" placeholder="Specialiteit, bijv. broodje kaassoufflé">
+          <button class="btn small" type="submit">Toevoegen</button>
+        </form>
+      </details>
+    </article>
+    <article class="card" id="t-routes-card" hidden>
+      <div class="toolbar">
+        <input type="search" id="r-q" placeholder="Zoek een plaats of zaak…">
+        <select id="r-region" aria-label="Regio"><option value="">Alle regio's</option></select>
+        <select id="r-stops" aria-label="Aantal stops"><option value="">3 en 4 stops</option><option value="3">3 stops</option><option value="4">4 stops</option></select>
+      </div>
+      <div class="routes" id="t-routes"></div>
+    </article>
+  </section>
+
+  <!-- MIJN POSTS -->
+  <section class="panel" data-panel="mijnposts" hidden>
+    <article class="card">
+      <div class="card-head">
+        <h2>Mijn posts <span class="muted">Instagram</span></h2>
+        <div class="toolbar">
+          <div class="chips" id="m-years"></div>
+          <label class="btn small"><input type="file" accept=".xlsx" class="import-file" hidden>Excel importeren</label>
+        </div>
+      </div>
+      <p class="hint">Je eigen posts uit je Excel-overzicht (tabblad <em>Posts</em>). De tool rekent alles zelf uit en leert ervan: snacks die het bij jouw publiek goed doen, krijgen op Vandaag voorrang. Volgers bij collabs tellen niet mee.</p>
+      <div class="kpis kpis-5" id="m-kpis"></div>
+    </article>
+    <div class="grid-2">
+      <article class="card">
+        <h2>Views per maand <span class="muted">mediaan per post</span></h2>
+        <div class="chart" id="m-months"></div>
+        <h2>Nieuwe volgers per maand</h2>
+        <div class="chart" id="m-followers"></div>
+      </article>
+      <article class="card">
+        <h2>💡 Wat werkt</h2>
+        <ul class="list insights" id="m-insights"></ul>
+      </article>
+    </div>
+    <div class="grid-2">
+      <article class="card">
+        <div class="card-head">
+          <h2>Per soort post</h2>
+          <div class="chips" id="m-dims"></div>
+        </div>
+        <p class="hint" id="m-dim-hint"></p>
+        <div class="table-wrap"><table class="data" id="tbl-m-groups">
+          <thead><tr><th></th><th class="num">Posts</th><th>Mediaan views</th><th class="num hide-s">Index</th><th class="num">Volgers/post</th><th class="num hide-s">Gedeeld</th></tr></thead>
+          <tbody></tbody></table></div>
+      </article>
+      <article class="card">
+        <h2>📈 Snacks bij jouw publiek</h2>
+        <p class="hint">Mediaan views van posts over deze snack, vergeleken met je mediaan. Vanaf 6 posts.</p>
+        <div class="table-wrap"><table class="data" id="tbl-m-snacks">
+          <thead><tr><th>Snack</th><th class="num">Posts</th><th class="num">Mediaan</th><th class="num">× je mediaan</th></tr></thead>
+          <tbody></tbody></table></div>
+      </article>
+    </div>
+    <div class="grid-2">
+      <article class="card">
+        <div class="card-head">
+          <h2>Toppers</h2>
+          <div class="chips" id="m-top-by">
+            <button class="chip on" data-top="views">Views</button>
+            <button class="chip" data-top="followers">Volgers</button>
+            <button class="chip" data-top="shares">Gedeeld</button>
+          </div>
+        </div>
+        <div class="table-wrap"><table class="data" id="tbl-m-top">
+          <thead><tr><th>Post</th><th class="hide-s">Format</th><th class="num">Views</th><th class="num">Volgers</th><th class="num hide-s">Gedeeld</th></tr></thead>
+          <tbody></tbody></table></div>
+      </article>
+      <article class="card">
+        <h2>🛒 Supermarkttests</h2>
+        <div class="table-wrap"><table class="data" id="tbl-m-tests">
+          <thead><tr><th>#</th><th>Product</th><th class="num">Views</th><th class="num">Volgers</th></tr></thead>
+          <tbody></tbody></table></div>
+      </article>
+    </div>
   </section>
 
   <!-- MIJN LIJST -->
