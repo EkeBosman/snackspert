@@ -47,6 +47,10 @@ def main() -> None:
         conn.execute("UPDATE runs SET status = 'fout', finished_at = started_at "
                      "WHERE status = 'bezig'")
 
+    n = collector.reclassify_if_needed()
+    if n:
+        log.info("%d posts opnieuw beoordeeld met de nieuwe regels", n)
+
     if args.eenmalig:
         print(collector.run_once("handmatig", force_supermarkets=True))
         return

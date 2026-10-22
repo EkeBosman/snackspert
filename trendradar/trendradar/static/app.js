@@ -209,7 +209,9 @@
   function renderTopics() {
     const d = state.trends;
     if (!d) return;
-    const rows = d.topics.filter(t => !state.typeFilter || t.type === state.typeFilter).slice(0, 25);
+    // 'Alles' toont de specifieke onderwerpen; brede gerechten en steden hebben een eigen knop.
+    const rows = d.topics.filter(t => state.typeFilter ? t.type === state.typeFilter
+      : !["categorie", "stad"].includes(t.type)).slice(0, 25);
     const tbody = $("#tbl-topics tbody");
     tbody.innerHTML = rows.length ? "" : `<tr><td colspan="8" class="muted">Geen onderwerpen gevonden. Probeer een langere periode of strengheid 'Breed'.</td></tr>`;
     rows.forEach((t, i) => {

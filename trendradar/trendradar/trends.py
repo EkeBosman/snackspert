@@ -20,7 +20,7 @@ import math
 from collections import defaultdict
 from datetime import timedelta
 
-from . import db, lexicon, signals
+from . import db, lexicon, seeds, signals
 
 WINDOWS = {
     "nu": {"hours": 6, "baseline": 4, "bucket_h": 1, "label": "Nu (6 uur)"},
@@ -60,10 +60,26 @@ def load_posts(conn, start, end, platform=None, min_rel=0.35, min_nl=0.4, includ
     return conn.execute(f"SELECT * FROM posts WHERE {' AND '.join(where)}", args).fetchall()
 
 
+def _broad_hashtags() -> set[str]:
+    """Hashtags die een zoeknet zijn, geen trend.
+
+    #snackbar of #frikandel is altijd populair; dat zegt niets. Ze dienen om
+    posts te vinden, en wát er in die posts staat (een product, een zaak, een
+    specifieke hashtag als #frikandelijs) kan wél een trend zijn.
+    """
+    words = {w for kws in lexicon.CATEGORIES.values() for w in kws if " " not in w}
+    foods = {f.replace(" ", "") for f in lexicon.DUTCH_FOODS}
+    starts = set(seeds.INSTAGRAM_HASHTAGS) | set(seeds.TIKTOK_HASHTAGS)
+    return lexicon.GENERIC_HASHTAGS | words | foods | starts
+
+
+BROAD_HASHTAGS = _broad_hashtags()
+
+
 def topics_of(p) -> list[tuple[str, str]]:
     out = []
     for t in json.loads(p["hashtags"] or "[]"):
-        if t not in lexicon.GENERIC_HASHTAGS and len(t) >= 3:
+        if t not in BROAD_HASHTAGS and len(t) >= 3:
             out.append(("hashtag", "#" + t))
     for c in json.loads(p["categories"] or "[]"):
         out.append(("categorie", c))
