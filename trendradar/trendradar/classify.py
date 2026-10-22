@@ -59,12 +59,25 @@ def _keyword_hit(keyword: str, text: str, tokens: set[str], tag_blob: str) -> bo
     return keyword in tokens or (len(keyword) >= 5 and keyword in tag_blob)
 
 
+def _dutch_food(food: str, text: str, tokens: set[str], hashtags: list[str]) -> bool:
+    # Hele woorden, geen stukjes: 'patat' mag niet matchen op het Spaanse 'patatas'.
+    if " " in food:
+        return f" {food} " in text or food.replace(" ", "") in hashtags
+    if food in tokens or food in hashtags:
+        return True
+    return len(food) >= 6 and any(food in tag for tag in hashtags)
+
+
 def find_city(text: str, hashtags: list[str], location: str | None) -> str | None:
     hay = " " + (location or "").lower() + " " + text + " "
     for city in sorted(lexicon.CITIES, key=len, reverse=True):
         c = city.lower()
         if re.search(r"(?<![\w])" + re.escape(c) + r"(?![\w])", hay):
             return "Den Bosch" if city == "'s-Hertogenbosch" else city
+    for town in lexicon.NL_TOWNS:
+        t = town.lower()
+        if re.search(r"(?<![\w])" + re.escape(t) + r"(?![\w])", hay) or t.replace("-", "") in hashtags:
+            return town
     for tag in hashtags:
         for alias, city in lexicon.CITY_ALIASES.items():
             if tag.endswith(alias) or tag.startswith(alias):
@@ -161,13 +174,18 @@ def classify_rules(post: dict) -> dict:
     city = find_city(text, hashtags, post.get("location"))
     if city:
         nl = min(1.0, nl + 0.5)
-    if any(food in text or food.replace(" ", "") in tag_blob for food in lexicon.DUTCH_FOODS):
+    if any(_dutch_food(food, text, tokens, hashtags) for food in lexicon.DUTCH_FOODS):
         nl = min(1.0, nl + 0.5)
     if any(h in ("nederland", "holland", "netherlands", "dutchfood") for h in hashtags):
         nl = min(1.0, nl + 0.3)
     if is_store or any(b in ("FEBO", "Smullers", "Kwalitaria") for b in brands):
         nl = min(1.0, nl + 0.3)
-    if post.get("platform") == "nieuws":
+    # Duidelijk een andere taal? Dan telt de post niet als Nederlands, ook niet
+    # als er 'snackbar' of een Nederlandse plaatsnaam in staat.
+    foreign = max(sum(1 for w in words if w in vocab) for vocab in lexicon.FOREIGN_WORDS.values())
+    if foreign >= 2 and foreign > dutch:
+        nl = min(nl, 0.1)
+    if post.get("platform") in ("nieuws", "winkel"):
         nl = 1.0
 
     places: list[str] = []

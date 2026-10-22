@@ -184,7 +184,7 @@ def test_trend_detects_rising_topic(conn):
     assert "#pistachekroket" in names
     top = next(t for t in r["topics"] if t["name"] == "#pistachekroket")
     assert top["new"] is True and top["authors"] == 6
-    assert names.index("#pistachekroket") < names.index("#kroket")
+    assert "#kroket" not in names  # brede zoekhashtag: een net, geen trend
     assert r["history_ok"]
     assert not any(t["type"] == "zin" and t["name"] == "pistache kroket" for t in r["topics"])
 
@@ -530,3 +530,40 @@ def test_apify_minimum_charge_and_cost_estimate(monkeypatch):
     assert sent["maxTotalChargeUsd"] == "0.50" and sent["maxItems"] == 40
     assert "token" not in sent and sent["auth"] == "Bearer tok"
     assert cost == pytest.approx(40 * 1.70 / 1000)
+
+
+def test_only_dutch_posts_count():
+    def nl(text):
+        return classify.classify_rules({"text": text, "platform": "instagram"})["nl_score"]
+    # Spaans, Portugees en Engels met #snackbar: niet Nederlands.
+    assert nl("XV años Estefanía Muchas Gracias a Elena por permitirnos ser parte de este día #snackbar") < 0.4
+    assert nl("Crocante por fora, irresistível por dentro! As nossas coxinhas são uma tentação #snackbar") < 0.4
+    assert nl("A colorful snapshot in the middle of Dirkshorn. The tree now matches the snack bar.") < 0.4
+    assert nl("Patatas bravas con salsa de la casa #snackbar #tapas") < 0.4
+    # Nederlands, ook kort of gemengd met een Engelse zin.
+    assert nl("Honger tijdens Hardenberg Swingt? Sevens has got you covered! Deel dit bericht met je vrienden!") >= 0.4
+    assert nl("Bitterbal softijs gespot! #bitterbalijs") >= 0.4
+    assert nl("Even iets fris! Niet iedere lunch hoeft een broodje te zijn.") >= 0.4
+
+
+def test_existing_posts_are_rescored_on_start(conn):
+    from trendradar import collector
+    store_posts(conn, [post("es1", "Muchas gracias por este día con la familia #snackbar")], None)
+    conn.execute("UPDATE posts SET nl_score = 0.9")  # zoals de oude regels het zagen
+    db.set_state(conn, "classify_version", 1)
+    conn.commit()
+    assert collector.reclassify_if_needed() == 1
+    assert conn.execute("SELECT nl_score FROM posts").fetchone()[0] < 0.4
+    assert collector.reclassify_if_needed() == 0
+
+
+def test_news_list_only_shows_relevant_news(conn):
+    from trendradar import products
+    now = db.iso(db.now())
+    for nid, title in (("nieuws:a", "Nieuwe chips met kapsalonsmaak bij Albert Heijn"),
+                       ("nieuws:b", "Drie doden door stormweer in Frankrijk")):
+        conn.execute("INSERT INTO news(id, title, published_at, fetched_at) VALUES (?, ?, ?, ?)",
+                     (nid, title, now, now))
+        store_posts(conn, [{"id": nid, "platform": "nieuws", "text": title, "posted_at": now}], None)
+    titles = [n["title"] for n in products.overview(conn)["news"]]
+    assert titles == ["Nieuwe chips met kapsalonsmaak bij Albert Heijn"]

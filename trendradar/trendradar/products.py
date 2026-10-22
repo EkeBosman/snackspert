@@ -57,9 +57,12 @@ def overview(conn, include_demo: bool = True, days: int = 30, only_relevant: boo
         "ORDER BY first_seen DESC LIMIT 300", (since,))]
     all_keys = [(key(r["name"]), r["is_new"]) for r in conn.execute(
         f"SELECT name, is_new FROM products WHERE 1=1{demo}")]
+    # Alleen nieuws dat de woordenlijsten relevant vinden: Google News geeft bij
+    # 'snackbar' ook berichten over stormweer en dialectverhalen.
     news_rows = [dict(r) for r in conn.execute(
-        f"SELECT * FROM news WHERE published_at >= ?{demo} ORDER BY published_at DESC LIMIT 80",
-        (week,))]
+        "SELECT n.* FROM news n LEFT JOIN posts p ON p.id = n.id "
+        f"WHERE n.published_at >= ? AND (p.relevance >= 0.35 OR n.demo = 1){demo.replace('demo', 'n.demo')} "
+        "ORDER BY n.published_at DESC LIMIT 80", (week,))]
     posts = [db.row_to_dict(r) for r in conn.execute(
         "SELECT * FROM posts WHERE posted_at >= ? AND relevance >= 0.35 AND nl_score >= 0.4 "
         f"AND platform != 'nieuws' AND (categories LIKE '%Supermarkt%' OR products != '[]'){demo}",

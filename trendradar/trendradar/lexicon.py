@@ -151,6 +151,10 @@ DUTCH_WORDS = {
     "vandaag", "gisteren", "morgen", "nieuwe", "nieuw", "eindelijk", "gewoon",
     "hebben", "heb", "hebt", "heeft", "word", "wordt", "kun", "kunnen", "omdat",
     "alleen", "allemaal", "toch", "even", "lekkere", "lekkerste", "goed", "goede",
+    "dit", "onze", "ons", "tijdens", "vrienden", "iets", "iedere", "ieder", "elke", "alle",
+    "zit", "zitten", "vol", "wordt", "worden", "daar", "maar", "omdat", "zodat", "waarom",
+    "bestellen", "bestel", "openingstijden", "geopend", "vanaf", "tot", "uur", "ook",
+    "proef", "probeer", "heerlijk", "heerlijke", "smaakt", "snel", "weekend", "vanavond",
 }
 
 # Woorden in productnamen die geen eten voor mensen zijn ("hondenbrokken met kip").
@@ -166,12 +170,63 @@ NON_FOOD = (
 
 # Snacks die (bijna) alleen in Nederland en Vlaanderen bestaan: een post die
 # hierover gaat is vrijwel zeker Nederlandstalig, ook als hij heel kort is.
+# Bewust niet: snackbar, cafetaria, loempia, mexicano. Die woorden worden ook in
+# het Engels, Spaans en Portugees gebruikt.
 DUTCH_FOODS = {
-    "frikandel", "kroket", "bitterbal", "kapsalon", "patat", "patatje", "friet", "frietje",
-    "snackbar", "frituur", "cafetaria", "kaassoufflé", "kaassouffle", "berenhap", "mexicano",
-    "viandel", "bamischijf", "nasischijf", "sitostick", "kipcorn", "oliebol", "stroopwafel",
-    "poffertjes", "broodje", "tosti", "softijs", "kibbeling", "lekkerbekje", "hagelslag",
-    "speculaas", "tompouce", "appeltaart", "bossche bol", "eierbal", "gehaktbal", "loempia",
+    "frikandel", "frikandelbroodje", "kroket", "bitterbal", "bitterballen", "kapsalon",
+    "patat", "patatje", "friet", "frietje", "frituur", "kaassoufflé", "kaassouffle",
+    "berenhap", "viandel", "bamischijf", "nasischijf", "sitostick", "kipcorn", "oliebol",
+    "oliebollen", "stroopwafel", "poffertjes", "broodje", "tosti", "softijs", "kibbeling",
+    "lekkerbekje", "hagelslag", "speculaas", "tompouce", "appeltaart", "bossche bol",
+    "eierbal", "gehaktbal", "frietsaus", "patatje oorlog", "friettent",
+}
+
+# Woorden die vaak voorkomen in andere talen en (bijna) nooit in het Nederlands.
+# Staan er twee of meer in een post, en meer dan Nederlandse woorden, dan is de
+# post niet Nederlandstalig. Woorden die in beide talen bestaan (de, en, is, in,
+# die, van) staan er bewust niet in.
+FOREIGN_WORDS: dict[str, set[str]] = {
+    "en": {"the", "and", "with", "this", "you", "your", "are", "have", "got", "our", "it's",
+           "it", "just", "what", "when", "from", "they", "will", "don't", "can't", "love",
+           "amazing", "delicious", "today", "best", "food", "try", "come", "here's", "who",
+           "has", "been", "were", "would", "about", "their", "there", "these", "those"},
+    "es": {"el", "la", "los", "las", "por", "para", "con", "que", "una", "del", "muy", "más",
+           "gracias", "es", "este", "esta", "sus", "nuestro", "nuestra", "nuestros", "y",
+           "como", "pero", "también", "aquí", "todo", "años", "fue", "lo", "le", "se"},
+    "pt": {"não", "uma", "com", "para", "por", "nossa", "nosso", "nossas", "nossos", "são",
+           "mais", "que", "do", "da", "das", "dos", "você", "muito", "aqui", "também", "fora",
+           "ninguém", "às", "na", "no", "nas", "nos", "pelo", "pela"},
+    "de": {"der", "und", "ist", "nicht", "mit", "ich", "wir", "auf", "für", "ein", "eine",
+           "das", "sehr", "auch", "wie", "noch", "bei", "uns", "euch", "heute", "gibt"},
+    "fr": {"le", "les", "et", "est", "avec", "pour", "une", "du", "des", "très", "nous",
+           "vous", "sur", "dans", "qui", "pas", "plus", "chez", "c'est"},
+    "it": {"il", "della", "per", "che", "molto", "sono", "questo", "anche", "alla", "dei"},
+}
+
+# Meer Nederlandse plaatsen, alleen om posts als Nederlands te herkennen
+# (zonder coördinaten, dus niet op de kaart). Plaatsen die ook een gewoon woord
+# zijn (Echt, Best, Goes, Putten, Duiven, Huizen) staan er bewust niet in.
+NL_TOWNS = {
+    "Hardenberg", "Coevorden", "Hoogeveen", "Meppel", "Steenwijk", "Almelo", "Oldenzaal",
+    "Rijssen", "Nijverdal", "Winterswijk", "Zutphen", "Lochem", "Ommen", "Raalte", "Kampen",
+    "Dronten", "Emmeloord", "Urk", "Lemmer", "Joure", "Franeker", "Harlingen", "Dokkum",
+    "Stadskanaal", "Veendam", "Winschoten", "Delfzijl", "Hoogezand", "Appingedam", "Zuidhorn",
+    "Barneveld", "Nijkerk", "Ermelo", "Elburg", "Epe", "Heerde", "Hattem", "Zevenaar",
+    "Westervoort", "Doesburg", "Culemborg", "Geldermalsen", "Zaltbommel", "Waalwijk",
+    "Oosterhout", "Etten-Leur", "Uden", "Veghel", "Boxtel", "Vught", "Veldhoven",
+    "Waalre", "Geldrop", "Nuenen", "Deurne", "Venray", "Gennep", "Boxmeer", "Cuijk", "Wijchen",
+    "Druten", "Tiel", "Gorinchem", "Leerdam", "Sliedrecht", "Papendrecht", "Zwijndrecht",
+    "Ridderkerk", "Barendrecht", "Hellevoetsluis", "Maassluis", "Rijswijk", "Wassenaar",
+    "Voorschoten", "Leiderdorp", "Oegstgeest", "Noordwijk", "Lisse", "Hillegom", "Heemstede",
+    "Zandvoort", "Bloemendaal", "Velsen", "IJmuiden", "Beverwijk", "Heemskerk", "Castricum",
+    "Heerhugowaard", "Schagen", "Enkhuizen", "Medemblik", "Volendam", "Edam", "Monnickendam",
+    "Weesp", "Diemen", "Uithoorn", "Aalsmeer", "Bussum", "Naarden", "Laren",
+    "Baarn", "Soest", "Bunschoten", "Woerden", "IJsselstein", "Houten", "Maarssen",
+    "Vianen", "Oudewater", "Montfoort", "Breukelen", "Mijdrecht", "Bodegraven", "Waddinxveen",
+    "Boskoop", "Gouda", "Hendrik-Ido-Ambacht", "Terneuzen", "Zierikzee",
+    "Hulst", "Tholen", "Kerkrade", "Brunssum", "Geleen", "Venlo", "Tegelen", 
+    "Nieuwegein", "Lelystad", "Almere", "Heerenveen", "Sneek", "Bolsward", "Zwolle",
+    "Dirkshorn", "Texel", "Ameland", "Terschelling", "Vlieland", "Schiermonnikoog",
 }
 
 # Grotere steden met coördinaten voor de kaart.

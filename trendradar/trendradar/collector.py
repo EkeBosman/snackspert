@@ -44,7 +44,7 @@ class Run:
             conn.execute("UPDATE runs SET log = ? WHERE id = ?", (config.dumps(self.lines), self.id))
 
     def finish(self) -> None:
-        status = "klaar" if not self.errors else ("deels" if self.results else "fout")
+        status = "klaar" if not self.errors else ("deels" if self.results or self.new_posts else "fout")
         with db.session() as conn:
             conn.execute(
                 "UPDATE runs SET finished_at = ?, status = ?, results = ?, new_posts = ?, "
@@ -352,6 +352,31 @@ def step_news(run: Run, settings: dict) -> None:
         new, _, _ = store_posts(conn, posts, None)
     run.new_posts += new
     run.note(f"Nieuws: {len(items)} berichten bekeken, {new} nieuw")
+
+
+# Verhoog dit getal als de woordenlijsten of regels in classify.py veranderen:
+# bij de volgende start worden alle posts (zonder AI-oordeel) opnieuw beoordeeld.
+CLASSIFY_VERSION = 2
+
+
+def reclassify_if_needed() -> int:
+    with db.session() as conn:
+        if db.get_state(conn, "classify_version", 1) >= CLASSIFY_VERSION:
+            return 0
+        rows = [db.row_to_dict(r) for r in conn.execute(
+            "SELECT id, platform, text, location, author, author_name, products, hashtags, "
+            "mentions FROM posts WHERE ai_done != 1")]
+        for p in rows:
+            c = classify.classify_rules(p)
+            conn.execute(
+                "UPDATE posts SET relevance=?, nl_score=?, categories=?, brands=?, places=?, "
+                "phrases=?, city=?, hashtags=?, mentions=?, products=? WHERE id=?",
+                (c["relevance"], c["nl_score"], config.dumps(c["categories"]),
+                 config.dumps(c["brands"]), config.dumps(c["places"]), config.dumps(c["phrases"]),
+                 c["city"], config.dumps(c["hashtags"]), config.dumps(c["mentions"]),
+                 config.dumps(p["products"] or c["products"]), p["id"]))
+        db.set_state(conn, "classify_version", CLASSIFY_VERSION)
+    return len(rows)
 
 
 def is_snack_product(name: str) -> bool:
