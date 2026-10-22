@@ -26,6 +26,7 @@ def _args():
         "min_rel": float(a.get("min_rel", 0.35)),
         "min_nl": float(a.get("min_nl", 0.4)),
         "include_demo": a.get("demo", "1") != "0",
+        "city": a.get("city") or None,
     }
 
 
@@ -76,9 +77,9 @@ def api_trends():
         return jsonify({"fout": "onbekende periode"}), 400
     with db.session() as conn:
         result = trends.compute(conn, window, a["platform"], 60, a["min_rel"], a["min_nl"],
-                                a["include_demo"])
+                                a["include_demo"], a["city"])
         result["volume"] = trends.volume(conn, window, a["platform"], a["min_rel"], a["min_nl"],
-                                         a["include_demo"])
+                                         a["include_demo"], a["city"])
         base = signals.baselines(conn, include_demo=a["include_demo"])
         result["rising_posts"] = [_slim(p, base) for p in trends.rising_posts(
             conn, max(12, trends.WINDOWS[window]["hours"]), 8, a["include_demo"])]
@@ -99,7 +100,7 @@ def _slim(p: dict, base: dict | None = None) -> dict:
     keep = ("id", "platform", "author", "author_name", "author_followers", "text", "url",
             "thumbnail", "location", "posted_at", "likes", "comments", "shares", "views",
             "relevance", "nl_score", "categories", "brands", "products", "places", "city",
-            "sentiment", "summary", "hashtags", "demo", "gain_per_hour")
+            "sentiment", "summary", "hashtags", "demo", "gain_per_hour", "flags")
     out = {k: p.get(k) for k in keep if k in p}
     if out.get("text") and len(out["text"]) > 600:
         out["text"] = out["text"][:600] + "…"
@@ -133,6 +134,9 @@ def api_posts():
         args.append(a["platform"])
     if not a["include_demo"]:
         where.append("demo = 0")
+    if a["city"]:
+        where.append("city = ?")
+        args.append(a["city"])
     window = q.get("window")
     if window in trends.WINDOWS:
         where.append("posted_at >= ?")
@@ -242,7 +246,7 @@ def api_zaken():
     window = request.args.get("window", "7d")
     with db.session() as conn:
         result = trends.compute(conn, window, a["platform"], 1000, a["min_rel"], a["min_nl"],
-                                a["include_demo"])
+                                a["include_demo"], a["city"])
         reviewed = [dict(r) for r in conn.execute("SELECT * FROM reviewed")]
     places = []
     for t in result["topics"]:
@@ -465,3 +469,143 @@ def export_posts():
     return _csv(rows, ["posted_at", "platform", "author", "text", "url", "likes", "comments",
                        "shares", "views", "relevance", "categories", "brands", "places", "city",
                        "hashtags"], f"posts-{window}.csv")
+
+
+# --- Vandaag ------------------------------------------------------------------
+
+def _news(conn, kind: str, include_demo: bool, days: int = 14, limit: int = 8) -> list[dict]:
+    """Nieuws per soort: 'snackspert' (jouw naam in het nieuws), 'amsterdam' of 'snack'."""
+    since = db.iso(db.now() - timedelta(days=days))
+    demo = "" if include_demo else " AND n.demo = 0"
+    if kind == "snackspert":
+        where = "n.title LIKE '%snackspert%'"
+    elif kind == "amsterdam":
+        where = ("(n.title LIKE '%amsterdam%' OR n.query LIKE 'Amsterdam%') "
+                 "AND (p.relevance >= 0.35 OR n.demo = 1)")
+    else:
+        where = "(p.relevance >= 0.35 OR n.demo = 1)"
+    return [dict(r) for r in conn.execute(
+        "SELECT n.* FROM news n LEFT JOIN posts p ON p.id = n.id "
+        f"WHERE n.published_at >= ? AND {where}{demo} ORDER BY n.published_at DESC LIMIT ?",
+        (since, limit))]
+
+
+def _watched(conn) -> dict:
+    return {(r["kind"], r["ref"]): r["status"] for r in conn.execute("SELECT kind, ref, status FROM watchlist")}
+
+
+def _candidates(conn, include_demo: bool, city: str | None = None, limit: int = 12) -> list[dict]:
+    base = signals.baselines(conn, include_demo=include_demo)
+    cands = trends.candidates(conn, 72, city, include_demo, limit)
+    posts = _posts_by_id(conn, {c["id"] for c in cands}, base)
+    watched = _watched(conn)
+    out = []
+    for c in cands:
+        p = posts.get(c["id"])
+        if p:
+            p["reasons"] = c["reasons"]
+            p["watch"] = watched.get(("post", c["id"]))
+            out.append(p)
+    return out
+
+
+@app.get("/api/vandaag")
+def api_vandaag():
+    a = _args()
+    with db.session() as conn:
+        cands = _candidates(conn, a["include_demo"])
+        topics = trends.compute(conn, "24u", None, 60, include_demo=a["include_demo"])["topics"]
+        early = [t for t in topics if t["phase"] in ("vroeg", "groeit")
+                 and t["type"] in ("woord", "zin", "product", "zaak")][:8]
+        prods = products.overview(conn, a["include_demo"], days=2)["products"][:8]
+        amsterdam = _candidates(conn, a["include_demo"], "Amsterdam", 4)
+        lijst = {r["status"]: r["n"] for r in conn.execute(
+            "SELECT status, COUNT(*) AS n FROM watchlist GROUP BY status")}
+        return jsonify({
+            "candidates": cands,
+            "early_topics": early,
+            "phases": trends.PHASES,
+            "new_products": prods,
+            "snackspert_news": _news(conn, "snackspert", a["include_demo"], days=30, limit=5),
+            "snack_news": _news(conn, "snack", a["include_demo"], days=3, limit=6),
+            "amsterdam": amsterdam,
+            "watchlist": lijst,
+        })
+
+
+@app.get("/api/kandidaten")
+def api_kandidaten():
+    a = _args()
+    with db.session() as conn:
+        return jsonify(_candidates(conn, a["include_demo"], a["city"], 20))
+
+
+@app.get("/api/nieuws")
+def api_nieuws():
+    a = _args()
+    kind = request.args.get("soort", "snack")
+    with db.session() as conn:
+        return jsonify(_news(conn, kind, a["include_demo"], days=14, limit=30))
+
+
+# --- Te proberen-lijst -----------------------------------------------------------
+
+WATCH_STATUSES = ("te proberen", "gepland", "bezocht", "gereviewd", "afgevallen")
+
+
+@app.get("/api/lijst")
+def api_lijst():
+    with db.session() as conn:
+        rows = [dict(r) for r in conn.execute(
+            "SELECT * FROM watchlist ORDER BY CASE status WHEN 'te proberen' THEN 0 WHEN 'gepland' THEN 1 "
+            "WHEN 'bezocht' THEN 2 WHEN 'gereviewd' THEN 3 ELSE 4 END, updated_at DESC")]
+    return jsonify({"items": rows, "statuses": WATCH_STATUSES})
+
+
+@app.post("/api/lijst")
+def add_lijst():
+    d = request.get_json(force=True)
+    kind, ref, title = d.get("kind"), (d.get("ref") or "").strip(), (d.get("title") or "").strip()
+    if kind not in ("post", "zaak", "product", "onderwerp") or not ref or not title:
+        return jsonify({"fout": "soort, verwijzing en titel zijn nodig"}), 400
+    now = db.iso(db.now())
+    with db.session() as conn:
+        conn.execute(
+            "INSERT INTO watchlist(kind, ref, title, url, city, note, added_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(kind, ref) DO UPDATE SET updated_at = excluded.updated_at",
+            (kind, ref, title[:300], d.get("url"), d.get("city"), (d.get("note") or "")[:2000], now, now))
+    return jsonify({"ok": True})
+
+
+@app.patch("/api/lijst/<int:wid>")
+def update_lijst(wid: int):
+    d = request.get_json(force=True)
+    sets, args = [], []
+    if d.get("status") in WATCH_STATUSES:
+        sets.append("status = ?")
+        args.append(d["status"])
+    if "note" in d:
+        sets.append("note = ?")
+        args.append(str(d["note"])[:2000])
+    if not sets:
+        return jsonify({"fout": "niets te wijzigen"}), 400
+    sets.append("updated_at = ?")
+    args.append(db.iso(db.now()))
+    with db.session() as conn:
+        conn.execute(f"UPDATE watchlist SET {', '.join(sets)} WHERE id = ?", args + [wid])
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/lijst/<int:wid>")
+def delete_lijst(wid: int):
+    with db.session() as conn:
+        conn.execute("DELETE FROM watchlist WHERE id = ?", (wid,))
+    return jsonify({"ok": True})
+
+
+@app.get("/api/export/lijst.csv")
+def export_lijst():
+    with db.session() as conn:
+        rows = [dict(r) for r in conn.execute("SELECT * FROM watchlist ORDER BY added_at")]
+    return _csv(rows, ["status", "kind", "title", "city", "note", "url", "added_at", "updated_at"],
+                "te-proberen.csv")

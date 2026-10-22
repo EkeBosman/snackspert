@@ -126,6 +126,7 @@ def candidates(conn, days: int = 7) -> list[dict]:
                         "score": round(min(15, n_auth * bonus), 2),
                         "reason": f"genoemd in {d['posts']} posts door {n_auth} makers"})
     out += breakout_candidates(conn, known)
+    out += topic_searches(conn, known)
     # Eén ontdekking per (platform, soort, waarde), hoogste score wint.
     best: dict = {}
     for c in out:
@@ -165,6 +166,31 @@ def breakout_candidates(conn, known: set, days: int = 3) -> list[dict]:
         if p["author"] and sig["small_creator"] and (p["platform"], "account", p["author"]) not in known:
             out.append({"platform": p["platform"], "kind": "account", "value": p["author"],
                         "score": score - 5, "reason": f"kleine maker ging viraal ({why})"})
+    return out
+
+
+def topic_searches(conn, known: set, limit: int = 3) -> list[dict]:
+    """Stijgende onderwerpen worden een TikTok-zoekopdracht.
+
+    Duikt 'frikandelijs' op bij een paar makers, dan zoekt de tool de volgende
+    ronde op TikTok naar 'frikandelijs'. Zo vind je de andere vroege video's
+    erover, voordat het onderwerp groot is. Levert de zoekopdracht niets op,
+    dan gaat hij vanzelf op pauze.
+    """
+    out = []
+    for t in trends.compute(conn, "24u", limit=40)["topics"]:
+        if t["type"] not in ("woord", "zin", "product") or t["phase"] not in ("vroeg", "groeit"):
+            continue
+        if t["authors"] < 2:
+            continue
+        query = t["name"].lower().strip()
+        if ("tiktok", "zoekterm", query) in known:
+            continue
+        out.append({"platform": "tiktok", "kind": "zoekterm", "value": query,
+                    "score": 18 + min(5, t["authors"]),
+                    "reason": f"stijgend onderwerp ({t['authors']} makers): zoek meer video's"})
+        if len(out) >= limit:
+            break
     return out
 
 

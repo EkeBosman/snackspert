@@ -142,6 +142,20 @@ CREATE TABLE IF NOT EXISTS reviewed (
     norm  TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS watchlist (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    kind        TEXT NOT NULL,          -- post | zaak | product | onderwerp
+    ref         TEXT NOT NULL,          -- post-id, zaaknaam, product-id of onderwerp
+    title       TEXT NOT NULL,
+    url         TEXT,
+    city        TEXT,
+    note        TEXT DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'te proberen',  -- te proberen | gepland | bezocht | gereviewd | afgevallen
+    added_at    TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    UNIQUE (kind, ref)
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -208,6 +222,7 @@ MIGRATIONS = [
     ("posts", "remeasured_at", "TEXT"),
     ("products", "relevant", "INTEGER DEFAULT 1"),
     ("products", "size", "TEXT"),
+    ("posts", "flags", "TEXT DEFAULT '[]'"),
     ("sources", "next_due", "TEXT"),
     ("sources", "last_new", "INTEGER DEFAULT 0"),
     ("sources", "cost_usd", "REAL DEFAULT 0"),
@@ -260,7 +275,7 @@ def set_state(conn, key: str, value) -> None:
 def row_to_dict(row: sqlite3.Row) -> dict:
     out = dict(row)
     for key in ("hashtags", "mentions", "categories", "brands", "products",
-                "places", "phrases", "log"):
+                "places", "phrases", "log", "flags"):
         if key in out and isinstance(out[key], str):
             try:
                 out[key] = json.loads(out[key])

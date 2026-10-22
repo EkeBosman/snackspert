@@ -57,11 +57,18 @@ def _tt_input(kind):
             base["hashtags"] = values
         elif kind == "account":
             base["profiles"] = values
+            # Nieuwste eerst, zonder vastgezette video's: dan werkt het datumfilter
+            # en betaal je alleen voor wat er sinds de vorige keer bij kwam.
+            base["profileSorting"] = "latest"
+            base["excludePinnedPosts"] = True
         elif kind == "post":
             base["postURLs"] = values
             base["resultsPerPage"] = 1
         else:
             base["searchQueries"] = values
+            base["searchSection"] = "/video"
+        if kind != "post":
+            base["proxyCountryCode"] = "NL"   # Nederlandse resultaten
         if since and kind != "post":
             base["oldestPostDateUnified"] = since
         return base
@@ -112,6 +119,10 @@ def _auth() -> dict:
 # per resultaat, dus minder resultaten betekent minder kosten.
 MIN_CHARGE_USD = 0.50
 
+# Velden die het resultaat verbeteren maar niet nodig zijn om te werken.
+OPTIONAL_KEYS = {"searchSection", "proxyCountryCode", "profileSorting", "excludePinnedPosts",
+                 "oldestPostDateUnified", "onlyPostsNewerThan"}
+
 
 def run_actor(platform: str, kind: str, values: list[str], per_value: int,
               max_usd: float, since: str | None = None, price_per_1000: float = 0.0,
@@ -125,8 +136,16 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
         "maxTotalChargeUsd": f"{max(MIN_CHARGE_USD, max_usd):.2f}",
         "waitForFinish": 60,
     }
+    body = build(values, per_value, since)
     resp = requests.post(f"{API}/acts/{actor}/runs", params=params, headers=headers,
-                         json=build(values, per_value, since), timeout=90)
+                         json=body, timeout=90)
+    if resp.status_code == 400 and OPTIONAL_KEYS & body.keys():
+        # Kent de actor een van de extra velden niet (meer)? Probeer het zonder,
+        # zodat één verkeerde veldnaam niet de hele ronde kost.
+        log.warning("%s weigerde de invoer, opnieuw zonder extra velden: %s", actor, resp.text[:200])
+        body = {k: v for k, v in body.items() if k not in OPTIONAL_KEYS}
+        resp = requests.post(f"{API}/acts/{actor}/runs", params=params, headers=headers,
+                             json=body, timeout=90)
     if resp.status_code >= 400:
         raise ApifyError(f"{actor}: {resp.status_code} {resp.text[:300]}")
     run = resp.json()["data"]

@@ -74,6 +74,9 @@ def find_city(text: str, hashtags: list[str], location: str | None) -> str | Non
         c = city.lower()
         if re.search(r"(?<![\w])" + re.escape(c) + r"(?![\w])", hay):
             return "Den Bosch" if city == "'s-Hertogenbosch" else city
+    tags = set(hashtags)
+    if any(area in hay for area in lexicon.AMSTERDAM_AREAS) or tags & set(lexicon.AMSTERDAM_TAGS):
+        return "Amsterdam"
     for town in lexicon.NL_TOWNS:
         t = town.lower()
         if re.search(r"(?<![\w])" + re.escape(t) + r"(?![\w])", hay) or t.replace("-", "") in hashtags:
@@ -149,6 +152,43 @@ def key_phrases(text: str, limit: int = 8, hashtags: list[str] | None = None) ->
             if len(phrases) >= limit:
                 return phrases
     return phrases
+
+
+def item_groups(text: str, hashtags: list[str]) -> list[str]:
+    """Welke herkenbare snacks en dragers (brioche, pita, suikerbrood) staan erin?"""
+    found = []
+    words = set(TOKEN_RE.findall(text))
+    blobs = list(hashtags) + new_compounds(list(words))
+    for group, keywords in lexicon.ITEM_GROUPS.items():
+        hit = False
+        for kw in keywords:
+            k = kw.strip()
+            if " " in kw or kw.endswith(" "):
+                hit = f" {kw.strip()} " in text
+            else:
+                hit = k in words or (len(k) >= 4 and any(k in b for b in blobs))
+            if hit:
+                break
+        # 'frikandelijs', 'bitterbalijs': ijs als laatste deel van een samenstelling.
+        if not hit and group == "softijs":
+            hit = any(b.endswith("ijs") and len(b) > 6 for b in blobs)
+        if hit:
+            found.append(group)
+    return found
+
+
+def find_flags(text: str, hashtags: list[str], relevance: float) -> list[str]:
+    """Labels voor kandidaten: 'nieuw_op_kaart' en 'combinatie:a + b'."""
+    flags = []
+    if relevance >= 0.5 and any(p in text for p in lexicon.NEW_MENU_PHRASES):
+        flags.append("nieuw_op_kaart")
+    groups = item_groups(text, hashtags)
+    for i, a in enumerate(groups):
+        for b in groups[i + 1:]:
+            if frozenset((a, b)) not in lexicon.COMMON_PAIRS:
+                flags.append(f"combinatie:{a} + {b}")
+                return flags
+    return flags
 
 
 def looks_like_business(handle: str, name: str = "") -> bool:
@@ -233,7 +273,10 @@ def classify_rules(post: dict) -> dict:
 
     from .products import guess_from_text  # hier, om een kringverwijzing te voorkomen
 
+    flags = find_flags(text, hashtags, round(food, 3))
+
     return {
+        "flags": flags,
         "products": guess_from_text(text_raw, _is_food_word) if is_store or "nieuw" in text else [],
         "hashtags": hashtags,
         "mentions": mentions,

@@ -327,3 +327,86 @@ STOPWORDS = DUTCH_WORDS | {
     "keer", "eerste", "weer", "nog", "trend", "trends", "hype", "gespot", "gevonden",
     "geprobeerd", "getest", "gehaald", "gegeten", "besteld",
 }
+
+# --- Kandidaten voor een review -------------------------------------------
+
+# Zinnen waarmee een zaak een nieuwe creatie aankondigt. Dit is vaak het
+# moment vóór een hype: de zaak post het zelf, nog met weinig bereik.
+NEW_MENU_PHRASES = (
+    "nieuw op de kaart", "nieuw op het menu", "nieuw op ons menu", "nieuw bij ons",
+    "nieuw in ons assortiment", "nieuwe snack", "onze nieuwe", "eigen creatie",
+    "zelf bedacht", "huisspecialiteit", "special van de week", "weekspecial", "week special",
+    "weekendspecial", "weekend special", "alleen dit weekend", "alleen vandaag",
+    "tijdelijk verkrijgbaar", "tijdelijk op de kaart", "zolang de voorraad strekt",
+    "vanaf vandaag", "vanaf nu", "nu te bestellen", "nu verkrijgbaar", "introduceren",
+    "we introduceren", "presenteren trots", "trots op onze", "maand special", "maandspecial",
+    "limited edition", "nieuwkomer", "net nieuw", "proef nu", "kom proeven",
+)
+
+# Herkenbare snacks en 'dragers'. Een post die twee groepen combineert die
+# normaal niet samengaan, is een combinatie: het patroon achter broodje Koet
+# (döner + kaassoufflé in een pita), broodje kaassoufflé (kaassoufflé op
+# brioche) en de suikerbroodburger (burger tussen suikerbrood).
+ITEM_GROUPS: dict[str, tuple[str, ...]] = {
+    "kaassoufflé": ("kaassoufflé", "kaassouffle"),
+    "frikandel": ("frikandel", "frikandellen"),
+    "kroket": ("kroket", "kroketten"),
+    "bitterbal": ("bitterbal", "bitterballen"),
+    "friet": ("friet", "patat", "frietje", "patatje", "frites"),  # niet "fries": Fries suikerbrood
+    "kipcorn": ("kipcorn",),
+    "loempia": ("loempia",),
+    "döner": ("döner", "doner", "shoarma", "shawarma", "kebab", "gyros"),
+    "kapsalon": ("kapsalon",),
+    "burger": ("burger", "smashburger", "hamburger", "cheeseburger"),
+    "pizza": ("pizza",),
+    "taco": ("taco", "tacos", "burrito", "quesadilla"),
+    "kip": ("fried chicken", "kipnuggets", "nuggets", "wings", "tenders"),
+    "sushi": ("sushi",),
+    "ramen": ("ramen", "noedels"),
+    "softijs": ("softijs", "ijsje", "ijs ", "gelato", "milkshake"),
+    "donut": ("donut", "donuts"),
+    "wafel": ("wafel", "stroopwafel"),
+    "croissant": ("croissant", "cruffin", "crookie"),
+    "suikerbrood": ("suikerbrood",),
+    "brioche": ("brioche",),
+    "pita": ("pita", "pitabroodje", "durum", "dürüm", "wrap"),
+    "tosti": ("tosti", "tostie"),
+    "chips": ("chips",),
+    "chocolade": ("chocolade", "nutella", "pistache", "dubai"),
+    "kaas": ("cheddar", "mozzarella", "kaasvulling", "gesmolten kaas"),
+    "oliebol": ("oliebol", "oliebollen"),
+    "poffertjes": ("poffertjes",),
+    "pannenkoek": ("pannenkoek", "pancake"),
+    "bao": ("bao", "baobun"),
+}
+
+# Combinaties die gewoon zijn en dus niets bijzonders zeggen.
+COMMON_PAIRS = {
+    frozenset(p) for p in (
+        ("friet", "burger"), ("friet", "döner"), ("friet", "kroket"), ("friet", "frikandel"),
+        ("friet", "kapsalon"), ("döner", "kapsalon"), ("friet", "kip"), ("friet", "bitterbal"),
+        ("friet", "kaassoufflé"), ("friet", "kipcorn"), ("friet", "loempia"), ("döner", "pita"),
+        ("burger", "kaas"), ("pizza", "kaas"), ("taco", "kaas"), ("kroket", "bitterbal"),
+        ("friet", "kaas"), ("kroket", "frikandel"), ("frikandel", "kaassoufflé"),
+        ("kroket", "kaassoufflé"), ("chocolade", "wafel"), ("chocolade", "donut"),
+        ("softijs", "chocolade"), ("chocolade", "croissant"), ("pannenkoek", "chocolade"),
+        ("poffertjes", "chocolade"), ("oliebol", "chocolade"), ("tosti", "kaas"),
+        ("friet", "chips"), ("kip", "burger"), ("kip", "pita"), ("kip", "taco"),
+    )
+}
+
+# Amsterdamse wijken en buurten: een post met een van deze namen telt als Amsterdam.
+AMSTERDAM_AREAS = (
+    "jordaan", "de pijp", "oud-west", "oud west", "westerpark", "de baarsjes", "bos en lommer",
+    "nieuw-west", "nieuw west", "oud-zuid", "oud zuid", "rivierenbuurt", "buitenveldert",
+    "zuidas", "bijlmer", "zuidoost", "watergraafsmeer", "indische buurt", "dapperbuurt",
+    "oosterpark", "ijburg", "zeeburg", "oostelijke eilanden", "amsterdam-noord",
+    "amsterdam noord", "amsterdam-oost", "amsterdam oost", "amsterdam-west", "amsterdam west",
+    "amsterdam-zuid", "amsterdam zuid", "amsterdam centrum", "ndsm", "buikslotermeer",
+    "nieuwmarkt", "de wallen", "leidseplein", "rembrandtplein", "dam square", "kinkerstraat",
+    "albert cuyp", "albert cuypmarkt", "javastraat", "ten katemarkt", "foodhallen",
+    "overtoom", "haarlemmerstraat", "spuistraat", "utrechtsestraat", "ferdinand bolstraat",
+)
+AMSTERDAM_TAGS = ("amsterdam", "020", "mokum", "adam", "amsterdamfood", "amsterdameats",
+                  "foodspotsamsterdam", "amsterdamfoodie", "amsterdamnoord", "amsterdamoost",
+                  "amsterdamwest", "amsterdamzuid", "depijp", "jordaan")

@@ -44,9 +44,13 @@ def engagement(p) -> float:
     return (p["likes"] or 0) + 2 * (p["comments"] or 0) + 3 * (p["shares"] or 0) + (p["views"] or 0) / 50
 
 
-def _filters(platform: str | None, min_rel: float, min_nl: float, include_demo: bool):
+def _filters(platform: str | None, min_rel: float, min_nl: float, include_demo: bool,
+             city: str | None = None):
     where = ["relevance >= ?", "nl_score >= ?"]
     args: list = [min_rel, min_nl]
+    if city:
+        where.append("city = ?")
+        args.append(city)
     if platform:
         where.append("platform = ?")
         args.append(platform)
@@ -55,11 +59,97 @@ def _filters(platform: str | None, min_rel: float, min_nl: float, include_demo: 
     return where, args
 
 
-def load_posts(conn, start, end, platform=None, min_rel=0.35, min_nl=0.4, include_demo=True):
-    where, args = _filters(platform, min_rel, min_nl, include_demo)
+def load_posts(conn, start, end, platform=None, min_rel=0.35, min_nl=0.4, include_demo=True,
+               city=None):
+    where, args = _filters(platform, min_rel, min_nl, include_demo, city)
     where += ["posted_at >= ?", "posted_at < ?"]
     args += [db.iso(start), db.iso(end)]
     return conn.execute(f"SELECT * FROM posts WHERE {' AND '.join(where)}", args).fetchall()
+
+
+PHASES = {
+    "vroeg": "🌱 Vroeg",
+    "groeit": "📈 Groeit",
+    "piek": "🔥 Piek",
+    "over": "📉 Over hoogtepunt",
+}
+
+
+def phase(t: dict) -> str:
+    """In welke fase zit de hype? Zo zie je of je er nog als eerste bij bent.
+
+    vroeg   een paar makers, nog geen nieuws: hier kun jij het verschil maken
+    groeit  steeds meer makers, hooguit één nieuwsbericht
+    piek    meerdere nieuwsberichten of heel veel makers: iedereen heeft het erover
+    over    minder posts dan in de periodes ervoor
+    """
+    if t["growth_pct"] is not None and t["growth_pct"] <= -20:
+        return "over"
+    if t["news"] >= 2 or t["authors"] >= 15:
+        return "piek"
+    if t["authors"] <= 3 and t["news"] == 0:
+        return "vroeg"
+    return "groeit"
+
+
+def candidates(conn, hours: int = 72, city: str | None = None, include_demo: bool = True,
+               limit: int = 12) -> list[dict]:
+    """Posts die het waard zijn om naar te kijken: de 'kleine viral' die jij kunt uitvergroten.
+
+    Telt mee: een nieuwe creatie van een zaak (nieuw op de kaart), een
+    combinatie die je nog niet kent, en signalen dat een post het ver boven
+    normaal doet. Hoe meer van die dingen samen, hoe hoger.
+    """
+    since = db.now() - timedelta(hours=hours)
+    base = signals.baselines(conn, include_demo=include_demo)
+    scored = []
+    for p in load_posts(conn, since, db.now() + timedelta(minutes=1), None, 0.5, 0.4,
+                        include_demo, city):
+        if p["platform"] == "nieuws":
+            continue
+        flags = json.loads(p["flags"] or "[]") if "flags" in p.keys() else []
+        sig = signals.of_post(p, base)
+        reasons, score = [], 0.0
+        if "nieuw_op_kaart" in flags:
+            score += 3
+            reasons.append("Nieuw op de kaart")
+        combo = next((f.split(":", 1)[1] for f in flags if f.startswith("combinatie:")), None)
+        if combo:
+            score += 3
+            reasons.append(f"Combinatie: {combo}")
+        if sig["breakout"]:
+            score += 3
+            reasons.append("Doorbraak")
+        if (sig["views_x"] or 0) >= 2:
+            score += min(3.0, math.log2(sig["views_x"]))
+            reasons.append(f"{sig['views_x']:g}× views")
+        if (sig["shares_x"] or 0) >= 2:
+            score += 1
+            reasons.append(f"{sig['shares_x']:g}× gedeeld")
+        if sig["small_creator"] and score:
+            score += 0.5
+            reasons.append(f"kleine maker ({sig['followers']} volgers)")
+        if not score:
+            continue
+        age_h = (db.now() - db.parse_iso(p["posted_at"])).total_seconds() / 3600
+        score += 1 if age_h < 24 else 0
+        phrases = json.loads(p["phrases"] or "[]")
+        subject = combo or (phrases[0] if phrases else p["id"])
+        scored.append((score, p, reasons, sig, subject))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    # Spreiding: maximaal 2 posts per maker en per onderwerp, anders vult één
+    # hype de hele lijst.
+    out, per_author, per_subject = [], defaultdict(int), defaultdict(int)
+    for score, p, reasons, sig, subject in scored:
+        who = (p["platform"], p["author"] or p["id"])
+        if per_author[who] >= 2 or per_subject[subject] >= 2:
+            continue
+        per_author[who] += 1
+        per_subject[subject] += 1
+        out.append({"id": p["id"], "score": round(score, 2), "reasons": reasons, "signals": sig})
+        if len(out) >= limit:
+            break
+    return out
 
 
 def _words(name: str) -> list[str]:
@@ -74,7 +164,7 @@ def _broad_hashtags() -> set[str]:
     """
     words = {w for kws in lexicon.CATEGORIES.values() for w in kws if " " not in w}
     foods = {f.replace(" ", "") for f in lexicon.DUTCH_FOODS}
-    starts = set(seeds.INSTAGRAM_HASHTAGS) | set(seeds.TIKTOK_HASHTAGS)
+    starts = set(seeds.INSTAGRAM_HASHTAGS) | set(seeds.TIKTOK_HASHTAGS) | set(seeds.AMSTERDAM_HASHTAGS)
     return lexicon.GENERIC_HASHTAGS | words | foods | starts
 
 
@@ -103,20 +193,22 @@ def topics_of(p) -> list[tuple[str, str]]:
 
 
 def compute(conn, window: str = "24u", platform: str | None = None, limit: int = 40,
-            min_rel: float = 0.35, min_nl: float = 0.4, include_demo: bool = True) -> dict:
+            min_rel: float = 0.35, min_nl: float = 0.4, include_demo: bool = True,
+            city: str | None = None) -> dict:
     w = WINDOWS[window]
     now = db.now()
     span = timedelta(hours=w["hours"])
     cur_start = now - span
     base_start = cur_start - span * w["baseline"]
-    posts = load_posts(conn, base_start, now, platform, min_rel, min_nl, include_demo)
+    posts = load_posts(conn, base_start, now, platform, min_rel, min_nl, include_demo, city)
 
     n_buckets = int(w["hours"] * (w["baseline"] + 1) / w["bucket_h"])
     bucket_span = timedelta(hours=w["bucket_h"])
 
     stats = defaultdict(lambda: {"cur": 0, "base": 0, "eng": 0.0, "authors": set(),
                                  "base_authors": set(), "platforms": set(),
-                                 "series": [0] * n_buckets, "posts": [], "sigs": []})
+                                 "series": [0] * n_buckets, "posts": [], "sigs": [],
+                                 "news": 0})
     base_sig = signals.baselines(conn, include_demo=include_demo)
     cur_posts = 0
     cur_eng = 0.0
@@ -147,6 +239,7 @@ def compute(conn, window: str = "24u", platform: str | None = None, limit: int =
                 s["platforms"].add(p["platform"])
                 s["posts"].append((eng, p["id"]))
                 s["sigs"].append(sig)
+                s["news"] += p["platform"] == "nieuws"
             else:
                 s["base"] += 1
                 s["base_authors"].add(author)
@@ -184,7 +277,9 @@ def compute(conn, window: str = "24u", platform: str | None = None, limit: int =
             "series": s["series"],
             "score": round(score, 3),
             "top_posts": [pid for _, pid in sorted(s["posts"], reverse=True)[:3]],
+            "news": s["news"],
         })
+        rows[-1]["phase"] = phase(rows[-1])
     # Woordcombinaties die al in een product-, zaak- of merknaam zitten ("kapsalon
     # chips" bij "Smaakmakers Kapsalon Chips"), of uit precies dezelfde posts komen
     # ("birria taco", "taco gespot"): houd er één.
@@ -226,6 +321,7 @@ def compute(conn, window: str = "24u", platform: str | None = None, limit: int =
         "history_ok": history_h >= needed_h,
         "history_hours": round(history_h, 1),
         "needed_hours": needed_h,
+        "phases": PHASES,
         "totals": {"posts": cur_posts, "engagement": round(cur_eng), "makers": len(cur_authors),
                    "breakouts": len(breakout_posts)},
         "breakouts": _one_per_maker(conn, breakout_posts),
@@ -261,7 +357,7 @@ def _one_per_maker(conn, breakout_posts: list, limit: int = 12) -> list[dict]:
 
 
 def volume(conn, window: str, platform: str | None = None, min_rel=0.35, min_nl=0.4,
-           include_demo=True) -> dict:
+           include_demo=True, city: str | None = None) -> dict:
     """Aantal relevante posts per platform per tijdsblok (voor de lijngrafiek)."""
     w = WINDOWS[window]
     now = db.now()
@@ -270,7 +366,7 @@ def volume(conn, window: str, platform: str | None = None, min_rel=0.35, min_nl=
     n = int(w["hours"] * (w["baseline"] + 1) / w["bucket_h"])
     bucket = timedelta(hours=w["bucket_h"])
     series = defaultdict(lambda: [0] * n)
-    for p in load_posts(conn, start, now, platform, min_rel, min_nl, include_demo):
+    for p in load_posts(conn, start, now, platform, min_rel, min_nl, include_demo, city):
         idx = min(n - 1, max(0, int((db.parse_iso(p["posted_at"]) - start) / bucket)))
         series[p["platform"]][idx] += 1
     labels = [db.iso(start + bucket * i) for i in range(n)]
