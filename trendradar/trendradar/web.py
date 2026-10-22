@@ -9,7 +9,7 @@ from datetime import timedelta
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
-from . import (budget, collector, config, db, lexicon, products, signals, snackspert,
+from . import (budget, collector, config, db, lexicon, products, signals, snackspert, taste,
                trends)
 from .sources import apify, meta_graph
 
@@ -530,6 +530,7 @@ def api_vandaag():
             "snack_news": _news(conn, "snack", a["include_demo"], days=3, limit=6),
             "amsterdam": amsterdam,
             "watchlist": lijst,
+            "learned": taste.summary(taste.profile(conn)),
         })
 
 

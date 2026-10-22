@@ -14,7 +14,7 @@ import json
 from collections import defaultdict
 from datetime import timedelta
 
-from . import db, lexicon, signals, trends
+from . import db, lexicon, signals, taste, trends
 from .classify import _is_food_word, norm
 from .classify import looks_like_business
 
@@ -126,6 +126,7 @@ def candidates(conn, days: int = 7) -> list[dict]:
                         "score": round(min(15, n_auth * bonus), 2),
                         "reason": f"genoemd in {d['posts']} posts door {n_auth} makers"})
     out += breakout_candidates(conn, known)
+    out += list_searches(conn, known)
     out += topic_searches(conn, known)
     # Eén ontdekking per (platform, soort, waarde), hoogste score wint.
     best: dict = {}
@@ -189,6 +190,37 @@ def topic_searches(conn, known: set, limit: int = 3) -> list[dict]:
         out.append({"platform": "tiktok", "kind": "zoekterm", "value": query,
                     "score": 18 + min(5, t["authors"]),
                     "reason": f"stijgend onderwerp ({t['authors']} makers): zoek meer video's"})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def list_searches(conn, known: set, limit: int = 3) -> list[dict]:
+    """Wat je in Mijn lijst bewaart, wordt een bron: meer van wat jij goed vindt.
+
+    Een bewaarde 'loaded kipcorn' wordt een TikTok-zoekopdracht, een bewaarde
+    post van een kleine maker maakt die maker een bron. Wat je op 'afgevallen'
+    zet, telt tegen en levert dus niets op.
+    """
+    out = []
+    ranked = sorted(taste.profile(conn).items(), key=lambda kv: kv[1], reverse=True)
+    for feature, weight in ranked:
+        if weight <= 0:
+            break
+        kind, _, value = feature.partition(":")
+        src = None
+        if kind in ("zin", "twist") or (kind == "zaak" and " " in value):
+            src = ("tiktok", "zoekterm", value)
+        elif kind == "combinatie":
+            src = ("tiktok", "zoekterm", value.replace(" + ", " "))
+        elif kind == "maker":
+            platform, _, author = value.partition(":")
+            if platform in ("instagram", "tiktok", "facebook"):
+                src = (platform, "account", author)
+        if not src or src in known or len(src[2]) < 4:
+            continue
+        out.append({"platform": src[0], "kind": src[1], "value": src[2], "score": 25 + min(5, weight),
+                    "reason": f"uit Mijn lijst: {taste.label(feature)}"})
         if len(out) >= limit:
             break
     return out

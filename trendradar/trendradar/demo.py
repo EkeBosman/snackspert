@@ -114,6 +114,13 @@ TRENDS = [
       "Rij voor de deur bij {zaak} voor die nieuwe tosti met kaassoufflé #amsterdamfood"],
      ["souffletosti", "amsterdamfood"],
      lambda h: 1.2 * math.exp(-h / 15) if h < 36 else 0.0, 7),
+    # Twist op een bekende snack.
+    ("loaded kipcorn",
+     ["Loaded kipcorn bij {zaak}! Kipcorn vol met cheddar, jalapeños en crispy uitjes",
+      "Eerste keer loaded kipcorn geprobeerd, dit is echt next level #loadedkipcorn",
+      "Wie kent de loaded kipcorn al? Gehaald bij {zaak}, aanrader"],
+     ["loadedkipcorn", "snackbar"],
+     lambda h: 0.8 * math.exp(-h / 18) if h < 30 else 0.0, 1),
 ]
 
 DEMO_PRODUCTS = [

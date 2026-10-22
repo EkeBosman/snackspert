@@ -282,9 +282,11 @@
     const sig = p.signals && !p.reasons ? sigChips(p.signals, { reach: true }) : "";
     const flags = (p.flags || []).map(f => f === "nieuw_op_kaart"
       ? `<span class="sig hot">🆕 Nieuw op de kaart</span>`
-      : f.startsWith("combinatie:") ? `<span class="sig hot">🧪 ${esc(f.slice(11))}</span>` : "").join("");
-    const reasons = p.reasons ? `<div class="reasons">${p.reasons.filter(r => !r.startsWith("Combinatie") && r !== "Nieuw op de kaart")
-      .map(r => `<span class="reason">${esc(r)}</span>`).join("")}</div>` : "";
+      : f.startsWith("combinatie:") ? `<span class="sig hot">🧪 ${esc(f.slice(11))}</span>`
+      : f.startsWith("twist:") ? `<span class="sig hot">🔄 ${esc(f.slice(6))}</span>` : "").join("");
+    const reasons = p.reasons ? `<div class="reasons">${p.reasons
+      .filter(r => !r.startsWith("Combinatie") && !r.startsWith("Twist") && r !== "Nieuw op de kaart")
+      .map(r => `<span class="reason ${r.startsWith("Lijkt op") ? "taste" : ""}">${r.startsWith("Lijkt op") ? "⭐ " : ""}${esc(r)}</span>`).join("")}</div>` : "";
     const title = (p.summary || p.text || "").replace(/\s+/g, " ").slice(0, 90);
     const tags = [...(p.categories || []), ...(p.brands || []).slice(0, 2)].slice(0, 4)
       .map(c => `<span class="badge">${esc(c)}</span>`).join("");
@@ -618,6 +620,11 @@
     const d = await api("/api/vandaag");
     $("#v-candidates").innerHTML = d.candidates.length ? d.candidates.map(postCard).join("")
       : '<p class="muted">Nog geen kandidaten. Na een paar ophaalrondes verschijnen hier posts met een nieuwe creatie of een kleine viral.</p>';
+    const SOORT = { zin: "zin", twist: "twist", combinatie: "combinatie", snack: "snack", zaak: "zaak",
+      maker: "maker", label: "soort vondst" };
+    $("#v-learned").innerHTML = d.learned.length ? d.learned.map(l =>
+      `<span class="sig" title="${esc(SOORT[l.soort] || l.soort)}, ${l.keer}× in je lijst">${esc(l.kenmerk)}</span>`).join("")
+      : '<span class="meta">Nog niets bewaard. Klik op ☆ bij posts die je interessant vindt, dan leert de tool wat jij zoekt.</span>';
     $("#v-early").innerHTML = d.early_topics.length ? d.early_topics.map(t =>
       `<li><div class="row"><button class="linkish" data-topic="${esc(t.type)}|${esc(t.name)}">${esc(t.name)}</button>
        <span>${phaseBadge(t.phase)} ${starBtn("onderwerp", t.type + "|" + t.name, t.name)}</span></div>
