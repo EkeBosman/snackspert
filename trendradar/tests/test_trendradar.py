@@ -181,12 +181,12 @@ def test_trend_detects_rising_topic(conn):
                  (db.iso(db.now() - timedelta(days=10)),))
     r = trends.compute(conn, "24u")
     names = [t["name"] for t in r["topics"]]
-    assert "#pistachekroket" in names
-    top = next(t for t in r["topics"] if t["name"] == "#pistachekroket")
+    assert "pistache kroket" in names
+    top = next(t for t in r["topics"] if t["name"] == "pistache kroket")
     assert top["new"] is True and top["authors"] == 6
-    assert "#kroket" not in names  # brede zoekhashtag: een net, geen trend
+    # Hashtags zijn hulpmiddel om te zoeken, geen onderwerp.
+    assert not any(t["name"].startswith("#") for t in r["topics"])
     assert r["history_ok"]
-    assert not any(t["type"] == "zin" and t["name"] == "pistache kroket" for t in r["topics"])
 
 
 def test_single_author_spam_is_not_a_trend(conn):
@@ -345,7 +345,7 @@ def test_trends_show_single_viral_creator(conn):
                          author="eenling")], None)
     r = trends.compute(conn, "24u")
     names = [t["name"] for t in r["topics"]]
-    assert "#bitterbalijs" in names
+    assert "bitterbal softijs" in names or "bitterbalijs" in names
     assert r["totals"]["breakouts"] >= 1 and r["breakouts"][0]["signals"]["followers"] == 800
 
 
@@ -603,3 +603,30 @@ def test_bad_discovered_sources_are_cleaned_up(conn):
     collector.reclassify_if_needed()
     status = dict(conn.execute("SELECT value, status FROM sources").fetchall())
     assert status == {"kapper": "afgewezen", "birriatacos": "actief", "tanghulu": "actief"}
+
+
+def test_indonesian_and_turkish_posts_are_not_dutch():
+    def nl(text):
+        return classify.classify_rules({"text": text, "platform": "instagram"})["nl_score"]
+    assert nl("Enak banget kroket ini, harga murah dan rasa mantap! #snackbar") < 0.4
+    assert nl("Çok lezzetli döner, afiyet olsun! #kapsalon") < 0.4
+    # Nederlandse post over Indisch eten blijft Nederlands.
+    assert nl("Heerlijke nasi en saté gehaald bij de toko, echt een aanrader") >= 0.4
+
+
+def test_new_compound_snack_words_are_topics(conn):
+    assert classify.new_compounds(["frikandelijs", "frikandel", "snackbarlucy", "foodspotsamsterdam",
+                                   "kapsalonchips", "lekker"]) == ["frikandelijs", "kapsalonchips"]
+    store_posts(conn, [post(f"fi{i}", "Moet je proberen! #frikandelijs", hours_ago=1 + i)
+                       for i in range(3)], None)
+    r = trends.compute(conn, "24u")
+    word = next(t for t in r["topics"] if t["name"] == "frikandelijs")
+    assert word["type"] == "woord" and word["type_label"] == "Nieuw woord"
+
+
+def test_new_word_that_is_part_of_a_product_is_not_repeated(conn):
+    store_posts(conn, [post(f"kc{i}", "Nieuw bij AH: Kapsalon Chips! #kapsalonchips", hours_ago=1 + i,
+                            products=[{"naam": "Smaakmakers Kapsalon Chips", "merk": "", "winkel": "Albert Heijn",
+                                       "nieuw": True}]) for i in range(3)], None)
+    names = [t["name"] for t in trends.compute(conn, "24u")["topics"]]
+    assert "Smaakmakers Kapsalon Chips" in names and "kapsalonchips" not in names

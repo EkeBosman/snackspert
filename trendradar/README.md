@@ -8,7 +8,7 @@ Zonder sleutels start hij in **demomodus**, met verzonnen voorbeelddata. Zo kun 
 
 | Tabblad | Wat je ziet |
 |---|---|
-| **Trends** | De stijgers: hashtags, gerechten, producten, merken, zaken, steden en woordcombinaties, met groei ten opzichte van de periodes ervoor, hoeveel verschillende makers het noemen en wat er opvalt (views, likes of doorsturen ver boven normaal). Daarnaast **doorbraken** (onbekende makers die viraal gaan), nieuw opgedoken onderwerpen, posts die nu hard gaan, het volume per platform en de verdeling over categorieën. Klik op een onderwerp voor het verloop en de populairste posts. |
+| **Trends** | De stijgers: producten, zaken, merken, woordcombinaties (zoals "pistache kroket"), gerechten en steden, met groei ten opzichte van de periodes ervoor, hoeveel verschillende makers het noemen en wat er opvalt (views, likes of doorsturen ver boven normaal). Daarnaast **doorbraken** (onbekende makers die viraal gaan), nieuw opgedoken onderwerpen, posts die nu hard gaan, het volume per platform en de verdeling over categorieën. Klik op een onderwerp voor het verloop en de populairste posts. |
 | **Posts** | Alle relevante posts, met zoeken, filteren en sorteren. |
 | **Supermarkt** | Nieuwe producten bij tien supermarkten (AH, Jumbo, Lidl, Plus, Dirk en meer), met welke bronnen het bevestigen. **Vroege signalen**: producten waar makers al over posten maar die nog niet in de winkeldata staan. Plus de meest besproken producten en het nieuws. |
 | **Zaken & steden** | Eetzaken en foodtrucks die genoemd worden, met een **reviewkandidaat**-label als ze nog niet op snackspert.nl staan. Plus een kaart met steden. |
@@ -129,6 +129,8 @@ Een onderwerp is trending als het in de gekozen periode vaker voorkomt dan gemid
 score = log2(groei) × √(aantal verschillende makers) + klein gewicht voor interactie
 ```
 
+**Hashtags zijn geen trend.** Ze zijn het hulpmiddel om posts en accounts te vinden. Het onderwerp is wat ín de posts staat: een product, een zaak of een woordcombinatie. In het detailvenster van een onderwerp zie je wel welke hashtags erbij gebruikt worden, om verder te zoeken.
+
 Door het aantal makers mee te wegen telt één account dat tien keer hetzelfde post niet als trend. De kolom **Makers** laat zien hoeveel verschillende accounts een onderwerp noemen, met tussen haakjes hoeveel meer dan normaal.
 
 ### Opvallend: views, likes en doorsturen
@@ -144,6 +146,8 @@ Per post vergelijkt de tool de cijfers met een gewone post **van dezelfde leefti
 | 🚀 doorbraak | een kleine maker (onder 20.000 volgers) die veel meer mensen bereikt dan het aantal volgers, of een post met 10× zoveel views als normaal |
 
 Deze signalen tellen mee in de trendscore. Een onderwerp met één **doorbraak** komt ook in de lijst als maar één maker het noemt. Dat is precies de onbekende maker die als eerste viraal gaat met een snack.
+
+**Taal.** Alleen Nederlandstalige posts tellen mee. Bevat een post meer veelgebruikte woorden uit een andere taal (Engels, Spaans, Portugees, Duits, Frans, Italiaans, Indonesisch, Tagalog, Turks) dan Nederlandse woorden, dan valt hij af. Nederlandse posts over Indisch eten (nasi, saté) blijven gewoon Nederlands.
 
 De kaart **Doorbraken** op het Trends-tabblad toont die posts per maker. Bij Posts kun je sorteren op **Snelst groeiend**. Merk op dat "Nu" in de praktijk betekent: sinds de laatste ophaalronde. De tool haalt elke 6 uur op, en dat interval is instelbaar.
 

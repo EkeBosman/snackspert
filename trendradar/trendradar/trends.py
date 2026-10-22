@@ -21,6 +21,7 @@ from collections import defaultdict
 from datetime import timedelta
 
 from . import db, lexicon, seeds, signals
+from .classify import norm
 
 WINDOWS = {
     "nu": {"hours": 6, "baseline": 4, "bucket_h": 1, "label": "Nu (6 uur)"},
@@ -30,11 +31,12 @@ WINDOWS = {
 }
 
 TOPIC_TYPES = {
-    "hashtag": "Hashtag", "categorie": "Gerecht", "merk": "Merk/winkel",
+    "categorie": "Gerecht", "merk": "Merk/winkel",
     "product": "Product", "zaak": "Zaak", "stad": "Stad", "zin": "Woordcombinatie",
+    "woord": "Nieuw woord",
 }
 
-MIN_AUTHORS = {"hashtag": 2, "zin": 3, "product": 1, "merk": 2, "zaak": 1,
+MIN_AUTHORS = {"zin": 3, "woord": 2, "product": 1, "merk": 2, "zaak": 1,
                "categorie": 1, "stad": 2}
 
 
@@ -60,12 +62,15 @@ def load_posts(conn, start, end, platform=None, min_rel=0.35, min_nl=0.4, includ
     return conn.execute(f"SELECT * FROM posts WHERE {' AND '.join(where)}", args).fetchall()
 
 
-def _broad_hashtags() -> set[str]:
-    """Hashtags die een zoeknet zijn, geen trend.
+def _words(name: str) -> list[str]:
+    return norm(name.lstrip("@").replace("_", " ")).split()
 
-    #snackbar of #frikandel is altijd populair; dat zegt niets. Ze dienen om
-    posts te vinden, en wát er in die posts staat (een product, een zaak, een
-    specifieke hashtag als #frikandelijs) kan wél een trend zijn.
+
+def _broad_hashtags() -> set[str]:
+    """Brede hashtags (#snackbar, #frikandel): een zoeknet, nooit een nieuwe bron.
+
+    Hashtags zijn in de trendradar geen onderwerp. Deze lijst gebruikt
+    discovery.py om te bepalen welke ontdekte hashtags het volgen waard zijn.
     """
     words = {w for kws in lexicon.CATEGORIES.values() for w in kws if " " not in w}
     foods = {f.replace(" ", "") for f in lexicon.DUTCH_FOODS}
@@ -77,10 +82,9 @@ BROAD_HASHTAGS = _broad_hashtags()
 
 
 def topics_of(p) -> list[tuple[str, str]]:
+    # Hashtags zijn geen onderwerp: ze dienen om posts en accounts te vinden.
+    # Wat in de post staat (product, zaak, woordcombinatie) is het onderwerp.
     out = []
-    for t in json.loads(p["hashtags"] or "[]"):
-        if t not in BROAD_HASHTAGS and len(t) >= 3:
-            out.append(("hashtag", "#" + t))
     for c in json.loads(p["categories"] or "[]"):
         out.append(("categorie", c))
     for b in json.loads(p["brands"] or "[]"):
@@ -94,7 +98,7 @@ def topics_of(p) -> list[tuple[str, str]]:
     if p["city"]:
         out.append(("stad", p["city"]))
     for z in json.loads(p["phrases"] or "[]"):
-        out.append(("zin", z))
+        out.append(("zin" if " " in z else "woord", z))
     return list(dict.fromkeys(out))
 
 
@@ -147,7 +151,6 @@ def compute(conn, window: str = "24u", platform: str | None = None, limit: int =
                 s["base"] += 1
                 s["base_authors"].add(author)
 
-    first_seen = _first_seen(conn, include_demo)
     rows = []
     for (kind, name), s in stats.items():
         n_auth = len(s["authors"])
@@ -165,7 +168,6 @@ def compute(conn, window: str = "24u", platform: str | None = None, limit: int =
                  + 0.6 * math.log2(max(1.0, summary["views_x"] or 1))
                  + 0.4 * math.log2(max(1.0, summary["shares_x"] or 1))
                  + min(3, summary["breakouts"]))
-        fs = first_seen.get((kind, name))
         rows.append({
             "type": kind,
             "type_label": TOPIC_TYPES[kind],
@@ -173,7 +175,7 @@ def compute(conn, window: str = "24u", platform: str | None = None, limit: int =
             "posts": s["cur"],
             "baseline": round(base_avg, 2),
             "growth_pct": None if base_avg == 0 else round((s["cur"] / base_avg - 1) * 100),
-            "new": s["base"] == 0 and (fs is None or fs >= db.iso(cur_start)),
+            "new": s["base"] == 0,
             "authors": n_auth,
             "authors_baseline": round(base_auth, 1),
             "engagement": round(s["eng"]),
@@ -183,18 +185,28 @@ def compute(conn, window: str = "24u", platform: str | None = None, limit: int =
             "score": round(score, 3),
             "top_posts": [pid for _, pid in sorted(s["posts"], reverse=True)[:3]],
         })
-    # "pistache kroket" en "#pistachekroket" zijn hetzelfde onderwerp: toon het één keer.
-    tag_names = {r["name"] for r in rows if r["type"] == "hashtag"}
-    rows = [r for r in rows if not (r["type"] == "zin" and "#" + r["name"].replace(" ", "") in tag_names)]
-    # Woordcombinaties uit precies dezelfde posts ("birria taco", "taco gespot"): houd er één.
+    # Woordcombinaties die al in een product-, zaak- of merknaam zitten ("kapsalon
+    # chips" bij "Smaakmakers Kapsalon Chips"), of uit precies dezelfde posts komen
+    # ("birria taco", "taco gespot"): houd er één.
+    named = [set(_words(r["name"])) for r in rows if r["type"] in ("product", "zaak", "merk")]
     seen_sets = set()
     kept = []
-    for r in sorted(rows, key=lambda r: r["score"], reverse=True):
-        if r["type"] == "zin":
-            fingerprint = (r["posts"], r["authors"], r["engagement"])
-            if fingerprint in seen_sets:
+    # Bij gelijke score wint de leesbare woordcombinatie ('pistache kroket' boven 'pistachekroket').
+    for r in sorted(rows, key=lambda r: (r["score"], r["type"] == "zin"), reverse=True):
+        if r["type"] in ("zin", "woord"):
+            if any(set(_words(r["name"])) <= n for n in named):
                 continue
-            seen_sets.add(fingerprint)
+            # 'kapsalonchips' hoort bij het product 'Smaakmakers Kapsalon Chips'.
+            if r["type"] == "woord" and any(r["name"] in "".join(_words(p["name"])) for p in rows
+                                            if p["type"] in ("product", "zaak", "merk")):
+                continue
+            # 'birria tacos', 'birria taco' en 'birriataco' zijn hetzelfde.
+            stem = "".join(w[:-1] if len(w) > 4 and w.endswith("s") else w for w in _words(r["name"]))
+            stem = stem[:-1] if stem.endswith("s") else stem
+            fingerprint = (r["posts"], r["authors"], r["engagement"])
+            if fingerprint in seen_sets or stem in seen_sets:
+                continue
+            seen_sets.update({fingerprint, stem})
         kept.append(r)
     rows = kept
 
@@ -246,21 +258,6 @@ def _one_per_maker(conn, breakout_posts: list, limit: int = 12) -> list[dict]:
         item["count"] = counts[who]
         out.append(item)
     return out[:limit]
-
-
-def _first_seen(conn, include_demo: bool) -> dict:
-    """Wanneer een hashtag voor het eerst in de database opdook (goedkope benadering)."""
-    cache = {}
-    q = "SELECT hashtags, MIN(posted_at) AS f FROM posts"
-    if not include_demo:
-        q += " WHERE demo = 0"
-    q += " GROUP BY hashtags"
-    for r in conn.execute(q):
-        for t in json.loads(r["hashtags"] or "[]"):
-            key = ("hashtag", "#" + t)
-            if key not in cache or r["f"] < cache[key]:
-                cache[key] = r["f"]
-    return cache
 
 
 def volume(conn, window: str, platform: str | None = None, min_rel=0.35, min_nl=0.4,

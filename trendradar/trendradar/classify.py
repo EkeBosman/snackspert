@@ -91,8 +91,10 @@ def find_city(text: str, hashtags: list[str], location: str | None) -> str | Non
 
 # Woorden die duidelijk over eten gaan; een woordcombinatie moet er minstens
 # één bevatten, anders komen zinnetjes als "iedereen praat" in de trends.
-_FOOD_WORDS = {w for words in lexicon.CATEGORIES.values() for w, weight in words.items()
-               if weight >= 0.5 and " " not in w}
+# 'Review', 'foodtruck' of 'supermarkt' zijn context, geen eten: die tellen hier niet mee.
+_CONTEXT_CATEGORIES = {"Streetfood & events", "Supermarkt & nieuwe producten"}
+_FOOD_WORDS = {w for cat, words in lexicon.CATEGORIES.items() if cat not in _CONTEXT_CATEGORIES
+               for w, weight in words.items() if weight >= 0.5 and " " not in w}
 _FOOD_WORDS |= {norm(b) for b in lexicon.BRANDS if " " not in norm(b)}
 _FOOD_STEMS = {w for w in _FOOD_WORDS if len(w) >= 5}
 
@@ -101,13 +103,39 @@ def _is_food_word(word: str) -> bool:
     return word in _FOOD_WORDS or any(stem in word for stem in _FOOD_STEMS)
 
 
-def key_phrases(text: str, limit: int = 8) -> list[str]:
+_KNOWN_WORDS = ({w for words in lexicon.CATEGORIES.values() for w in words}
+                | lexicon.DUTCH_FOODS | lexicon.GENERIC_HASHTAGS)
+_PLACE_WORDS = ("snackbar", "cafetaria", "frituur", "friettent", "foodtruck", "streetfood",
+                "foodspot", "food")
+
+
+def new_compounds(words: list[str]) -> list[str]:
+    """Nieuwe samengestelde snackwoorden, zoals 'frikandelijs' of 'pistachekroket'.
+
+    Een woord dat een bekende snack bevat maar zelf niet in de woordenlijst
+    staat, is vaak precies de nieuwe trend. Ze komen ook uit hashtags, omdat
+    makers zo'n nieuwe naam vaak alleen als hashtag schrijven; het onderwerp is
+    dan het woord, niet de hashtag.
+    """
+    out = []
+    for w in words:
+        if len(w) < 8 or not w.isalpha() or w in _KNOWN_WORDS or w in out:
+            continue
+        if any(p in w for p in _PLACE_WORDS):
+            continue
+        if any(stem in w and stem != w for stem in _FOOD_STEMS):
+            out.append(w)
+    return out
+
+
+def key_phrases(text: str, limit: int = 8, hashtags: list[str] | None = None) -> list[str]:
     """Tweewoordcombinaties zonder stopwoorden: zo duiken nieuwe dingen als
-    'dubai chocolade' op zonder dat iemand ze vooraf hoeft te kennen."""
+    'dubai chocolade' op zonder dat iemand ze vooraf hoeft te kennen. Plus
+    nieuwe samengestelde snackwoorden (zie new_compounds)."""
     clean = URL_RE.sub(" ", text)
     clean = HASHTAG_RE.sub(" ", clean)
     clean = MENTION_RE.sub(" ", clean).lower()
-    phrases: list[str] = []
+    phrases: list[str] = new_compounds(TOKEN_RE.findall(clean) + list(hashtags or []))[:3]
     for sentence in re.split(r"[.!?\n,;:()\"|]+", clean):
         words = [w.strip("'’-") for w in TOKEN_RE.findall(sentence)]
         for a, b in zip(words, words[1:]):
@@ -214,7 +242,7 @@ def classify_rules(post: dict) -> dict:
         "categories": sorted(categories, key=categories.get, reverse=True)[:3],
         "brands": brands[:8],
         "places": list(dict.fromkeys(places))[:5],
-        "phrases": key_phrases(text_raw),
+        "phrases": key_phrases(text_raw, hashtags=hashtags),
         "city": city,
     }
 

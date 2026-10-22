@@ -16,7 +16,7 @@ from .sources import apify, meta_graph
 app = Flask(__name__, static_folder="static", static_url_path="/static")
 
 TOPIC_COLUMNS = {"hashtag": "hashtags", "categorie": "categories", "merk": "brands",
-                 "zaak": "places", "zin": "phrases"}
+                 "zaak": "places", "zin": "phrases", "woord": "phrases"}
 
 
 def _args():

@@ -11,8 +11,8 @@
     nieuws: { name: "Nieuws", color: "var(--s-nieuws)" },
   };
   const TYPE_CHIPS = [
-    ["", "Alles"], ["hashtag", "Hashtags"], ["categorie", "Gerechten"], ["product", "Producten"],
-    ["merk", "Merken & winkels"], ["zaak", "Zaken"], ["zin", "Woordcombinaties"], ["stad", "Steden"],
+    ["", "Alles"], ["categorie", "Gerechten"], ["product", "Producten"],
+    ["merk", "Merken & winkels"], ["zaak", "Zaken"], ["woord", "Nieuwe woorden"], ["zin", "Woordcombinaties"], ["stad", "Steden"],
   ];
 
   const state = {

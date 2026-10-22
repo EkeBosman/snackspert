@@ -196,6 +196,7 @@ DUTCH_FOODS = {
 }
 
 # Woorden die vaak voorkomen in andere talen en (bijna) nooit in het Nederlands.
+# Gerechten als nasi, bami en saté staan er niet in: die zijn ook Nederlands.
 # Staan er twee of meer in een post, en meer dan Nederlandse woorden, dan is de
 # post niet Nederlandstalig. Woorden die in beide talen bestaan (de, en, is, in,
 # die, van) staan er bewust niet in.
@@ -215,6 +216,13 @@ FOREIGN_WORDS: dict[str, set[str]] = {
     "fr": {"le", "les", "et", "est", "avec", "pour", "une", "du", "des", "très", "nous",
            "vous", "sur", "dans", "qui", "pas", "plus", "chez", "c'est"},
     "it": {"il", "della", "per", "che", "molto", "sono", "questo", "anche", "alla", "dei"},
+    "id": {"yang", "dan", "di", "ini", "itu", "dengan", "untuk", "tidak", "ada", "aku",
+           "kamu", "enak", "banget", "sudah", "juga", "saja", "lagi", "makan", "sama", "dari",
+           "ke", "karena", "bisa", "mau", "kita", "kami", "akan", "sangat", "murah", "harga",
+           "beli", "pesan", "langsung", "rasa", "sekali", "jangan", "lebih", "seperti", "atau"},
+    "tl": {"ang", "ng", "sa", "mga", "po", "ako", "ito", "masarap", "naman", "lang", "ko"},
+    "tr": {"ve", "bir", "bu", "çok", "için", "ile", "daha", "ama", "gibi", "lezzetli",
+           "afiyet", "olsun", "sipariş", "değil", "var", "yok"},
 }
 
 # Meer Nederlandse plaatsen, alleen om posts als Nederlands te herkennen
@@ -316,4 +324,6 @@ STOPWORDS = DUTCH_WORDS | {
     "kom", "komt", "komen", "doe", "doet", "doen", "zie", "ziet", "zien",
     "link", "bio", "volg", "volgen", "tag", "check", "klik", "dm", "story",
     "post", "video", "deel", "delen", "insta", "account", "nr", "euro", "€",
+    "keer", "eerste", "weer", "nog", "trend", "trends", "hype", "gespot", "gevonden",
+    "geprobeerd", "getest", "gehaald", "gegeten", "besteld",
 }

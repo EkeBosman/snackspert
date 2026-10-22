@@ -33,6 +33,11 @@ _STORES = {norm(h).replace(" ", "") for hints in lexicon.SUPERMARKETS.values() f
            if len(h.strip("# ")) > 3} | {norm(s).replace(" ", "") for s in lexicon.SUPERMARKETS}
 
 
+# Geen eten, maar voor Snackspert wel precies goed (#foodtruckfestival, #streetfoodrotterdam).
+STREETFOOD_STEMS = ("foodtruck", "streetfood", "foodhall", "foodmarkt", "foodmarket",
+                    "foodfestival", "eetfestival", "foodspot", "snackbar", "frituur", "cafetaria")
+
+
 def acceptable_hashtag(tag: str, viral: bool = False) -> bool:
     """Mag deze hashtag een bron worden?
 
@@ -48,7 +53,7 @@ def acceptable_hashtag(tag: str, viral: bool = False) -> bool:
         return False
     if any(place in tag for place in _PLACES if len(place) >= 6) and not _is_food_word(tag):
         return False
-    return viral or _is_food_word(tag)
+    return viral or _is_food_word(tag) or any(stem in tag for stem in STREETFOOD_STEMS)
 
 
 def prune_bad_hashtags(conn) -> list[str]:
