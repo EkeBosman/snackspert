@@ -156,6 +156,67 @@ CREATE TABLE IF NOT EXISTS watchlist (
     UNIQUE (kind, ref)
 );
 
+-- Hartje of duim omlaag bij een post: niet bewaren, wel leren wat je waardeert.
+CREATE TABLE IF NOT EXISTS feedback (
+    post_id     TEXT PRIMARY KEY,
+    value       INTEGER NOT NULL,       -- 1 = ♥, -1 = 👎
+    at          TEXT NOT NULL
+);
+
+-- Je eigen Instagram-posts, uit je Excel-overzicht.
+CREATE TABLE IF NOT EXISTS own_posts (
+    id          TEXT PRIMARY KEY,       -- link, of maand + begin caption
+    date        TEXT,
+    month       TEXT,
+    type        TEXT,
+    caption     TEXT,
+    url         TEXT,
+    views       INTEGER,
+    reach       INTEGER,
+    likes       INTEGER,
+    comments    INTEGER,
+    shares      INTEGER,
+    saves       INTEGER,
+    followers   INTEGER,
+    format      TEXT,
+    channel     TEXT,
+    location    TEXT,
+    recognition TEXT,
+    classified  TEXT,
+    followers_count INTEGER DEFAULT 1,  -- 0 bij collabs: volgers zijn dan onbetrouwbaar
+    note        TEXT,
+    imported_at TEXT NOT NULL
+);
+
+-- Je tips: zaken die je wilt bezoeken, met specialiteit en lijst (Burgers, Amsterdam, ...).
+CREATE TABLE IF NOT EXISTS spots (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    place       TEXT NOT NULL DEFAULT '',
+    specialty   TEXT DEFAULT '',
+    region      TEXT DEFAULT '',
+    lists       TEXT DEFAULT '[]',
+    status      TEXT NOT NULL DEFAULT 'te proberen',
+    note        TEXT DEFAULT '',
+    origin      TEXT NOT NULL DEFAULT 'import',   -- import | handmatig
+    added_at    TEXT NOT NULL,
+    updated_at  TEXT NOT NULL,
+    UNIQUE (name, place)
+);
+
+CREATE TABLE IF NOT EXISTS routes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    name        TEXT NOT NULL,
+    region      TEXT DEFAULT '',
+    stops       TEXT DEFAULT '[]',
+    km          TEXT DEFAULT '',
+    duration    TEXT DEFAULT '',
+    note        TEXT DEFAULT '',
+    status      TEXT NOT NULL DEFAULT 'te proberen',
+    origin      TEXT NOT NULL DEFAULT 'import',
+    added_at    TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL
@@ -275,7 +336,7 @@ def set_state(conn, key: str, value) -> None:
 def row_to_dict(row: sqlite3.Row) -> dict:
     out = dict(row)
     for key in ("hashtags", "mentions", "categories", "brands", "products",
-                "places", "phrases", "log", "flags"):
+                "places", "phrases", "log", "flags", "lists", "stops"):
         if key in out and isinstance(out[key], str):
             try:
                 out[key] = json.loads(out[key])

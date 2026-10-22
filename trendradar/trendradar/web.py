@@ -9,11 +9,12 @@ from datetime import timedelta
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
-from . import (budget, collector, config, db, lexicon, products, signals, snackspert, taste,
-               trends)
+from . import (budget, collector, config, db, imports, lexicon, ownposts, products, signals,
+               snackspert, spots, taste, trends)
 from .sources import apify, meta_graph
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
+app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024  # Excel-bestanden tot 25 MB
 
 TOPIC_COLUMNS = {"hashtag": "hashtags", "categorie": "categories", "merk": "brands",
                  "zaak": "places", "zin": "phrases", "woord": "phrases"}
@@ -259,9 +260,24 @@ def api_zaken():
         hit = snackspert.match(name, reviewed)
         places.append({**t, "display": name.lstrip("@"), "city": city,
                        "reviewed": {"name": hit["name"], "url": hit["url"]} if hit else None})
-    places = _merge_places(places)
-    return jsonify({"window": window, "places": places[:60], "cities": result["cities"],
+    places = _merge_places(places)[:60]
+    with db.session() as conn:
+        _mark_posted_and_tips(conn, places)
+    return jsonify({"window": window, "places": places, "cities": result["cities"],
                     "reviewed_count": len(reviewed)})
+
+
+def _mark_posted_and_tips(conn, places: list[dict]) -> None:
+    """Heb je deze zaak al eens gepost (Mijn posts), of staat hij in je tips?"""
+    handles = {taste.zaak_key(h): v for h, v in ownposts.posted_handles(conn).items()}
+    captions = ownposts.caption_index(conn)
+    tips = {taste.zaak_key(r["name"]): {"id": r["id"], "status": r["status"]}
+            for r in conn.execute("SELECT id, name, status FROM spots")}
+    for p in places:
+        keys = [taste.zaak_key(n) for n in [p["display"], *p.get("aliases", [])]]
+        p["posted"] = next((handles[k] for k in keys if k in handles), None) or next(
+            (hit for k in keys if len(k) >= 10 for hit in [ownposts.find_posted(k, captions)] if hit), None)
+        p["tip"] = next((tips[k] for k in keys if k in tips), None)
 
 
 def _merge_places(places: list[dict]) -> list[dict]:
@@ -521,6 +537,14 @@ def api_vandaag():
         amsterdam = _candidates(conn, a["include_demo"], "Amsterdam", 4)
         lijst = {r["status"]: r["n"] for r in conn.execute(
             "SELECT status, COUNT(*) AS n FROM watchlist GROUP BY status")}
+        prof = taste.profile(conn)
+        hits = spots.radar_hits(conn, days=7, include_demo=a["include_demo"])
+        tips_in_radar = []
+        for r in conn.execute("SELECT * FROM spots"):
+            if r["id"] in hits and r["status"] not in ("gereviewd", "afgevallen"):
+                tips_in_radar.append({**db.row_to_dict(r), "radar": hits[r["id"]]})
+        tips_in_radar.sort(key=lambda t: t["radar"]["posts"], reverse=True)
+        tips_in_radar = tips_in_radar[:6]
         return jsonify({
             "candidates": cands,
             "early_topics": early,
@@ -530,7 +554,10 @@ def api_vandaag():
             "snack_news": _news(conn, "snack", a["include_demo"], days=3, limit=6),
             "amsterdam": amsterdam,
             "watchlist": lijst,
-            "learned": taste.summary(taste.profile(conn)),
+            "learned": taste.summary(prof),
+            "learned_from": {**prof.sources, "eigen_posts": conn.execute("SELECT COUNT(*) FROM own_posts").fetchone()[0]},
+            "audience": [{"snack": k, **v} for k, v in list(ownposts.lifts(conn).items())[:5] if v["lift"] >= 1.1],
+            "tips_in_radar": tips_in_radar,
         })
 
 
@@ -610,3 +637,139 @@ def export_lijst():
         rows = [dict(r) for r in conn.execute("SELECT * FROM watchlist ORDER BY added_at")]
     return _csv(rows, ["status", "kind", "title", "city", "note", "url", "added_at", "updated_at"],
                 "te-proberen.csv")
+
+
+# --- ♥ en 👎 -----------------------------------------------------------------
+
+@app.get("/api/feedback")
+def api_feedback():
+    with db.session() as conn:
+        return jsonify({r["post_id"]: r["value"] for r in conn.execute("SELECT post_id, value FROM feedback")})
+
+
+@app.post("/api/feedback")
+def set_feedback():
+    d = request.get_json(force=True)
+    post_id, value = (d.get("post_id") or "").strip(), d.get("value")
+    if not post_id or value not in (-1, 0, 1):
+        return jsonify({"fout": "post en waarde (1, -1 of 0) zijn nodig"}), 400
+    with db.session() as conn:
+        if value == 0:
+            conn.execute("DELETE FROM feedback WHERE post_id = ?", (post_id,))
+        else:
+            conn.execute("INSERT INTO feedback(post_id, value, at) VALUES (?, ?, ?) "
+                         "ON CONFLICT(post_id) DO UPDATE SET value = excluded.value, at = excluded.at",
+                         (post_id, value, db.iso(db.now())))
+    return jsonify({"ok": True})
+
+
+# --- importeren: je postoverzicht en je tips & routes -------------------------
+
+@app.post("/api/import")
+def api_import():
+    f = request.files.get("bestand")
+    if not f or not f.filename:
+        return jsonify({"fout": "Kies eerst een Excel-bestand (.xlsx)."}), 400
+    try:
+        parsed = imports.read_workbook(f.read())
+    except imports.ImportError_ as exc:
+        return jsonify({"fout": str(exc)}), 400
+    with db.session() as conn:
+        result = imports.save(conn, parsed)
+    parts = []
+    if result["posts"]:
+        parts.append(f"{result['posts']} eigen posts")
+    if result["spots"]:
+        parts.append(f"{result['spots']} tips ({result['spots_new']} nieuw)")
+    if result["routes"]:
+        parts.append(f"{result['routes']} routes")
+    return jsonify({**result, "melding": "Ingelezen: " + ", ".join(parts) + "."})
+
+
+# --- mijn posts ----------------------------------------------------------------
+
+@app.get("/api/mijnposts")
+def api_mijnposts():
+    year = request.args.get("jaar") or None
+    with db.session() as conn:
+        return jsonify(ownposts.overview(conn, year))
+
+
+# --- tips & routes -----------------------------------------------------------------
+
+@app.get("/api/tips")
+def api_tips():
+    a = _args()
+    with db.session() as conn:
+        out = spots.listing(conn, a["include_demo"])
+    out["statuses"] = WATCH_STATUSES
+    return jsonify(out)
+
+
+@app.post("/api/tips")
+def add_tip():
+    d = request.get_json(force=True)
+    name = (d.get("name") or "").strip()
+    if not name:
+        return jsonify({"fout": "een naam is nodig"}), 400
+    now = db.iso(db.now())
+    lst = (d.get("list") or "Eigen tips").strip()
+    with db.session() as conn:
+        conn.execute(
+            "INSERT INTO spots(name, place, specialty, region, lists, note, origin, added_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'handmatig', ?, ?) ON CONFLICT(name, place) DO UPDATE SET "
+            "specialty = excluded.specialty, updated_at = excluded.updated_at",
+            (name[:200], (d.get("place") or "").strip()[:100], (d.get("specialty") or "").strip()[:500],
+             (d.get("region") or "").strip()[:60], json.dumps([lst[:60]]), (d.get("note") or "")[:2000], now, now))
+    return jsonify({"ok": True})
+
+
+@app.patch("/api/tips/<int:sid>")
+def update_tip(sid: int):
+    d = request.get_json(force=True)
+    sets, args = [], []
+    if d.get("status") in WATCH_STATUSES:
+        sets.append("status = ?")
+        args.append(d["status"])
+    if "note" in d:
+        sets.append("note = ?")
+        args.append(str(d["note"])[:2000])
+    if not sets:
+        return jsonify({"fout": "niets te wijzigen"}), 400
+    sets.append("updated_at = ?")
+    args.append(db.iso(db.now()))
+    with db.session() as conn:
+        conn.execute(f"UPDATE spots SET {', '.join(sets)} WHERE id = ?", args + [sid])
+    return jsonify({"ok": True})
+
+
+@app.delete("/api/tips/<int:sid>")
+def delete_tip(sid: int):
+    with db.session() as conn:
+        conn.execute("DELETE FROM spots WHERE id = ?", (sid,))
+    return jsonify({"ok": True})
+
+
+@app.get("/api/routes")
+def api_routes():
+    with db.session() as conn:
+        return jsonify({"routes": spots.routes(conn), "statuses": WATCH_STATUSES})
+
+
+@app.patch("/api/routes/<int:rid>")
+def update_route(rid: int):
+    d = request.get_json(force=True)
+    if d.get("status") not in WATCH_STATUSES:
+        return jsonify({"fout": "onbekende status"}), 400
+    with db.session() as conn:
+        conn.execute("UPDATE routes SET status = ? WHERE id = ?", (d["status"], rid))
+    return jsonify({"ok": True})
+
+
+@app.get("/api/export/tips.csv")
+def export_tips():
+    with db.session() as conn:
+        rows = [db.row_to_dict(r) for r in conn.execute("SELECT * FROM spots ORDER BY region, place, name")]
+    for r in rows:
+        r["lists"] = ", ".join(r["lists"])
+    return _csv(rows, ["name", "place", "region", "specialty", "lists", "status", "note"], "tips.csv")

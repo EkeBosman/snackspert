@@ -19,6 +19,7 @@
     tab: "vandaag", window: "24u", platform: "", minRel: "0.35",
     typeFilter: "", trends: null, posts: { offset: 0, topic: null },
     sourceFilter: "actief", status: null, watch: new Map(), lijstFilter: "open",
+    feedback: new Map(), tipsView: "tips", mpYear: null, mpDim: "format", mpTop: "views",
   };
 
   try {
@@ -286,15 +287,15 @@
       : f.startsWith("twist:") ? `<span class="sig hot">🔄 ${esc(f.slice(6))}</span>` : "").join("");
     const reasons = p.reasons ? `<div class="reasons">${p.reasons
       .filter(r => !r.startsWith("Combinatie") && !r.startsWith("Twist") && r !== "Nieuw op de kaart")
-      .map(r => `<span class="reason ${r.startsWith("Lijkt op") ? "taste" : ""}">${r.startsWith("Lijkt op") ? "⭐ " : ""}${esc(r)}</span>`).join("")}</div>` : "";
+      .map(r => `<span class="reason ${r.startsWith("Past bij") ? "taste" : r.startsWith("Jouw publiek") ? "taste" : r.startsWith("Al gepost") ? "done" : ""}">${r.startsWith("Past bij") ? "⭐ " : r.startsWith("Jouw publiek") ? "📈 " : ""}${esc(r)}</span>`).join("")}</div>` : "";
     const title = (p.summary || p.text || "").replace(/\s+/g, " ").slice(0, 90);
     const tags = [...(p.categories || []), ...(p.brands || []).slice(0, 2)].slice(0, 4)
       .map(c => `<span class="badge">${esc(c)}</span>`).join("");
     const thumb = p.thumbnail ? `<img src="${esc(p.thumbnail)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : "";
-    return `<article class="post">
+    return `<article class="post ${state.feedback.get(p.id) === -1 ? "disliked" : ""}" data-post="${esc(p.id)}">
       <div class="post-head"><span><span class="ptag" style="--pc:${plat.color}">${esc(plat.name)}</span> · <strong>${p.platform === "nieuws" ? esc(p.author || "") : "@" + esc(p.author || "onbekend")}</strong></span>
-      <span><span title="${esc(new Date(p.posted_at).toLocaleString("nl-NL"))}">${ago(p.posted_at)}</span>
-      ${p.platform !== "nieuws" ? starBtn("post", p.id, title, p.url, p.city) : ""}</span></div>
+      <span class="post-actions"><span title="${esc(new Date(p.posted_at).toLocaleString("nl-NL"))}">${ago(p.posted_at)}</span>
+      ${p.platform !== "nieuws" ? fbBtns(p.id) + starBtn("post", p.id, title, p.url, p.city) : ""}</span></div>
       ${flags ? `<div class="sigs">${flags}</div>` : ""}${reasons}
       ${sig}
       ${p.summary ? `<div class="post-sum">${esc(p.summary)}</div>` : ""}
@@ -373,7 +374,7 @@
     $("#tbl-zaken tbody").innerHTML = d.places.length ? d.places.map(p =>
       `<tr class="click" data-topic="zaak|${esc(p.name)}"><td><span class="topic-name">${esc(p.display)}</span> ${pdots(p.platforms)}${p.aliases && p.aliases.length ? `<div class="meta muted">ook: ${esc(p.aliases.join(", "))}</div>` : ""}</td>
        <td class="hide-s">${esc(p.city || "")}</td><td class="num">${p.posts}</td><td class="num">${growth(p)}</td>
-       <td>${p.reviewed ? `<span class="badge ok">✓ gereviewd</span>` : `<span class="badge new">reviewkandidaat</span>`}</td>
+       <td>${zaakBadges(p, "reviewkandidaat")}</td>
        <td>${starBtn("zaak", p.name, p.display, null, p.city)}</td></tr>`).join("")
       : `<tr><td colspan="6" class="muted">Nog geen zaken herkend in deze periode.</td></tr>`;
 
@@ -610,7 +611,7 @@
   function miniCandidates(items, empty) {
     return items.length ? items.map(p =>
       `<li><div class="row"><span><span class="ptag" style="--pc:${PLATFORM[p.platform]?.color}">${esc(PLATFORM[p.platform]?.name)}</span> @${esc(p.author || "?")}</span>
-       ${starBtn("post", p.id, (p.summary || p.text || "").slice(0, 90), p.url, p.city)}</div>
+       <span class="post-actions">${fbBtns(p.id)}${starBtn("post", p.id, (p.summary || p.text || "").slice(0, 90), p.url, p.city)}</span></div>
        <div class="reasons">${(p.reasons || []).map(r => `<span class="reason">${esc(r)}</span>`).join("")}</div>
        <div class="meta">${esc((p.summary || p.text || "").slice(0, 110))}${p.url ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">bekijk</a>` : ""}</div></li>`).join("")
       : `<li class="meta">${empty}</li>`;
@@ -623,8 +624,17 @@
     const SOORT = { zin: "zin", twist: "twist", combinatie: "combinatie", snack: "snack", zaak: "zaak",
       maker: "maker", label: "soort vondst" };
     $("#v-learned").innerHTML = d.learned.length ? d.learned.map(l =>
-      `<span class="sig" title="${esc(SOORT[l.soort] || l.soort)}, ${l.keer}× in je lijst">${esc(l.kenmerk)}</span>`).join("")
-      : '<span class="meta">Nog niets bewaard. Klik op ☆ bij posts die je interessant vindt, dan leert de tool wat jij zoekt.</span>';
+      `<span class="sig" title="${esc(SOORT[l.soort] || l.soort)}, weegt ${String(l.keer).replace(".", ",")} mee">${esc(l.kenmerk)}</span>`).join("")
+      : '<span class="meta">Nog niets geleerd. Geef posts een ♥ of 👎, bewaar ze met ☆, of importeer je tips en posts.</span>';
+    const lf = d.learned_from;
+    $("#v-learned-from").textContent = `Op basis van ${lf.lijst} bewaard · ${lf.likes} ♥ · ${lf.dislikes} 👎 · ${fmt(lf.tips)} tips · ${fmt(lf.eigen_posts)} eigen posts`;
+    $("#v-audience").innerHTML = d.audience.length ? `<p class="hint">📈 Jouw publiek kijkt het meest naar:</p>
+      <div class="sigs">${d.audience.map(a => `<span class="reason taste" title="${a.posts} posts, mediaan ${fmt(a.median_views)} views">${esc(a.snack)} ${String(a.lift).replace(".", ",")}×</span>`).join("")}</div>` : "";
+    $("#v-tips-card").hidden = !d.tips_in_radar.length;
+    $("#v-tips").innerHTML = d.tips_in_radar.map(t =>
+      `<li><div class="row"><span class="tip-name">${esc(t.name)}</span><span class="badge new">🔥 ${t.radar.posts} ${t.radar.posts === 1 ? "post" : "posts"}</span></div>
+       <div class="meta">${esc([t.place, t.specialty].filter(Boolean).join(" · "))} · ${esc(t.status)} ·
+       <button class="linkish" data-search="${esc(t.name)}">bekijk posts</button></div></li>`).join("");
     $("#v-early").innerHTML = d.early_topics.length ? d.early_topics.map(t =>
       `<li><div class="row"><button class="linkish" data-topic="${esc(t.type)}|${esc(t.name)}">${esc(t.name)}</button>
        <span>${phaseBadge(t.phase)} ${starBtn("onderwerp", t.type + "|" + t.name, t.name)}</span></div>
@@ -663,24 +673,248 @@
     $("#tbl-a-zaken tbody").innerHTML = zk.places.length ? zk.places.slice(0, 15).map(p =>
       `<tr class="click" data-topic="zaak|${esc(p.name)}"><td><span class="topic-name">${esc(p.display)}</span> ${pdots(p.platforms)}</td>
        <td class="num">${p.posts}</td>
-       <td>${p.reviewed ? `<span class="badge ok">✓ gereviewd</span>` : `<span class="badge new">kandidaat</span>`}</td>
+       <td>${zaakBadges(p, "kandidaat")}</td>
        <td>${starBtn("zaak", p.name, p.display, null, "Amsterdam")}</td></tr>`).join("")
       : `<tr><td colspan="4" class="muted">Nog geen Amsterdamse zaken herkend.</td></tr>`;
     $("#a-news").innerHTML = newsList(news, "Geen Amsterdams eetnieuws in de afgelopen 2 weken.");
     $("#a-posts").innerHTML = posts.posts.map(postCard).join("") || '<p class="muted">Nog geen posts uit Amsterdam.</p>';
+    const tips = await api("/api/tips");
+    const order = st => tips.statuses.indexOf(st);
+    const ams = tips.spots.filter(t => t.place === "Amsterdam" || t.lists.includes("Amsterdam"))
+      .sort((a, b) => (b.radar ? 1 : 0) - (a.radar ? 1 : 0) || order(a.status) - order(b.status));
+    $("#a-tips").innerHTML = ams.length ? ams.slice(0, 12).map(t =>
+      `<li><div class="row"><span><span class="tip-name">${esc(t.name)}</span>${t.radar ? ` <span class="badge new">🔥 ${t.radar.posts}</span>` : ""}${t.posted ? ' <span class="badge ok">✓ gepost</span>' : ""}</span>
+       <span class="badge">${esc(t.status)}</span></div>
+       ${t.specialty ? `<div class="meta">${esc(t.specialty)}</div>` : ""}</li>`).join("")
+      + (ams.length > 12 ? `<li class="meta">en nog ${ams.length - 12} meer</li>` : "")
+      : `<li class="meta">Nog geen Amsterdam-tips. Importeer je tips bij Tips &amp; routes.</li>`;
+  }
+
+  // --- ♥ en 👎 -----------------------------------------------------------------
+
+  function fbBtns(id) {
+    const v = state.feedback.get(id) || 0;
+    return `<button class="fb ${v === 1 ? "on" : ""}" data-fb="1" data-id="${esc(id)}" title="Goed: meer zoals dit" aria-label="Waarderen">♥</button>` +
+      `<button class="fb ${v === -1 ? "on" : ""}" data-fb="-1" data-id="${esc(id)}" title="Niet interessant: minder zoals dit" aria-label="Afkeuren">👎</button>`;
+  }
+
+  async function loadFeedback() {
+    try { state.feedback = new Map(Object.entries(await api("/api/feedback"))); } catch (e) { /* leeg laten */ }
+  }
+
+  async function setFeedback(id, value) {
+    const next = state.feedback.get(id) === value ? 0 : value;
+    await api("/api/feedback", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ post_id: id, value: next }) });
+    if (next) state.feedback.set(id, next); else state.feedback.delete(id);
+    document.querySelectorAll(`.fb[data-id="${CSS.escape(id)}"]`).forEach(b =>
+      b.classList.toggle("on", Number(b.dataset.fb) === next));
+    document.querySelectorAll(`.post[data-post="${CSS.escape(id)}"]`).forEach(c => c.classList.toggle("disliked", next === -1));
+    toast(next === 1 ? "♥ De tool zoekt meer zoals dit" : next === -1 ? "👎 De tool laat dit soort posts zakken" : "Beoordeling weggehaald");
+  }
+
+  function zaakBadges(p, fallback) {
+    const out = [p.reviewed ? `<span class="badge ok">✓ gereviewd</span>` : ""];
+    if (p.posted) out.push(p.posted.url ? `<a class="badge ok" href="${esc(p.posted.url)}" target="_blank" rel="noopener" title="Je eigen post">✓ gepost ${esc(p.posted.date || "")}</a>`
+      : `<span class="badge ok">✓ gepost ${esc(p.posted.date || "")}</span>`);
+    if (p.tip) out.push(`<span class="badge" title="Staat in je tips">📍 tip · ${esc(p.tip.status)}</span>`);
+    if (!p.reviewed && !p.posted) out.push(`<span class="badge new">${fallback}</span>`);
+    return out.join(" ");
+  }
+
+  // --- importeren ----------------------------------------------------------------
+
+  async function importFile(input) {
+    const file = input.files[0];
+    if (!file) return;
+    const form = new FormData();
+    form.append("bestand", file);
+    toast("Bezig met inlezen…");
+    try {
+      const r = await api("/api/import", { method: "POST", body: form });
+      toast(r.melding);
+      LOADERS[state.tab]?.();
+    } catch (e) {
+      toast(e.message);
+    } finally {
+      input.value = "";
+    }
+  }
+
+  // --- tips & routes --------------------------------------------------------------
+
+  async function loadTips() {
+    state.tips = await api("/api/tips");
+    const t = state.tips;
+    const fillSelect = (sel, values, label) => {
+      const cur = sel.value;
+      sel.innerHTML = `<option value="">${label}</option>` + values.map(v => `<option>${esc(v)}</option>`).join("");
+      sel.value = values.includes(cur) ? cur : "";
+    };
+    fillSelect($("#t-list"), t.lists, "Alle lijsten");
+    fillSelect($("#t-region"), t.regions, "Alle regio's");
+    fillSelect($("#t-status"), t.statuses, "Alle statussen");
+    const count = st => t.spots.filter(x => x.status === st).length;
+    const kpis = [["Tips", fmt(t.spots.length), `${t.lists.length} lijsten`],
+      ["Te proberen", fmt(count("te proberen")), `${count("gepland")} gepland`],
+      ["Bezocht of gereviewd", fmt(count("bezocht") + count("gereviewd")), `${t.spots.filter(x => x.posted).length} al eens gepost`],
+      ["🔥 In de radar", fmt(t.spots.filter(x => x.radar).length), "genoemd in posts, 30 dagen"]];
+    $("#t-kpis").innerHTML = kpis.map(([l, v, d]) =>
+      `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div><div class="delta">${esc(d)}</div></div>`).join("");
+    renderTips();
+    if (state.tipsView === "routes") loadRoutes();
+  }
+
+  function renderTips() {
+    const t = state.tips;
+    if (!t) return;
+    const q = $("#t-q").value.trim().toLowerCase();
+    const lst = $("#t-list").value, reg = $("#t-region").value, st = $("#t-status").value, radar = $("#t-radar").checked;
+    const rows = t.spots.filter(x => (!q || `${x.name} ${x.place} ${x.specialty}`.toLowerCase().includes(q))
+      && (!lst || x.lists.includes(lst)) && (!reg || x.region === reg) && (!st || x.status === st) && (!radar || x.radar))
+      .sort((a, b) => (b.radar?.posts || 0) - (a.radar?.posts || 0));
+    $("#tbl-tips tbody").innerHTML = rows.length ? rows.map(x => `<tr>
+      <td><a class="tip-name" href="${esc(x.maps)}" target="_blank" rel="noopener" title="Open in Google Maps">${esc(x.name)}</a>
+        <div class="meta">${esc([x.place, x.region].filter(Boolean).join(" · "))}
+        ${x.radar ? ` · <button class="linkish" data-search="${esc(x.name)}">🔥 ${x.radar.posts} ${x.radar.posts === 1 ? "post" : "posts"}</button>` : ""}
+        ${x.posted ? ` · ${x.posted.url ? `<a href="${esc(x.posted.url)}" target="_blank" rel="noopener">✓ gepost ${esc(x.posted.date || "")}</a>` : `✓ gepost ${esc(x.posted.date || "")}`}` : ""}</div></td>
+      <td>${esc(x.specialty || "")}</td>
+      <td class="hide-s">${x.lists.map(l => `<span class="badge">${esc(l)}</span>`).join(" ")}</td>
+      <td><select class="status-select" data-tip-status="${x.id}" aria-label="Status">${t.statuses.map(s => `<option ${s === x.status ? "selected" : ""}>${s}</option>`).join("")}</select></td>
+      <td class="hide-s"><textarea class="note-input" rows="1" data-tip-note="${x.id}" placeholder="Notitie…">${esc(x.note || "")}</textarea></td>
+      <td><button class="btn small ghost" data-tip-del="${x.id}" aria-label="Verwijderen">✕</button></td></tr>`).join("")
+      : `<tr><td colspan="6" class="muted">${t.spots.length ? "Geen tips met deze filters." : "Nog geen tips. Importeer je Excel-bestand met de knop hierboven, of voeg er hieronder een toe."}</td></tr>`;
+  }
+
+  async function loadRoutes() {
+    if (!state.routes) state.routes = await api("/api/routes");
+    const r = state.routes;
+    const sel = $("#r-region");
+    if (sel.options.length <= 1) {
+      const regions = [...new Set(r.routes.map(x => x.region).filter(Boolean))].sort();
+      sel.innerHTML = `<option value="">Alle regio's</option>` + regions.map(v => `<option>${esc(v)}</option>`).join("");
+    }
+    renderRoutes();
+  }
+
+  function renderRoutes() {
+    const r = state.routes;
+    if (!r) return;
+    const q = $("#r-q").value.trim().toLowerCase(), reg = $("#r-region").value, n = $("#r-stops").value;
+    const rows = r.routes.filter(x => (!reg || x.region === reg) && (!n || x.stops.length === Number(n))
+      && (!q || `${x.name} ${x.stops.map(s => s.text).join(" ")}`.toLowerCase().includes(q)));
+    $("#t-routes").innerHTML = rows.length ? rows.map(x => `<div class="route">
+      <h3>${esc(x.name)}</h3>
+      <div class="meta">${esc(x.region)}${x.km ? " · " + esc(x.km) + " retour" : ""}${x.duration ? " · " + esc(x.duration) + " rijden" : ""}</div>
+      <ol>${x.stops.map(s => `<li><b>${esc(s.name)}</b>${s.place ? ` <span class="muted">(${esc(s.place)})</span>` : ""}${s.specialty ? ` – ${esc(s.specialty)}` : ""}${s.status && s.status !== "te proberen" ? ` <span class="badge ok">${esc(s.status)}</span>` : ""}</li>`).join("")}</ol>
+      ${x.note ? `<div class="meta">${esc(x.note)}</div>` : ""}
+      <div class="foot"><a class="btn small primary" href="${esc(x.maps)}" target="_blank" rel="noopener">Route in Google Maps ↗</a>
+      <select class="status-select" data-route-status="${x.id}" aria-label="Status">${r.statuses.map(s => `<option ${s === x.status ? "selected" : ""}>${s}</option>`).join("")}</select></div>
+    </div>`).join("") : `<p class="muted">${r.routes.length ? "Geen routes met deze filters." : "Nog geen routes. Importeer je Excel-bestand met tabbladen 'Route' en 'Stop 1'."}</p>`;
+  }
+
+  // --- mijn posts -----------------------------------------------------------------
+
+  const MONTHS = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
+  const monthLabel = m => `${MONTHS[Number(m.slice(5, 7)) - 1]} '${m.slice(2, 4)}`;
+  const kfmt = v => v >= 1e6 ? (v / 1e6).toFixed(1).replace(".", ",") + "M" : v >= 1000 ? Math.round(v / 1000) + "k" : String(Math.round(v));
+
+  async function loadMijnPosts() {
+    if (state.mpYear === null) {
+      const first = await api("/api/mijnposts");
+      state.mpYear = first.years?.[0] || "";
+    }
+    const d = await api("/api/mijnposts" + (state.mpYear ? `?jaar=${state.mpYear}` : ""));
+    state.mp = d;
+    $("#m-years").innerHTML = (d.years || []).length ? [...d.years.map(y => [y, y]), ["", "Alles"]].map(([v, l]) =>
+      `<button class="chip ${state.mpYear === v ? "on" : ""}" data-year="${v}">${l}</button>`).join("") : "";
+    if (!d.posts && !d.kpis) {
+      $("#m-kpis").innerHTML = "";
+      $("#m-insights").innerHTML = `<li class="meta">Nog geen posts. Klik op <b>Excel importeren</b> en kies je totaaloverzicht (met het tabblad <em>Posts</em>).</li>`;
+      ["#m-months", "#m-followers"].forEach(id => $(id).innerHTML = "");
+      ["#tbl-m-groups", "#tbl-m-snacks", "#tbl-m-top", "#tbl-m-tests"].forEach(id => $(id + " tbody").innerHTML = "");
+      $("#m-dims").innerHTML = "";
+      return;
+    }
+    const k = d.kpis;
+    const kp = [["Posts", fmt(k.posts), `${k.collabs} samenwerkingen of collabs`],
+      ["Mediaan views", fmt(k.median_views), "per post"],
+      ["Totaal views", kfmt(k.views_total), ""],
+      ["Nieuwe volgers", fmt(k.followers), "zonder collabs"],
+      ["Volgers per post", k.followers_per_post != null ? String(k.followers_per_post).replace(".", ",") : "–",
+        k.followers_per_10k != null ? `${String(k.followers_per_10k).replace(".", ",")} per 10.000 views` : ""]];
+    $("#m-kpis").innerHTML = kp.map(([l, v, s]) =>
+      `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div><div class="delta">${esc(s)}</div></div>`).join("");
+    const labels = d.months.map(m => m.month);
+    const series = { cur: d.months.map(m => m.median_views) };
+    const names = { cur: "Mediaan views" }, colors = { cur: "var(--accent)" };
+    if (d.months.some(m => m.median_prev_year != null)) {
+      series.prev = d.months.map(m => m.median_prev_year);
+      names.prev = "Zelfde maand vorig jaar";
+      colors.prev = "var(--seq-1)";
+    }
+    Charts.lineChart($("#m-months"), labels, series, { names, colors, fmtLabel: monthLabel, fmtTick: kfmt,
+      fmtValue: v => fmt(v), label: "Mediaan views per maand", height: 200 });
+    Charts.columnChart($("#m-followers"), labels, d.months.map(m => m.followers), { fmtLabel: monthLabel,
+      fmtTick: kfmt, fmtValue: v => fmt(v), valueName: "Nieuwe volgers", label: "Nieuwe volgers per maand", height: 150 });
+    $("#m-insights").innerHTML = d.insights.map(i => `<li>${i}</li>`).join("") || `<li class="meta">Nog te weinig posts voor conclusies.</li>`;
+    $("#m-dims").innerHTML = d.dimensions.map(([key, label]) =>
+      `<button class="chip ${state.mpDim === key ? "on" : ""}" data-dim="${key}">${label}</button>`).join("");
+    renderMpGroups();
+    $("#tbl-m-snacks tbody").innerHTML = d.snacks.length ? d.snacks.map(x =>
+      `<tr><td>${esc(x.snack)}</td><td class="num">${x.posts}</td><td class="num">${fmt(x.median_views)}</td>
+       <td class="num ${x.lift >= 1.1 ? "up" : x.lift < 0.9 ? "down" : ""}">${String(x.lift).replace(".", ",")}×</td></tr>`).join("")
+      : `<tr><td colspan="4" class="muted">Nog geen snack met 6 of meer posts in deze periode.</td></tr>`;
+    renderMpTop();
+    $("#tbl-m-tests tbody").innerHTML = d.supermarket_tests.length ? d.supermarket_tests.map((t, i) =>
+      `<tr><td class="num">${i + 1}</td><td>${t.url ? `<a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.product)}</a>` : esc(t.product)} <span class="meta">${esc(t.month || "")}</span></td>
+       <td class="num">${fmt(t.views)}</td><td class="num">${t.followers != null ? fmt(t.followers) : "–"}</td></tr>`).join("")
+      : `<tr><td colspan="4" class="muted">Geen supermarkttests in deze periode.</td></tr>`;
+  }
+
+  function renderMpGroups() {
+    const d = state.mp;
+    if (!d?.groups) return;
+    const rows = (d.groups[state.mpDim] || []).map(g => [g.name, g]);
+    $("#m-dim-hint").textContent = d.classified < d.kpis.posts
+      ? `${d.classified} van de ${d.kpis.posts} posts zijn ingedeeld; de rest telt hier niet mee.` : "";
+    const max = Math.max(1, ...rows.map(([, v]) => v.median_views));
+    $("#tbl-m-groups tbody").innerHTML = rows.length ? rows.map(([name, v]) => {
+      const few = v.posts < 5;
+      return `<tr class="${few ? "small-n" : ""}" title="${few ? "Minder dan 5 posts: zegt nog weinig" : ""}">
+        <td>${esc(name)}</td><td class="num">${v.posts}</td>
+        <td><div class="bar-cell"><span class="bar" style="width:${Math.round(100 * v.median_views / max)}px"></span><b>${fmt(v.median_views)}</b></div></td>
+        <td class="num hide-s ${v.index >= 110 ? "up" : v.index < 90 ? "down" : ""}">${v.index ?? "–"}</td>
+        <td class="num">${v.followers_per_post != null ? String(v.followers_per_post).replace(".", ",") : "–"}</td>
+        <td class="num hide-s">${fmt(v.median_shares)}</td></tr>`;
+    }).join("") : `<tr><td colspan="6" class="muted">Geen ingedeelde posts in deze periode.</td></tr>`;
+  }
+
+  function renderMpTop() {
+    const d = state.mp;
+    if (!d) return;
+    const rows = d["top_" + state.mpTop] || [];
+    $("#tbl-m-top tbody").innerHTML = rows.length ? rows.map(p =>
+      `<tr><td>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc((p.caption || "").slice(0, 70))}</a>` : esc((p.caption || "").slice(0, 70))}
+        <div class="meta">${esc(p.date || p.month || "")}</div></td>
+       <td class="hide-s">${p.format ? `<span class="badge">${esc(p.format)}</span>` : ""}</td>
+       <td class="num">${fmt(p.views)}</td><td class="num">${p.followers_count && p.followers != null ? fmt(p.followers) : "–"}</td>
+       <td class="num hide-s">${fmt(p.shares)}</td></tr>`).join("")
+      : `<tr><td colspan="5" class="muted">Geen posts.</td></tr>`;
   }
 
   // --- navigatie -------------------------------------------------------------
 
   const LOADERS = { vandaag: loadVandaag, trends: loadTrends, posts: () => loadPosts(), amsterdam: loadAmsterdam,
-    supermarkt: loadSupermarkt, zaken: loadZaken, lijst: loadLijst, bronnen: loadSources, beheer: loadBeheer };
+    supermarkt: loadSupermarkt, zaken: loadZaken, lijst: loadLijst, tips: loadTips, mijnposts: loadMijnPosts,
+    bronnen: loadSources, beheer: loadBeheer };
 
   function switchTab(tab) {
     state.tab = tab;
     remember();
     $$(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
     $$(".panel").forEach(p => (p.hidden = p.dataset.panel !== tab));
-    $("#filters").hidden = ["bronnen", "beheer", "vandaag", "lijst"].includes(tab);
+    $("#filters").hidden = ["bronnen", "beheer", "vandaag", "lijst", "tips", "mijnposts"].includes(tab);
     refresh();
   }
 
@@ -723,6 +957,20 @@
         star.textContent = star.classList.contains("on") ? "★" : "☆";
         return;
       }
+      const fb = e.target.closest(".fb");
+      if (fb) {
+        e.stopPropagation();
+        await setFeedback(fb.dataset.id, Number(fb.dataset.fb));
+        return;
+      }
+      const search = e.target.closest("[data-search]");
+      if (search) {
+        $("#p-q").value = search.dataset.search;
+        state.window = "7d";
+        $$("#f-window button").forEach(x => x.classList.toggle("on", x.dataset.v === "7d"));
+        switchTab("posts");
+        return;
+      }
       const go = e.target.closest("[data-goto]");
       if (go) { switchTab(go.dataset.goto); return; }
       const t = e.target.closest("[data-topic]");
@@ -762,6 +1010,77 @@
       refresh();
     });
     $("#form-settings").addEventListener("submit", saveSettings);
+    document.querySelectorAll(".import-file").forEach(i => i.addEventListener("change", () => importFile(i)));
+    // tips & routes
+    $("#t-view").addEventListener("click", e => {
+      const b = e.target.closest("[data-v]");
+      if (!b) return;
+      state.tipsView = b.dataset.v;
+      $$("#t-view button").forEach(x => x.classList.toggle("on", x === b));
+      $("#t-tips-card").hidden = state.tipsView !== "tips";
+      $("#t-routes-card").hidden = state.tipsView !== "routes";
+      if (state.tipsView === "routes") loadRoutes();
+    });
+    ["#t-q", "#t-list", "#t-region", "#t-status", "#t-radar"].forEach(id => $(id).addEventListener("input", renderTips));
+    ["#r-q", "#r-region", "#r-stops"].forEach(id => $(id).addEventListener("input", renderRoutes));
+    $("#tbl-tips").addEventListener("change", async e => {
+      const sel = e.target.closest("[data-tip-status]");
+      if (!sel) return;
+      await api(`/api/tips/${sel.dataset.tipStatus}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: sel.value }) });
+      const tip = state.tips.spots.find(x => x.id === Number(sel.dataset.tipStatus));
+      if (tip) tip.status = sel.value;
+      state.routes = null;
+      toast(`Status: ${sel.value}`);
+    });
+    $("#tbl-tips").addEventListener("focusout", e => {
+      const note = e.target.closest("[data-tip-note]");
+      if (note) api(`/api/tips/${note.dataset.tipNote}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ note: note.value }) }).catch(() => toast("Notitie niet opgeslagen"));
+    });
+    $("#tbl-tips").addEventListener("click", async e => {
+      const del = e.target.closest("[data-tip-del]");
+      if (del && confirm("Deze tip verwijderen?")) {
+        await api(`/api/tips/${del.dataset.tipDel}`, { method: "DELETE" });
+        loadTips();
+      }
+    });
+    $("#t-routes").addEventListener("change", async e => {
+      const sel = e.target.closest("[data-route-status]");
+      if (!sel) return;
+      await api(`/api/routes/${sel.dataset.routeStatus}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: sel.value }) });
+      const route = state.routes.routes.find(x => x.id === Number(sel.dataset.routeStatus));
+      if (route) route.status = sel.value;
+      toast(`Route: ${sel.value}`);
+    });
+    $("#form-tip").addEventListener("submit", async e => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target));
+      await api("/api/tips", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+      e.target.reset();
+      toast("Tip toegevoegd");
+      loadTips();
+    });
+    // mijn posts
+    $("#m-years").addEventListener("click", e => {
+      const b = e.target.closest("[data-year]");
+      if (b) { state.mpYear = b.dataset.year; loadMijnPosts(); }
+    });
+    $("#m-dims").addEventListener("click", e => {
+      const b = e.target.closest("[data-dim]");
+      if (!b) return;
+      state.mpDim = b.dataset.dim;
+      $$("#m-dims .chip").forEach(x => x.classList.toggle("on", x === b));
+      renderMpGroups();
+    });
+    $("#m-top-by").addEventListener("click", e => {
+      const b = e.target.closest("[data-top]");
+      if (!b) return;
+      state.mpTop = b.dataset.top;
+      $$("#m-top-by .chip").forEach(x => x.classList.toggle("on", x === b));
+      renderMpTop();
+    });
     $("#lijst-filter").addEventListener("click", e => {
       const b = e.target.closest("[data-lf]");
       if (b) { state.lijstFilter = b.dataset.lf; loadLijst(); }
@@ -819,7 +1138,7 @@
     });
     window.addEventListener("resize", () => { clearTimeout(init.rt); init.rt = setTimeout(() => state.tab === "trends" && loadTrends(), 250); });
 
-    Promise.all([loadStatus(), loadWatch()]).then(() => switchTab(state.tab));
+    Promise.all([loadStatus(), loadWatch(), loadFeedback()]).then(() => switchTab(state.tab));
     setInterval(poll, 15000);
   }
 

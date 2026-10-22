@@ -80,7 +80,10 @@
       container.appendChild(lg);
     }
     const W = Math.max(320, container.clientWidth || 600), H = opts.height || 220;
-    const m = { l: 34, r: 10, t: 10, b: 26 };
+    const m = { l: opts.fmtTick ? 44 : 34, r: 10, t: 10, b: 26 };
+    const fmtLabel = opts.fmtLabel || (v => fmtBucket(v, opts.bucketHours || 24));
+    const fmtTick = opts.fmtTick || (v => Math.round(v));
+    const fmtValue = opts.fmtValue || (v => v);
     const svg = el("svg", { viewBox: `0 0 ${W} ${H}`, role: "img",
       "aria-label": opts.label || "Lijngrafiek" }, container);
     const n = labels.length;
@@ -100,16 +103,22 @@
       const v = (max / div) * i;
       el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: "gridline" }, svg);
       const t = el("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, svg);
-      t.textContent = Math.round(v);
+      t.textContent = fmtTick(v);
     }
     const ticks = Math.min(W < 520 ? 3 : 6, n);
     for (let k = 0; k < ticks; k++) {
       const i = Math.round((k / Math.max(1, ticks - 1)) * (n - 1));
       const t = el("text", { x: x(i), y: H - 8, "text-anchor": k === 0 ? "start" : k === ticks - 1 ? "end" : "middle" }, svg);
-      t.textContent = fmtBucket(labels[i], opts.bucketHours || 24);
+      t.textContent = fmtLabel(labels[i]);
     }
     for (const k of keys) {
-      const d = seriesMap[k].map((v, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join("");
+      // Ontbrekende waarden (null) onderbreken de lijn.
+      let d = "", pen = false;
+      seriesMap[k].forEach((v, i) => {
+        if (v == null) { pen = false; return; }
+        d += `${pen ? "L" : "M"}${x(i).toFixed(1)},${y(v).toFixed(1)}`;
+        pen = true;
+      });
       el("path", { d, fill: "none", stroke: colors[k] || "var(--accent)", "stroke-width": 2,
         "stroke-linejoin": "round", "stroke-linecap": "round" }, svg);
     }
@@ -123,11 +132,12 @@
       const i = Math.max(0, Math.min(n - 1, Math.round(((px - m.l) / (W - m.l - m.r)) * (n - 1))));
       cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("visibility", "visible");
       keys.forEach((k, j) => {
-        dots[j].setAttribute("cx", x(i)); dots[j].setAttribute("cy", y(seriesMap[k][i]));
-        dots[j].setAttribute("visibility", "visible");
+        const v = seriesMap[k][i];
+        dots[j].setAttribute("cx", x(i)); dots[j].setAttribute("cy", y(v || 0));
+        dots[j].setAttribute("visibility", v == null ? "hidden" : "visible");
       });
-      const rows = keys.map(k => `<div class="t-row"><span><i style="--c:${colors[k]}"></i>${esc(names[k] || k)}</span><b>${seriesMap[k][i]}</b></div>`).join("");
-      showTip(evt, `<div class="t-head">${esc(fmtBucket(labels[i], opts.bucketHours || 24))}</div>${rows}`);
+      const rows = keys.filter(k => seriesMap[k][i] != null).map(k => `<div class="t-row"><span><i style="--c:${colors[k]}"></i>${esc(names[k] || k)}</span><b>${esc(fmtValue(seriesMap[k][i]))}</b></div>`).join("");
+      showTip(evt, `<div class="t-head">${esc(fmtLabel(labels[i]))}</div>${rows}`);
     });
     hit.addEventListener("mouseleave", () => {
       cross.setAttribute("visibility", "hidden");
@@ -182,7 +192,10 @@
       return;
     }
     const W = Math.max(320, container.clientWidth || 560), H = opts.height || 180;
-    const m = { l: 30, r: 6, t: 8, b: 24 };
+    const m = { l: opts.fmtTick ? 44 : 30, r: 6, t: 8, b: 24 };
+    const fmtLabel = opts.fmtLabel || (v => fmtBucket(v, opts.bucketHours || 24));
+    const fmtTick = opts.fmtTick || (v => Math.round(v));
+    const fmtValue = opts.fmtValue || (v => v);
     const n = values.length;
     const max = niceMax(Math.max(...values));
     const bw = (W - m.l - m.r) / n;
@@ -193,7 +206,7 @@
       const v = (max / div) * i;
       el("line", { x1: m.l, x2: W - m.r, y1: y(v), y2: y(v), class: "gridline" }, svg);
       const t = el("text", { x: m.l - 6, y: y(v) + 4, "text-anchor": "end" }, svg);
-      t.textContent = Math.round(v);
+      t.textContent = fmtTick(v);
     }
     values.forEach((v, i) => {
       const cur = opts.currentFrom != null && i >= opts.currentFrom;
@@ -202,12 +215,12 @@
         fill: cur ? "var(--accent)" : "var(--seq-2)", "fill-opacity": cur ? 1 : 0.6 }, svg);
       const hit = el("rect", { x: m.l + i * bw, y: m.t, width: bw, height: H - m.t - m.b, fill: "transparent" }, svg);
       hit.addEventListener("mousemove", evt => showTip(evt,
-        `<div class="t-head">${esc(fmtBucket(labels[i], opts.bucketHours || 24))}</div><div class="t-row"><span>Posts</span><b>${v}</b></div>`));
+        `<div class="t-head">${esc(fmtLabel(labels[i]))}</div><div class="t-row"><span>${esc(opts.valueName || "Posts")}</span><b>${esc(fmtValue(v))}</b></div>`));
       hit.addEventListener("mouseleave", hideTip);
     });
     [0, n - 1].forEach((i, k) => {
       const t = el("text", { x: k ? W - m.r : m.l, y: H - 7, "text-anchor": k ? "end" : "start" }, svg);
-      t.textContent = fmtBucket(labels[i], 24);
+      t.textContent = opts.fmtLabel ? fmtLabel(labels[i]) : fmtBucket(labels[i], 24);
     });
   }
 

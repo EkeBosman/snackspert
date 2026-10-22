@@ -1,3 +1,4 @@
 flask>=3.0
 requests>=2.31
 anthropic>=1.15
+openpyxl>=3.1

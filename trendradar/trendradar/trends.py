@@ -20,7 +20,7 @@ import math
 from collections import defaultdict
 from datetime import timedelta
 
-from . import db, lexicon, seeds, signals, taste
+from . import db, lexicon, ownposts, seeds, signals, taste
 from .classify import norm
 
 WINDOWS = {
@@ -104,11 +104,15 @@ def candidates(conn, hours: int = 72, city: str | None = None, include_demo: boo
     base = signals.baselines(conn, include_demo=include_demo)
     # Wat je al bewaard hebt, hoef je niet nog eens te zien; wat erop lijkt wel.
     prof = taste.profile(conn)
-    saved = {r["ref"] for r in conn.execute("SELECT ref FROM watchlist WHERE kind = 'post'")}
+    seen = {r["ref"] for r in conn.execute("SELECT ref FROM watchlist WHERE kind = 'post'")} | taste.rated(conn)
+    # Je eigen posts: welke snacks doen het goed bij jouw publiek, en wie heb je al gepost?
+    lifts = ownposts.lifts(conn)
+    posted = {taste.zaak_key(h): v for h, v in ownposts.posted_handles(conn).items()}
+    captions = ownposts.caption_index(conn)
     scored = []
     for p in load_posts(conn, since, db.now() + timedelta(minutes=1), None, 0.5, 0.4,
                         include_demo, city):
-        if p["platform"] == "nieuws" or p["id"] in saved:
+        if p["platform"] == "nieuws" or p["id"] in seen:
             continue
         flags = json.loads(p["flags"] or "[]") if "flags" in p.keys() else []
         sig = signals.of_post(p, base)
@@ -136,15 +140,27 @@ def candidates(conn, hours: int = 72, city: str | None = None, include_demo: boo
         if sig["small_creator"] and score:
             score += 0.5
             reasons.append(f"kleine maker ({sig['followers']} volgers)")
-        bonus, alike = taste.match(prof, taste.post_features(p))
-        # Alleen 'lijkt op je lijst' is genoeg als het specifiek is (een zin, twist of maker).
-        if bonus > 0 and (score or bonus >= 1.5):
+        feats = taste.post_features(p, prof)
+        bonus, alike, strong = taste.match(prof, feats)
+        # Alleen 'past bij jou' is genoeg als het specifiek is (een zin, twist, zaak of maker).
+        if bonus > 0 and (score or strong >= 1.5):
             score += bonus
-            reasons.append("Lijkt op je lijst: " + ", ".join(alike))
+            reasons.append("Past bij jou: " + ", ".join(alike))
         elif bonus < 0:
             score += bonus
         if score <= 0:
             continue
+        best = max((lifts[f[6:]] | {"snack": f[6:]} for f in feats if f.startswith("snack:") and f[6:] in lifts),
+                   key=lambda x: x["lift"], default=None)
+        if best and best["lift"] >= 1.15:
+            score += min(1.5, (best["lift"] - 1) * 3)
+            reasons.append(f"Jouw publiek: {best['snack']} {str(best['lift']).replace('.', ',')}× je mediaan")
+        zaken = [taste.zaak_key(p["author"] or "")] + [f[5:] for f in feats if f.startswith("zaak:")]
+        done = next((posted[k] for k in zaken if k and k in posted), None) or next(
+            (hit for k in zaken if len(k) >= 10 for hit in [ownposts.find_posted(k, captions)] if hit), None)
+        if done:
+            score -= 1
+            reasons.append(f"Al gepost op {done['date']}")
         age_h = (db.now() - db.parse_iso(p["posted_at"])).total_seconds() / 3600
         score += 1 if age_h < 24 else 0
         phrases = json.loads(p["phrases"] or "[]")

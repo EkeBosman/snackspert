@@ -203,14 +203,19 @@ def list_searches(conn, known: set, limit: int = 3) -> list[dict]:
     zet, telt tegen en levert dus niets op.
     """
     out = []
-    ranked = sorted(taste.profile(conn).items(), key=lambda kv: kv[1], reverse=True)
+    prof = taste.profile(conn)
+    ranked = sorted(prof.items(), key=lambda kv: kv[1], reverse=True)
     for feature, weight in ranked:
-        if weight <= 0:
+        # Alleen wat je zelf bewaarde of een ♥ gaf. Je ruim 200 tips worden geen
+        # zoekopdrachten: dat zou het budget over te veel bronnen verdelen.
+        if weight < taste.FEEDBACK_WEIGHT:
             break
         kind, _, value = feature.partition(":")
         src = None
-        if kind in ("zin", "twist") or (kind == "zaak" and " " in value):
+        if kind in ("zin", "twist"):
             src = ("tiktok", "zoekterm", value)
+        elif kind == "zaak" and " " in taste.label(feature, prof):
+            src = ("tiktok", "zoekterm", taste.label(feature, prof).lower())
         elif kind == "combinatie":
             src = ("tiktok", "zoekterm", value.replace(" + ", " "))
         elif kind == "maker":
@@ -220,7 +225,7 @@ def list_searches(conn, known: set, limit: int = 3) -> list[dict]:
         if not src or src in known or len(src[2]) < 4:
             continue
         out.append({"platform": src[0], "kind": src[1], "value": src[2], "score": 25 + min(5, weight),
-                    "reason": f"uit Mijn lijst: {taste.label(feature)}"})
+                    "reason": f"uit Mijn lijst of ♥: {taste.label(feature, prof)}"})
         if len(out) >= limit:
             break
     return out

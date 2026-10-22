@@ -297,3 +297,37 @@ details summary { cursor: pointer; }
 .reason.taste { background: color-mix(in srgb, var(--good) 14%, var(--surface)); color: var(--good-ink); }
 .count { font-size: .72rem; color: var(--muted); }
 .note-input { width: 100%; min-width: 160px; font: inherit; font-size: .82rem; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); resize: vertical; }
+
+/* ♥ en 👎: leren zonder te bewaren */
+.fb { font: inherit; background: none; border: 0; cursor: pointer; font-size: .95rem; padding: 2px 3px; line-height: 1; opacity: .45; filter: grayscale(1); }
+.fb:hover { opacity: .8; filter: none; }
+.fb.on { opacity: 1; filter: none; }
+.post-actions { display: inline-flex; align-items: center; gap: 1px; }
+.post.disliked { opacity: .5; }
+.reason.done { background: var(--surface-2); color: var(--text-2); }
+
+/* Mijn posts */
+.kpis.kpis-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); margin-top: 12px; }
+.insights li { line-height: 1.45; }
+.bar-cell { display: flex; align-items: center; gap: 8px; min-width: 140px; }
+.bar-cell .bar { height: 8px; border-radius: 4px; background: var(--seq-3); min-width: 2px; }
+.bar-cell b { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.small-n { color: var(--muted); }
+
+/* Tips & routes */
+#t-kpis { margin-top: 12px; }
+.add-tip { margin-top: 12px; }
+.add-tip summary { cursor: pointer; color: var(--accent); font-weight: 600; font-size: .86rem; }
+.add-tip form { margin-top: 8px; }
+.add-tip input { flex: 1 1 160px; }
+.routes { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-top: 12px; }
+.route { border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 8px; background: var(--surface); }
+.route h3 { margin: 0; font-size: .95rem; }
+.route ol { margin: 0; padding-left: 20px; font-size: .84rem; display: flex; flex-direction: column; gap: 4px; }
+.route .foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-top: auto; }
+.tip-name { font-weight: 600; }
+td .status-select { min-width: 120px; }
+@media (max-width: 1000px) { .kpis.kpis-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .kpis.kpis-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .routes { grid-template-columns: 1fr; } }
+.panel > .seg { align-self: flex-start; }
+.route .meta { color: var(--muted); font-size: .78rem; }
