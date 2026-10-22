@@ -136,11 +136,15 @@ def classify_rules(post: dict) -> dict:
     tag_blob = " ".join(hashtags)
     tokens = set(TOKEN_RE.findall(text))
 
+    # 'Kapsalon' is ook een kapperszaak. Gaat de post over haar, dan is het geen snack.
+    hair = bool(lexicon.HAIR_WORDS & (tokens | set(hashtags)))
     categories: dict[str, float] = {}
     miss = 1.0
     for category, words in lexicon.CATEGORIES.items():
         best = 0.0
         for word, weight in words.items():
+            if hair and word == "kapsalon":
+                continue
             if _keyword_hit(word, text, tokens, tag_blob):
                 best = max(best, weight)
                 miss *= 1 - weight * 0.85
@@ -174,7 +178,8 @@ def classify_rules(post: dict) -> dict:
     city = find_city(text, hashtags, post.get("location"))
     if city:
         nl = min(1.0, nl + 0.5)
-    if any(_dutch_food(food, text, tokens, hashtags) for food in lexicon.DUTCH_FOODS):
+    if any(_dutch_food(food, text, tokens, hashtags) for food in lexicon.DUTCH_FOODS
+           if not (hair and food == "kapsalon")):
         nl = min(1.0, nl + 0.5)
     if any(h in ("nederland", "holland", "netherlands", "dutchfood") for h in hashtags):
         nl = min(1.0, nl + 0.3)

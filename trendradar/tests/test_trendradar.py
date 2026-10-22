@@ -567,3 +567,39 @@ def test_news_list_only_shows_relevant_news(conn):
         store_posts(conn, [{"id": nid, "platform": "nieuws", "text": title, "posted_at": now}], None)
     titles = [n["title"] for n in products.overview(conn)["news"]]
     assert titles == ["Nieuwe chips met kapsalonsmaak bij Albert Heijn"]
+
+
+def test_kapsalon_at_the_hairdresser_is_not_a_snack():
+    hair = classify.classify_rules({"text": "Nieuwe coupe gezet bij onze kapsalon! #kapper #kapsalon",
+                                    "platform": "instagram"})
+    snack = classify.classify_rules({"text": "Beste kapsalon van Rotterdam, extra knoflooksaus #kapsalon",
+                                     "platform": "instagram"})
+    assert hair["relevance"] < 0.35 and snack["relevance"] > 0.7
+
+
+def test_discovery_only_adds_food_hashtags(conn):
+    from trendradar.discovery import acceptable_hashtag
+    for bad in ("kapper", "deals", "herfst", "groningen", "albertheijn", "snackbar"):
+        assert not acceptable_hashtag(bad), bad
+    for good in ("birriatacos", "frikandelijs", "pistachekroket", "foodtruckfestival"):
+        assert acceptable_hashtag(good), good
+    assert acceptable_hashtag("tanghulu", viral=True)  # nieuwe snack uit een virale post
+
+    store_posts(conn, [post(f"h{i}", "Lekkere frikandel bij de snackbar! #herfst #deals #birriatacos",
+                            hours_ago=2 + i) for i in range(4)], None)
+    added = {a["value"] for a in discovery.run(conn, dict(config.DEFAULTS)) if a["kind"] == "hashtag"}
+    assert "birriatacos" in added and not {"herfst", "deals"} & added
+
+
+def test_bad_discovered_sources_are_cleaned_up(conn):
+    from trendradar import collector
+    now = db.iso(db.now())
+    for value, reason in (("kapper", "in 5 relevante posts"), ("birriatacos", "in 5 relevante posts"),
+                          ("tanghulu", "uit virale post van @x (12× views)")):
+        conn.execute("INSERT INTO sources(platform, kind, value, status, origin, reason, added_at) "
+                     "VALUES ('instagram', 'hashtag', ?, 'actief', 'ontdekt', ?, ?)", (value, reason, now))
+    db.set_state(conn, "classify_version", 2)
+    conn.commit()
+    collector.reclassify_if_needed()
+    status = dict(conn.execute("SELECT value, status FROM sources").fetchall())
+    assert status == {"kapper": "afgewezen", "birriatacos": "actief", "tanghulu": "actief"}

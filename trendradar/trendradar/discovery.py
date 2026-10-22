@@ -14,7 +14,8 @@ import json
 from collections import defaultdict
 from datetime import timedelta
 
-from . import db, lexicon, signals
+from . import db, lexicon, signals, trends
+from .classify import _is_food_word, norm
 from .classify import looks_like_business
 
 MIN_REL = 0.5
@@ -24,6 +25,44 @@ MIN_NL = 0.5
 def _known(conn) -> set[tuple[str, str, str]]:
     return {(r["platform"], r["kind"], r["value"]) for r in conn.execute(
         "SELECT platform, kind, value FROM sources")}
+
+
+_PLACES = ({norm(c).replace(" ", "") for c in lexicon.CITIES}
+           | {norm(t).replace(" ", "") for t in lexicon.NL_TOWNS})
+_STORES = {norm(h).replace(" ", "") for hints in lexicon.SUPERMARKETS.values() for h in hints
+           if len(h.strip("# ")) > 3} | {norm(s).replace(" ", "") for s in lexicon.SUPERMARKETS}
+
+
+def acceptable_hashtag(tag: str, viral: bool = False) -> bool:
+    """Mag deze hashtag een bron worden?
+
+    Niet: algemene tags (#herfst, #deals), brede zoektags die we al gebruiken
+    (#snackbar), plaatsnamen (#groningen) en winkelnamen (#albertheijn). Daarnaast
+    moet een gewone kandidaat over eten gaan (#birriatacos wel, #kapper niet).
+    Uit een virale post mag ook een onbekend woord komen: juist een nieuwe snack
+    staat nog niet in de woordenlijst.
+    """
+    if len(tag) < 4 or tag.isdigit() or tag in trends.BROAD_HASHTAGS:
+        return False
+    if tag in _PLACES or tag in _STORES or tag in lexicon.HAIR_WORDS:
+        return False
+    if any(place in tag for place in _PLACES if len(place) >= 6) and not _is_food_word(tag):
+        return False
+    return viral or _is_food_word(tag)
+
+
+def prune_bad_hashtags(conn) -> list[str]:
+    """Ruim eerder ontdekte hashtags op die niet (meer) door de keuring komen."""
+    removed = []
+    for s in conn.execute("SELECT id, value, reason FROM sources WHERE origin = 'ontdekt' "
+                          "AND kind = 'hashtag' AND status IN ('actief', 'kandidaat')").fetchall():
+        reason = s["reason"] or ""
+        viral = "virale" in reason or "viraal" in reason
+        if not acceptable_hashtag(s["value"], viral):
+            conn.execute("UPDATE sources SET status = 'afgewezen', reason = ? WHERE id = ?",
+                         ("te algemeen of niet over eten (automatisch opgeruimd)", s["id"]))
+            removed.append(s["value"])
+    return removed
 
 
 def candidates(conn, days: int = 7) -> list[dict]:
@@ -41,7 +80,7 @@ def candidates(conn, days: int = 7) -> list[dict]:
         p = r["platform"]
         author = r["author"] or ""
         for t in json.loads(r["hashtags"] or "[]"):
-            if len(t) < 4 or t.isdigit() or t in lexicon.GENERIC_HASHTAGS:
+            if not acceptable_hashtag(t):
                 continue
             d = tags[(p, t)]
             d["authors"].add(author)
@@ -113,7 +152,7 @@ def breakout_candidates(conn, known: set, days: int = 3) -> list[dict]:
             why += f", bereik {sig['reach_x']:g}× het aantal volgers"
         score = 20 + min(30, sig["views_x"] or 0)
         for t in json.loads(p["hashtags"] or "[]"):
-            if len(t) < 4 or t.isdigit() or t in lexicon.GENERIC_HASHTAGS:
+            if not acceptable_hashtag(t, viral=True):
                 continue
             if (p["platform"], "hashtag", t) not in known:
                 out.append({"platform": p["platform"], "kind": "hashtag", "value": t, "score": score,

@@ -356,7 +356,7 @@ def step_news(run: Run, settings: dict) -> None:
 
 # Verhoog dit getal als de woordenlijsten of regels in classify.py veranderen:
 # bij de volgende start worden alle posts (zonder AI-oordeel) opnieuw beoordeeld.
-CLASSIFY_VERSION = 2
+CLASSIFY_VERSION = 3
 
 
 def reclassify_if_needed() -> int:
@@ -375,6 +375,9 @@ def reclassify_if_needed() -> int:
                  config.dumps(c["brands"]), config.dumps(c["places"]), config.dumps(c["phrases"]),
                  c["city"], config.dumps(c["hashtags"]), config.dumps(c["mentions"]),
                  config.dumps(p["products"] or c["products"]), p["id"]))
+        removed = discovery.prune_bad_hashtags(conn)
+        if removed:
+            log.info("Opgeruimd: %s", ", ".join("#" + r for r in removed))
         db.set_state(conn, "classify_version", CLASSIFY_VERSION)
     return len(rows)
 

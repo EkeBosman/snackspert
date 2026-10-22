@@ -139,6 +139,20 @@ GENERIC_HASHTAGS = {
     "foodphotography", "tasty", "food2go", "eat", "eating", "foodies", "yum",
     "fyp시", "foryourpage", "xyzbca", "capcut", "ad", "reclame", "sponsored",
     "trend", "trendy", "new", "nieuw", "lunch", "dinner", "diner", "ontbijt",
+    # marketing en seizoenen: zeggen niets over eten
+    "deals", "deal", "aanbieding", "aanbiedingen", "korting", "actie", "acties", "sale",
+    "gratis", "winactie", "giveaway", "herfst", "winter", "zomer", "lente", "weekend",
+    "vrijdag", "zaterdag", "zondag", "feestdagen", "kerst", "pasen", "vakantie", "uitje",
+    "familie", "vrienden", "gezellig", "genieten", "happy", "fun", "mood", "vibes",
+    "ondernemer", "ondernemen", "mkb", "lokaal", "support", "supportlocal", "shoplocal",
+}
+
+# Woorden waardoor 'kapsalon' over de kapper gaat en niet over de snack.
+HAIR_WORDS = {
+    "kapper", "kappers", "kapperszaak", "haar", "haren", "knippen", "geknipt", "knipbeurt",
+    "fade", "barber", "barbershop", "hair", "hairstyle", "haircut", "kleuring", "kleuren",
+    "highlights", "balayage", "föhnen", "fohnen", "krullen", "baard", "kapsel", "coupe",
+    "permanent", "extensions", "hairdresser", "salon",
 }
 
 # Woorden die op Nederlandstalige tekst wijzen.
