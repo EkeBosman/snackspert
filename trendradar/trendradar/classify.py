@@ -74,6 +74,9 @@ def find_city(text: str, hashtags: list[str], location: str | None) -> str | Non
         c = city.lower()
         if re.search(r"(?<![\w])" + re.escape(c) + r"(?![\w])", hay):
             return "Den Bosch" if city == "'s-Hertogenbosch" else city
+    tags = set(hashtags)
+    if any(area in hay for area in lexicon.AMSTERDAM_AREAS) or tags & set(lexicon.AMSTERDAM_TAGS):
+        return "Amsterdam"
     for town in lexicon.NL_TOWNS:
         t = town.lower()
         if re.search(r"(?<![\w])" + re.escape(t) + r"(?![\w])", hay) or t.replace("-", "") in hashtags:
@@ -91,8 +94,10 @@ def find_city(text: str, hashtags: list[str], location: str | None) -> str | Non
 
 # Woorden die duidelijk over eten gaan; een woordcombinatie moet er minstens
 # één bevatten, anders komen zinnetjes als "iedereen praat" in de trends.
-_FOOD_WORDS = {w for words in lexicon.CATEGORIES.values() for w, weight in words.items()
-               if weight >= 0.5 and " " not in w}
+# 'Review', 'foodtruck' of 'supermarkt' zijn context, geen eten: die tellen hier niet mee.
+_CONTEXT_CATEGORIES = {"Streetfood & events", "Supermarkt & nieuwe producten"}
+_FOOD_WORDS = {w for cat, words in lexicon.CATEGORIES.items() if cat not in _CONTEXT_CATEGORIES
+               for w, weight in words.items() if weight >= 0.5 and " " not in w}
 _FOOD_WORDS |= {norm(b) for b in lexicon.BRANDS if " " not in norm(b)}
 _FOOD_STEMS = {w for w in _FOOD_WORDS if len(w) >= 5}
 
@@ -101,13 +106,39 @@ def _is_food_word(word: str) -> bool:
     return word in _FOOD_WORDS or any(stem in word for stem in _FOOD_STEMS)
 
 
-def key_phrases(text: str, limit: int = 8) -> list[str]:
+_KNOWN_WORDS = ({w for words in lexicon.CATEGORIES.values() for w in words}
+                | lexicon.DUTCH_FOODS | lexicon.GENERIC_HASHTAGS)
+_PLACE_WORDS = ("snackbar", "cafetaria", "frituur", "friettent", "foodtruck", "streetfood",
+                "foodspot", "food")
+
+
+def new_compounds(words: list[str]) -> list[str]:
+    """Nieuwe samengestelde snackwoorden, zoals 'frikandelijs' of 'pistachekroket'.
+
+    Een woord dat een bekende snack bevat maar zelf niet in de woordenlijst
+    staat, is vaak precies de nieuwe trend. Ze komen ook uit hashtags, omdat
+    makers zo'n nieuwe naam vaak alleen als hashtag schrijven; het onderwerp is
+    dan het woord, niet de hashtag.
+    """
+    out = []
+    for w in words:
+        if len(w) < 8 or not w.isalpha() or w in _KNOWN_WORDS or w in out:
+            continue
+        if any(p in w for p in _PLACE_WORDS):
+            continue
+        if any(stem in w and stem != w for stem in _FOOD_STEMS):
+            out.append(w)
+    return out
+
+
+def key_phrases(text: str, limit: int = 8, hashtags: list[str] | None = None) -> list[str]:
     """Tweewoordcombinaties zonder stopwoorden: zo duiken nieuwe dingen als
-    'dubai chocolade' op zonder dat iemand ze vooraf hoeft te kennen."""
+    'dubai chocolade' op zonder dat iemand ze vooraf hoeft te kennen. Plus
+    nieuwe samengestelde snackwoorden (zie new_compounds)."""
     clean = URL_RE.sub(" ", text)
     clean = HASHTAG_RE.sub(" ", clean)
     clean = MENTION_RE.sub(" ", clean).lower()
-    phrases: list[str] = []
+    phrases: list[str] = new_compounds(TOKEN_RE.findall(clean) + list(hashtags or []))[:3]
     for sentence in re.split(r"[.!?\n,;:()\"|]+", clean):
         words = [w.strip("'’-") for w in TOKEN_RE.findall(sentence)]
         for a, b in zip(words, words[1:]):
@@ -121,6 +152,43 @@ def key_phrases(text: str, limit: int = 8) -> list[str]:
             if len(phrases) >= limit:
                 return phrases
     return phrases
+
+
+def item_groups(text: str, hashtags: list[str]) -> list[str]:
+    """Welke herkenbare snacks en dragers (brioche, pita, suikerbrood) staan erin?"""
+    found = []
+    words = set(TOKEN_RE.findall(text))
+    blobs = list(hashtags) + new_compounds(list(words))
+    for group, keywords in lexicon.ITEM_GROUPS.items():
+        hit = False
+        for kw in keywords:
+            k = kw.strip()
+            if " " in kw or kw.endswith(" "):
+                hit = f" {kw.strip()} " in text
+            else:
+                hit = k in words or (len(k) >= 4 and any(k in b for b in blobs))
+            if hit:
+                break
+        # 'frikandelijs', 'bitterbalijs': ijs als laatste deel van een samenstelling.
+        if not hit and group == "softijs":
+            hit = any(b.endswith("ijs") and len(b) > 6 for b in blobs)
+        if hit:
+            found.append(group)
+    return found
+
+
+def find_flags(text: str, hashtags: list[str], relevance: float) -> list[str]:
+    """Labels voor kandidaten: 'nieuw_op_kaart' en 'combinatie:a + b'."""
+    flags = []
+    if relevance >= 0.5 and any(p in text for p in lexicon.NEW_MENU_PHRASES):
+        flags.append("nieuw_op_kaart")
+    groups = item_groups(text, hashtags)
+    for i, a in enumerate(groups):
+        for b in groups[i + 1:]:
+            if frozenset((a, b)) not in lexicon.COMMON_PAIRS:
+                flags.append(f"combinatie:{a} + {b}")
+                return flags
+    return flags
 
 
 def looks_like_business(handle: str, name: str = "") -> bool:
@@ -205,7 +273,10 @@ def classify_rules(post: dict) -> dict:
 
     from .products import guess_from_text  # hier, om een kringverwijzing te voorkomen
 
+    flags = find_flags(text, hashtags, round(food, 3))
+
     return {
+        "flags": flags,
         "products": guess_from_text(text_raw, _is_food_word) if is_store or "nieuw" in text else [],
         "hashtags": hashtags,
         "mentions": mentions,
@@ -214,7 +285,7 @@ def classify_rules(post: dict) -> dict:
         "categories": sorted(categories, key=categories.get, reverse=True)[:3],
         "brands": brands[:8],
         "places": list(dict.fromkeys(places))[:5],
-        "phrases": key_phrases(text_raw),
+        "phrases": key_phrases(text_raw, hashtags=hashtags),
         "city": city,
     }
 

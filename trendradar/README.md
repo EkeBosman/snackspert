@@ -8,10 +8,13 @@ Zonder sleutels start hij in **demomodus**, met verzonnen voorbeelddata. Zo kun 
 
 | Tabblad | Wat je ziet |
 |---|---|
-| **Trends** | De stijgers: hashtags, gerechten, producten, merken, zaken, steden en woordcombinaties, met groei ten opzichte van de periodes ervoor, hoeveel verschillende makers het noemen en wat er opvalt (views, likes of doorsturen ver boven normaal). Daarnaast **doorbraken** (onbekende makers die viraal gaan), nieuw opgedoken onderwerpen, posts die nu hard gaan, het volume per platform en de verdeling over categorieën. Klik op een onderwerp voor het verloop en de populairste posts. |
+| **Vandaag** | Je dagelijkse briefing, het startscherm. **Kandidaten voor jou**: posts met een kleine viral of een nieuwe creatie, met de reden erbij. Daarnaast onderwerpen in de **vroege fase**, **Snackspert in het nieuws**, snacknieuws, nieuwe supermarktproducten en het beste uit Amsterdam. |
+| **Trends** | De stijgers: producten, zaken, merken, woordcombinaties (zoals "pistache kroket"), gerechten en steden, met groei ten opzichte van de periodes ervoor, hoeveel verschillende makers het noemen en wat er opvalt (views, likes of doorsturen ver boven normaal). Daarnaast **doorbraken** (onbekende makers die viraal gaan), nieuw opgedoken onderwerpen, posts die nu hard gaan, het volume per platform en de verdeling over categorieën. Klik op een onderwerp voor het verloop en de populairste posts. |
 | **Posts** | Alle relevante posts, met zoeken, filteren en sorteren. |
+| **Amsterdam** | Alles uit Amsterdam, ook herkend aan wijken als De Pijp, Jordaan, Oud-West en Noord en aan plekken als de Foodhallen en de Albert Cuyp. Je ziet de kandidaten, waar Amsterdam het over heeft (met fase), de genoemde zaken, het Amsterdamse eetnieuws en de nieuwste posts. |
 | **Supermarkt** | Nieuwe producten bij tien supermarkten (AH, Jumbo, Lidl, Plus, Dirk en meer), met welke bronnen het bevestigen. **Vroege signalen**: producten waar makers al over posten maar die nog niet in de winkeldata staan. Plus de meest besproken producten en het nieuws. |
 | **Zaken & steden** | Eetzaken en foodtrucks die genoemd worden, met een **reviewkandidaat**-label als ze nog niet op snackspert.nl staan. Plus een kaart met steden. |
+| **Mijn lijst** | Alles wat je met ☆ bewaart: posts, zaken, producten en onderwerpen. Geef elk item een status (*te proberen*, *gepland*, *bezocht*, *gereviewd*, *afgevallen*) en een notitie. Je kunt de lijst exporteren als CSV. |
 | **Bronnen** | De gevolgde hashtags, accounts en zoektermen. De tool **voegt zelf bronnen toe**: uit virale posts en uit onderwerpen die meerdere makers noemen. Bronnen die weinig opleveren pauzeert hij. Per bron zie je wat een nuttige post kost. |
 | **Budget & instellingen** | De kosten deze maand, een prognose, alle instellingen, de status van de koppelingen en een logboek per ophaalronde. |
 
@@ -129,6 +132,8 @@ Een onderwerp is trending als het in de gekozen periode vaker voorkomt dan gemid
 score = log2(groei) × √(aantal verschillende makers) + klein gewicht voor interactie
 ```
 
+**Hashtags zijn geen trend.** Ze zijn het hulpmiddel om posts en accounts te vinden. Het onderwerp is wat ín de posts staat: een product, een zaak of een woordcombinatie. In het detailvenster van een onderwerp zie je wel welke hashtags erbij gebruikt worden, om verder te zoeken.
+
 Door het aantal makers mee te wegen telt één account dat tien keer hetzelfde post niet als trend. De kolom **Makers** laat zien hoeveel verschillende accounts een onderwerp noemen, met tussen haakjes hoeveel meer dan normaal.
 
 ### Opvallend: views, likes en doorsturen
@@ -145,9 +150,33 @@ Per post vergelijkt de tool de cijfers met een gewone post **van dezelfde leefti
 
 Deze signalen tellen mee in de trendscore. Een onderwerp met één **doorbraak** komt ook in de lijst als maar één maker het noemt. Dat is precies de onbekende maker die als eerste viraal gaat met een snack.
 
+**Taal.** Alleen Nederlandstalige posts tellen mee. Bevat een post meer veelgebruikte woorden uit een andere taal (Engels, Spaans, Portugees, Duits, Frans, Italiaans, Indonesisch, Tagalog, Turks) dan Nederlandse woorden, dan valt hij af. Nederlandse posts over Indisch eten (nasi, saté) blijven gewoon Nederlands.
+
 De kaart **Doorbraken** op het Trends-tabblad toont die posts per maker. Bij Posts kun je sorteren op **Snelst groeiend**. Merk op dat "Nu" in de praktijk betekent: sinds de laatste ophaalronde. De tool haalt elke 6 uur op, en dat interval is instelbaar.
 
 **Opbouwfase.** In de eerste dagen is er nog weinig historie. De interface meldt dat zolang de vergelijking nog niet betrouwbaar is.
+
+## Vóór de hype: waar de tool op let
+
+Snackhits beginnen vaak hetzelfde: een kleine zaak zet iets nieuws op de kaart, vaak een bekende snack in een onverwachte combinatie (een broodje met döner en kaassoufflé, een burger tussen suikerbrood). Een paar makers posten erover, daarna volgt het regionale nieuws. De tool zoekt naar die eerste stappen.
+
+| Label | Betekenis |
+|---|---|
+| 🆕 Nieuw op de kaart | De post noemt iets als "nieuw op de kaart", "eigen creatie", "weekspecial" of "vanaf vandaag". |
+| 🧪 Combinatie | Twee snacks die normaal niet samengaan, zoals *kaassoufflé + döner*. Gewone combinaties (friet met frikandel) tellen niet. |
+
+**Kandidaten** (bij Vandaag en Amsterdam) krijgen punten voor zo'n label, voor een doorbraak, voor veel views of doorsturen, voor een kleine maker en voor een post van minder dan een dag oud. Per maker en per onderwerp komen er maximaal twee in de lijst, zodat je verschillende dingen ziet.
+
+**Fase van de hype** staat bij elk onderwerp:
+
+| Fase | Wanneer |
+|---|---|
+| 🌱 Vroeg | Hooguit 3 makers en nog geen nieuws. Hier kun jij het verschil maken. |
+| 📈 Groeit | Meer makers, nog geen nieuws. |
+| 🔥 Piek | Minstens 2 nieuwsberichten of 15 makers. |
+| 📉 Over hoogtepunt | Minstens 20% minder posts dan de periode ervoor. |
+
+**TikTok** zoekt naast hashtags vooral op zoektermen. Zoekresultaten bevatten nieuwe video's van kleine makers, terwijl hashtagpagina's steeds dezelfde bekende video's tonen. Daarom krijgen TikTok-hashtags minder budget. De tool haalt de nieuwste video's op (niet de vastgepinde) en zoekt vanuit Nederland. Woorden en combinaties die opkomen (in de fase vroeg of groeit) worden **automatisch nieuwe TikTok-zoektermen**.
 
 ## Bronnen ontdekken
 
@@ -156,6 +185,7 @@ Na elke ronde zoekt de tool in de relevante Nederlandse posts van de afgelopen 7
 - **Hashtags** die bij minstens 3 verschillende makers voorkomen.
 - **Accounts** die minstens 2 relevante posts plaatsten.
 - **Accounts** die door meerdere makers genoemd worden.
+- **Opkomende woorden en combinaties** (zoals *frikandelijs*) als TikTok-zoekterm.
 - **Hashtags en makers uit virale posts**, ook als het om één maker gaat. Deze gaan altijd voor. Bij de bron staat dan bijvoorbeeld: *"uit virale post van @maker (40× views, bereik 276× het aantal volgers)"*.
 
 Standaard worden per ronde maximaal 6 ontdekte bronnen direct geactiveerd. De rest komt als **kandidaat** in de lijst, zodat jij kunt kiezen. Omgekeerd ruimt de tool ook op:

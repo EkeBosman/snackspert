@@ -28,10 +28,13 @@
 </div>
 
 <nav class="tabs" role="tablist">
-  <button role="tab" data-tab="trends" aria-selected="true">Trends</button>
+  <button role="tab" data-tab="vandaag" aria-selected="true">Vandaag</button>
+  <button role="tab" data-tab="trends">Trends</button>
   <button role="tab" data-tab="posts">Posts</button>
+  <button role="tab" data-tab="amsterdam">Amsterdam</button>
   <button role="tab" data-tab="supermarkt">Supermarkt</button>
   <button role="tab" data-tab="zaken">Zaken &amp; steden</button>
+  <button role="tab" data-tab="lijst">Mijn lijst <span class="count" id="lijst-count"></span></button>
   <button role="tab" data-tab="bronnen">Bronnen</button>
   <button role="tab" data-tab="beheer">Budget &amp; instellingen</button>
 </nav>
@@ -63,7 +66,92 @@
 
 <main>
   <!-- TRENDS -->
-  <section class="panel" data-panel="trends">
+  <!-- VANDAAG -->
+  <section class="panel" data-panel="vandaag" hidden>
+    <div class="grid-2">
+      <article class="card">
+        <h2>🎯 Kandidaten voor jou <span class="muted">laatste 3 dagen</span></h2>
+        <p class="hint">Posts met een kleine viral of een nieuwe creatie: nieuw op de kaart, een onverwachte combinatie, of veel meer views dan normaal. Met ☆ bewaar je iets in <strong>Mijn lijst</strong>.</p>
+        <div class="posts" id="v-candidates"></div>
+      </article>
+      <div class="stack">
+        <article class="card">
+          <h2>🌱 Vroeg en groeiend</h2>
+          <p class="hint">Onderwerpen waar nog maar een paar makers over posten. Hier kun jij het verschil maken.</p>
+          <ul class="list" id="v-early"></ul>
+        </article>
+        <article class="card">
+          <h2>📰 Snackspert in het nieuws</h2>
+          <ul class="list" id="v-news-me"></ul>
+        </article>
+        <article class="card">
+          <h2>Snacknieuws <span class="muted">3 dagen</span></h2>
+          <ul class="list" id="v-news"></ul>
+        </article>
+        <article class="card">
+          <h2>🛒 Nieuw in de supermarkt <span class="muted">2 dagen</span></h2>
+          <ul class="list" id="v-products"></ul>
+        </article>
+        <article class="card">
+          <h2>📍 Amsterdam</h2>
+          <ul class="list" id="v-amsterdam"></ul>
+          <button class="btn ghost small" data-goto="amsterdam">Naar Amsterdam →</button>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <!-- AMSTERDAM -->
+  <section class="panel" data-panel="amsterdam" hidden>
+    <div class="grid-2">
+      <article class="card">
+        <h2>🎯 Kandidaten in Amsterdam <span class="muted">laatste 3 dagen</span></h2>
+        <p class="hint">Posts uit Amsterdam (ook herkend aan wijken als De Pijp, Jordaan en Noord) met een nieuwe creatie of een kleine viral.</p>
+        <div class="posts" id="a-candidates"></div>
+      </article>
+      <div class="stack">
+        <article class="card">
+          <h2>Waar Amsterdam het over heeft <span class="muted" id="a-sub"></span></h2>
+          <div class="table-wrap"><table class="data" id="tbl-a-topics">
+            <thead><tr><th>Onderwerp</th><th class="num">Posts</th><th>Fase</th><th></th></tr></thead>
+            <tbody></tbody></table></div>
+        </article>
+        <article class="card">
+          <h2>Zaken in Amsterdam</h2>
+          <div class="table-wrap"><table class="data" id="tbl-a-zaken">
+            <thead><tr><th>Zaak</th><th class="num">Posts</th><th>Snackspert</th><th></th></tr></thead>
+            <tbody></tbody></table></div>
+        </article>
+        <article class="card">
+          <h2>📰 Nieuws uit Amsterdam</h2>
+          <ul class="list" id="a-news"></ul>
+        </article>
+      </div>
+    </div>
+    <article class="card">
+      <h2>Nieuwste posts uit Amsterdam</h2>
+      <div class="posts" id="a-posts"></div>
+    </article>
+  </section>
+
+  <!-- MIJN LIJST -->
+  <section class="panel" data-panel="lijst" hidden>
+    <article class="card">
+      <div class="card-head">
+        <h2>Mijn lijst</h2>
+        <div class="toolbar">
+          <div class="chips" id="lijst-filter"></div>
+          <a class="btn ghost small" href="/api/export/lijst.csv">Als CSV</a>
+        </div>
+      </div>
+      <p class="hint">Alles wat je met ☆ hebt bewaard. Zet de status van <em>te proberen</em> via <em>gepland</em> en <em>bezocht</em> naar <em>gereviewd</em>, en houd notities bij.</p>
+      <div class="table-wrap"><table class="data" id="tbl-lijst">
+        <thead><tr><th>Wat</th><th class="hide-s">Soort</th><th>Status</th><th>Notitie</th><th class="hide-s">Bewaard</th><th></th></tr></thead>
+        <tbody></tbody></table></div>
+    </article>
+  </section>
+
+  <section class="panel" data-panel="trends" hidden>
     <div id="history-note" class="note" hidden></div>
     <div class="kpis" id="kpis"></div>
     <div class="grid-2">
@@ -76,8 +164,8 @@
           <table class="data" id="tbl-topics">
             <thead><tr>
               <th>#</th><th>Onderwerp</th><th class="hide-s">Verloop</th>
-              <th class="num">Posts</th><th class="num">Groei</th><th class="num hide-s">Makers</th>
-              <th class="hide-s">Opvallend</th><th class="hide-s">Platforms</th>
+              <th class="num">Posts</th><th class="num">Groei</th><th>Fase</th><th class="num hide-s">Makers</th>
+              <th class="hide-s">Opvallend</th><th class="hide-s">Platforms</th><th></th>
             </tr></thead>
             <tbody></tbody>
           </table>
@@ -145,7 +233,7 @@
         <p class="hint">Producten die na de eerste meting voor het eerst in het assortiment opdoken (bron: checkjebon). ‘Bevestigd door’ laat zien of makers en nieuws het ook oppikken.</p>
         <label class="hint"><input type="checkbox" id="p-all-products"> Ook producten tonen die niet over snacks of streetfood gaan</label>
         <div class="table-wrap"><table class="data" id="tbl-products">
-          <thead><tr><th>Product</th><th>Winkel</th><th class="hide-s">Inhoud</th><th class="num">Prijs</th><th>Sinds</th><th>Bevestigd door</th></tr></thead>
+          <thead><tr><th>Product</th><th>Winkel</th><th class="hide-s">Inhoud</th><th class="num">Prijs</th><th>Sinds</th><th>Bevestigd door</th><th></th></tr></thead>
           <tbody></tbody></table></div>
       </article>
       <div class="stack">
@@ -176,7 +264,7 @@
         <h2>Zaken in de belangstelling</h2>
         <p class="hint" id="zaken-hint"></p>
         <div class="table-wrap"><table class="data" id="tbl-zaken">
-          <thead><tr><th>Zaak</th><th class="hide-s">Stad</th><th class="num">Posts</th><th class="num">Groei</th><th>Snackspert</th></tr></thead>
+          <thead><tr><th>Zaak</th><th class="hide-s">Stad</th><th class="num">Posts</th><th class="num">Groei</th><th>Snackspert</th><th></th></tr></thead>
           <tbody></tbody></table></div>
       </article>
       <article class="card">
@@ -253,11 +341,12 @@
     <h2 id="d-title"></h2>
     <div id="d-chart" class="chart"></div>
     <div id="d-meta" class="chips"></div>
-    <h3>Komt vaak samen voor met</h3>
+    <h3>Hashtags in deze posts <span class="muted">(om verder te zoeken)</span></h3>
     <div id="d-related" class="chips"></div>
     <div class="toolbar">
       <button class="btn ghost" id="d-all">Alle posts bekijken</button>
       <button class="btn ghost" id="d-follow" hidden>Volgen als bron</button>
+      <button class="btn ghost" id="d-star">☆ Bewaren</button>
     </div>
     <h3>Populairste posts</h3>
     <div id="d-posts" class="posts one"></div>

@@ -181,12 +181,12 @@ def test_trend_detects_rising_topic(conn):
                  (db.iso(db.now() - timedelta(days=10)),))
     r = trends.compute(conn, "24u")
     names = [t["name"] for t in r["topics"]]
-    assert "#pistachekroket" in names
-    top = next(t for t in r["topics"] if t["name"] == "#pistachekroket")
+    assert "pistache kroket" in names
+    top = next(t for t in r["topics"] if t["name"] == "pistache kroket")
     assert top["new"] is True and top["authors"] == 6
-    assert "#kroket" not in names  # brede zoekhashtag: een net, geen trend
+    # Hashtags zijn hulpmiddel om te zoeken, geen onderwerp.
+    assert not any(t["name"].startswith("#") for t in r["topics"])
     assert r["history_ok"]
-    assert not any(t["type"] == "zin" and t["name"] == "pistache kroket" for t in r["topics"])
 
 
 def test_single_author_spam_is_not_a_trend(conn):
@@ -345,7 +345,7 @@ def test_trends_show_single_viral_creator(conn):
                          author="eenling")], None)
     r = trends.compute(conn, "24u")
     names = [t["name"] for t in r["topics"]]
-    assert "#bitterbalijs" in names
+    assert "bitterbal softijs" in names or "bitterbalijs" in names
     assert r["totals"]["breakouts"] >= 1 and r["breakouts"][0]["signals"]["followers"] == 800
 
 
@@ -603,3 +603,140 @@ def test_bad_discovered_sources_are_cleaned_up(conn):
     collector.reclassify_if_needed()
     status = dict(conn.execute("SELECT value, status FROM sources").fetchall())
     assert status == {"kapper": "afgewezen", "birriatacos": "actief", "tanghulu": "actief"}
+
+
+def test_indonesian_and_turkish_posts_are_not_dutch():
+    def nl(text):
+        return classify.classify_rules({"text": text, "platform": "instagram"})["nl_score"]
+    assert nl("Enak banget kroket ini, harga murah dan rasa mantap! #snackbar") < 0.4
+    assert nl("Çok lezzetli döner, afiyet olsun! #kapsalon") < 0.4
+    # Nederlandse post over Indisch eten blijft Nederlands.
+    assert nl("Heerlijke nasi en saté gehaald bij de toko, echt een aanrader") >= 0.4
+
+
+def test_new_compound_snack_words_are_topics(conn):
+    assert classify.new_compounds(["frikandelijs", "frikandel", "snackbarlucy", "foodspotsamsterdam",
+                                   "kapsalonchips", "lekker"]) == ["frikandelijs", "kapsalonchips"]
+    store_posts(conn, [post(f"fi{i}", "Moet je proberen! #frikandelijs", hours_ago=1 + i)
+                       for i in range(3)], None)
+    r = trends.compute(conn, "24u")
+    word = next(t for t in r["topics"] if t["name"] == "frikandelijs")
+    assert word["type"] == "woord" and word["type_label"] == "Nieuw woord"
+
+
+def test_new_word_that_is_part_of_a_product_is_not_repeated(conn):
+    store_posts(conn, [post(f"kc{i}", "Nieuw bij AH: Kapsalon Chips! #kapsalonchips", hours_ago=1 + i,
+                            products=[{"naam": "Smaakmakers Kapsalon Chips", "merk": "", "winkel": "Albert Heijn",
+                                       "nieuw": True}]) for i in range(3)], None)
+    names = [t["name"] for t in trends.compute(conn, "24u")["topics"]]
+    assert "Smaakmakers Kapsalon Chips" in names and "kapsalonchips" not in names
+
+
+# --- vóór de hype: nieuw op de kaart, combinaties, fase, Amsterdam, Mijn lijst ---
+
+def test_new_on_the_menu_and_unexpected_combination():
+    c = classify.classify_rules({"text": "Nieuw op de kaart: broodje met döner en kaassoufflé! #snackbar",
+                                 "platform": "tiktok"})
+    assert "nieuw_op_kaart" in c["flags"]
+    assert "combinatie:kaassoufflé + döner" in c["flags"]
+    gewoon = classify.classify_rules({"text": "Frietje met frikandel bij de snackbar, lekker!",
+                                      "platform": "tiktok"})
+    assert not any(f.startswith("combinatie:") for f in gewoon["flags"])
+
+
+def test_amsterdam_neighbourhood_counts_as_amsterdam():
+    c = classify.classify_rules({"text": "Weekspecial bij onze zaak in De Pijp: soufflé tosti met kaassoufflé",
+                                 "platform": "instagram"})
+    assert c["city"] == "Amsterdam"
+    assert "nieuw_op_kaart" in c["flags"]
+
+
+def test_phase_of_the_hype():
+    assert trends.phase({"growth_pct": -40, "authors": 3, "news": 0}) == "over"
+    assert trends.phase({"growth_pct": 50, "authors": 2, "news": 0}) == "vroeg"
+    assert trends.phase({"growth_pct": 50, "authors": 8, "news": 0}) == "groeit"
+    assert trends.phase({"growth_pct": 50, "authors": 8, "news": 2}) == "piek"
+
+
+def test_candidates_and_amsterdam_filter(conn):
+    store_posts(conn, [
+        post("ams", "Nieuw op de kaart in de Jordaan: tosti met kaassoufflé! #amsterdamfood", platform="tiktok"),
+        post("rdam", "Nieuw bij ons: broodje döner met kaassoufflé #eten010", platform="tiktok"),
+        post("saai", "Lekker frietje gehaald bij de snackbar", platform="tiktok"),
+    ], None)
+    ids = [c["id"] for c in trends.candidates(conn, include_demo=False)]
+    assert "tiktok:ams" in ids and "tiktok:rdam" in ids and "tiktok:saai" not in ids
+    ams = [c["id"] for c in trends.candidates(conn, city="Amsterdam", include_demo=False)]
+    assert ams == ["tiktok:ams"]
+    assert all(p["city"] == "Amsterdam" for p in trends.load_posts(conn, db.now() - timedelta(days=1),
+                                                                   db.now(), city="Amsterdam"))
+
+
+def test_watchlist_api(conn):
+    from trendradar.web import app
+
+    client = app.test_client()
+    r = client.post("/api/lijst", json={"kind": "zaak", "ref": "Broodjesbar Stoep", "title": "Broodjesbar Stoep",
+                                        "city": "Amsterdam"})
+    assert r.status_code == 200
+    item = client.get("/api/lijst").get_json()["items"][0]
+    assert item["status"] == "te proberen"
+    assert client.patch(f"/api/lijst/{item['id']}", json={"status": "gepland", "note": "zaterdag"}).status_code == 200
+    assert client.patch(f"/api/lijst/{item['id']}", json={"status": "onzin"}).status_code == 400
+    item = client.get("/api/lijst").get_json()["items"][0]
+    assert (item["status"], item["note"]) == ("gepland", "zaterdag")
+    assert "Broodjesbar Stoep" in client.get("/api/export/lijst.csv").get_data(as_text=True)
+    for url in ("/api/vandaag", "/api/kandidaten?city=Amsterdam", "/api/nieuws?soort=amsterdam",
+                "/api/trends?city=Amsterdam"):
+        assert client.get(url).status_code == 200, url
+    assert client.delete(f"/api/lijst/{item['id']}").status_code == 200
+    assert client.get("/api/lijst").get_json()["items"] == []
+
+
+def test_seed_upgrade_adds_new_searches_once(conn):
+    from trendradar import seeds
+
+    now = db.iso(db.now())
+    seeds.install(conn, now)
+    conn.execute("DELETE FROM sources WHERE value = 'nieuw op de kaart snackbar'")
+    conn.execute("UPDATE sources SET status = 'gepauzeerd' WHERE value = 'snackbar' AND platform = 'tiktok'")
+    db.set_state(conn, "seeds_version", 1)
+    assert seeds.upgrade(conn, now) == 1
+    assert seeds.upgrade(conn, now) == 0
+    row = conn.execute("SELECT status, priority FROM sources WHERE value = 'snackbar' AND platform = 'tiktok'"
+                       " AND kind = 'hashtag'").fetchone()
+    assert row["status"] == "gepauzeerd" and row["priority"] == 0.5
+
+
+def test_apify_retries_without_optional_fields(monkeypatch):
+    from trendradar.sources import apify as ap
+
+    bodies = []
+
+    class Resp:
+        def __init__(self, data, status=200):
+            self._d, self.status_code, self.ok, self.text = data, status, status < 400, "invalid input"
+
+        def json(self):
+            return self._d
+
+        def raise_for_status(self):
+            pass
+
+    def post(url, params=None, headers=None, json=None, timeout=None):
+        bodies.append(json)
+        if len(bodies) == 1:
+            return Resp({}, 400)
+        return Resp({"data": {"id": "r1", "status": "SUCCEEDED", "defaultDatasetId": "d1"}})
+
+    def get(url, params=None, headers=None, timeout=None):
+        if "/datasets/" in url:
+            return Resp([])
+        return Resp({"data": {"id": "r1", "status": "SUCCEEDED", "usageTotalUsd": 0.01}})
+
+    monkeypatch.setenv("APIFY_TOKEN", "tok")
+    monkeypatch.setattr(ap.requests, "post", post)
+    monkeypatch.setattr(ap.requests, "get", get)
+    ap.run_actor("tiktok", "zoekterm", ["broodje kaassoufflé"], 10, 0.5)
+    assert len(bodies) == 2
+    assert ap.OPTIONAL_KEYS & bodies[0].keys() and not ap.OPTIONAL_KEYS & bodies[1].keys()

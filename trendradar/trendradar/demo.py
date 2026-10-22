@@ -39,6 +39,8 @@ PLACES = [
     ("Grillroom Anatolia", "Den Haag", "demo_anatolia_grill"),
     ("Burgerbar Smash & Co", "Eindhoven", "demo_smashco_burger"),
     ("Cafetaria 't Hoekje", "Groningen", "demo_thoekje_cafetaria"),
+    ("Cafetaria De Reiger", "Gorinchem", "demo_dereiger_cafetaria"),
+    ("Broodjesbar Stoep", "Amsterdam", "demo_stoep_broodjesbar"),
 ]
 
 # (sleutel, teksten, hashtags, gewicht-functie van 'uren geleden', platformen)
@@ -98,6 +100,20 @@ TRENDS = [
       "Nieuwe chips met bitterbalsmaak, wie heeft ze al geproefd?"],
      ["bitterbalchips", "nieuwbijjumbo", "supermarktvondst"],
      lambda h: 2.2 * math.exp(-h / 8) if h < 20 else 0.0, None),
+    # Een zaak post zelf een nieuwe combinatie: het moment vóór een hype.
+    ("broodje reiger",
+     ["Nieuw op de kaart: het broodje Reiger! Pita met döner, kaassoufflé en knoflooksaus 🔥",
+      "Broodje Reiger gehaald bij {zaak} in Gorinchem. Döner met kaassoufflé in een pita, echt goed",
+      "Wie heeft het broodje Reiger al geprobeerd? Kaassoufflé en döner, wat een combi"],
+     ["broodjereiger", "gorinchem"],
+     lambda h: 0.9 * math.exp(-h / 20) if h < 40 else 0.0, 6),
+    # Amsterdam: nieuwe tosti in De Pijp.
+    ("soufflé tosti",
+     ["Nieuw bij ons in De Pijp: de soufflé tosti! Tosti met kaassoufflé en truffelmayo",
+      "Soufflé tosti bij {zaak} in De Pijp geprobeerd, kaassoufflé in een tosti 🤯",
+      "Rij voor de deur bij {zaak} voor die nieuwe tosti met kaassoufflé #amsterdamfood"],
+     ["souffletosti", "amsterdamfood"],
+     lambda h: 1.2 * math.exp(-h / 15) if h < 36 else 0.0, 7),
 ]
 
 DEMO_PRODUCTS = [
@@ -116,6 +132,8 @@ DEMO_NEWS = [
     ("Foodtrucks met birria tacos populair op zomerfestivals (demo)", 4),
     ("Supermarkten breiden assortiment snacks uit in najaar (demo)", 6),
     ("Dubai chocolade-hype lijkt over zijn hoogtepunt (demo)", 8),
+    ("Snackspert zet cafetaria in Gorinchem op de kaart (demo)", 3),
+    ("Rij voor de deur bij nieuwe Amsterdamse broodjesbar (demo)", 1),
 ]
 
 

@@ -11,14 +11,14 @@
     nieuws: { name: "Nieuws", color: "var(--s-nieuws)" },
   };
   const TYPE_CHIPS = [
-    ["", "Alles"], ["hashtag", "Hashtags"], ["categorie", "Gerechten"], ["product", "Producten"],
-    ["merk", "Merken & winkels"], ["zaak", "Zaken"], ["zin", "Woordcombinaties"], ["stad", "Steden"],
+    ["", "Alles"], ["categorie", "Gerechten"], ["product", "Producten"],
+    ["merk", "Merken & winkels"], ["zaak", "Zaken"], ["woord", "Nieuwe woorden"], ["zin", "Woordcombinaties"], ["stad", "Steden"],
   ];
 
   const state = {
-    tab: "trends", window: "24u", platform: "", minRel: "0.35",
+    tab: "vandaag", window: "24u", platform: "", minRel: "0.35",
     typeFilter: "", trends: null, posts: { offset: 0, topic: null },
-    sourceFilter: "actief", status: null,
+    sourceFilter: "actief", status: null, watch: new Map(), lijstFilter: "open",
   };
 
   try {
@@ -213,16 +213,16 @@
     const rows = d.topics.filter(t => state.typeFilter ? t.type === state.typeFilter
       : !["categorie", "stad"].includes(t.type)).slice(0, 25);
     const tbody = $("#tbl-topics tbody");
-    tbody.innerHTML = rows.length ? "" : `<tr><td colspan="8" class="muted">Geen onderwerpen gevonden. Probeer een langere periode of strengheid 'Breed'.</td></tr>`;
+    tbody.innerHTML = rows.length ? "" : `<tr><td colspan="10" class="muted">Geen onderwerpen gevonden. Probeer een langere periode of strengheid 'Breed'.</td></tr>`;
     rows.forEach((t, i) => {
       const tr = document.createElement("tr");
       tr.className = "click";
       tr.innerHTML = `<td class="rank">${i + 1}</td>
         <td><span class="badge">${esc(t.type_label)}</span><span class="topic-name">${esc(t.name)}</span></td>
         <td class="hide-s spark"></td>
-        <td class="num">${fmt(t.posts)}</td><td class="num">${growth(t)}</td>
+        <td class="num">${fmt(t.posts)}</td><td class="num">${growth(t)}</td><td>${phaseBadge(t.phase)}</td>
         <td class="num hide-s">${makers(t)}</td><td class="hide-s">${sigChips(t.signals)}</td>
-        <td class="hide-s">${pdots(t.platforms)}</td>`;
+        <td class="hide-s">${pdots(t.platforms)}</td><td>${starBtn("onderwerp", t.type + "|" + t.name, t.name)}</td>`;
       tr.querySelector(".spark").appendChild(sparkline(t.series, d.baseline_buckets));
       tr.addEventListener("click", () => openTopic(t.type, t.name));
       tbody.appendChild(tr);
@@ -247,6 +247,13 @@
     $("#d-related").innerHTML = d.related.length ? d.related.map(([t, n]) =>
       `<button class="chip" data-topic="hashtag|${esc(t)}">${esc(t)} · ${n}</button>`).join("") : '<span class="muted">–</span>';
     $("#d-posts").innerHTML = d.posts.map(postCard).join("");
+    const dstar = $("#d-star");
+    const watchedTopic = state.watch.get(`onderwerp|${type}|${name}`);
+    dstar.textContent = watchedTopic ? "★ Bewaard" : "☆ Bewaren";
+    dstar.onclick = async () => {
+      await toggleWatch({ kind: "onderwerp", ref: `${type}|${name}`, title: name });
+      dstar.textContent = state.watch.get(`onderwerp|${type}|${name}`) ? "★ Bewaard" : "☆ Bewaren";
+    };
     $("#d-all").onclick = () => {
       drawer.hidden = true;
       state.posts.topic = { type, name };
@@ -271,13 +278,22 @@
     if (p.comments) metrics.push(`💬 ${compact(p.comments)}`);
     if (p.shares) metrics.push(`↗ ${compact(p.shares)}`);
     if (p.views) metrics.push(`▶ ${compact(p.views)}`);
-    const sig = p.signals ? sigChips(p.signals, { reach: true }) : "";
+    // Kandidaten hebben al redenen (doorbraak, n× views); dan geen dubbele signaalchips.
+    const sig = p.signals && !p.reasons ? sigChips(p.signals, { reach: true }) : "";
+    const flags = (p.flags || []).map(f => f === "nieuw_op_kaart"
+      ? `<span class="sig hot">🆕 Nieuw op de kaart</span>`
+      : f.startsWith("combinatie:") ? `<span class="sig hot">🧪 ${esc(f.slice(11))}</span>` : "").join("");
+    const reasons = p.reasons ? `<div class="reasons">${p.reasons.filter(r => !r.startsWith("Combinatie") && r !== "Nieuw op de kaart")
+      .map(r => `<span class="reason">${esc(r)}</span>`).join("")}</div>` : "";
+    const title = (p.summary || p.text || "").replace(/\s+/g, " ").slice(0, 90);
     const tags = [...(p.categories || []), ...(p.brands || []).slice(0, 2)].slice(0, 4)
       .map(c => `<span class="badge">${esc(c)}</span>`).join("");
     const thumb = p.thumbnail ? `<img src="${esc(p.thumbnail)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.remove()">` : "";
     return `<article class="post">
       <div class="post-head"><span><span class="ptag" style="--pc:${plat.color}">${esc(plat.name)}</span> · <strong>${p.platform === "nieuws" ? esc(p.author || "") : "@" + esc(p.author || "onbekend")}</strong></span>
-      <span title="${esc(new Date(p.posted_at).toLocaleString("nl-NL"))}">${ago(p.posted_at)}</span></div>
+      <span><span title="${esc(new Date(p.posted_at).toLocaleString("nl-NL"))}">${ago(p.posted_at)}</span>
+      ${p.platform !== "nieuws" ? starBtn("post", p.id, title, p.url, p.city) : ""}</span></div>
+      ${flags ? `<div class="sigs">${flags}</div>` : ""}${reasons}
       ${sig}
       ${p.summary ? `<div class="post-sum">${esc(p.summary)}</div>` : ""}
       <div class="post-body">${thumb}<div class="post-text">${esc(p.text)}</div></div>
@@ -331,8 +347,9 @@
        <td>${esc(p.store)}</td><td class="hide-s">${esc(p.size || p.category || "")}</td>
        <td class="num">${p.price != null ? "€ " + Number(p.price).toFixed(2).replace(".", ",") : "–"}</td>
        <td>${dateNl(p.first_seen)}</td>
-       <td><span class="sigs">${p.confirmed_by.map(c => `<span class="sig ${c !== "winkel" ? "hot" : ""}">${CONF[c]}${c === "social" ? " " + p.social_makers : ""}</span>`).join("")}</span></td></tr>`).join("")
-      : `<tr><td colspan="6" class="muted">Nog geen nieuwe producten. De eerste controle legt alleen vast wat er ligt; daarna verschijnen nieuwkomers hier.</td></tr>`;
+       <td><span class="sigs">${p.confirmed_by.map(c => `<span class="sig ${c !== "winkel" ? "hot" : ""}">${CONF[c]}${c === "social" ? " " + p.social_makers : ""}</span>`).join("")}</span></td>
+       <td>${starBtn("product", p.id, `${p.name} (${p.store})`, p.url)}</td></tr>`).join("")
+      : `<tr><td colspan="7" class="muted">Nog geen nieuwe producten. De eerste controle legt alleen vast wat er ligt; daarna verschijnen nieuwkomers hier.</td></tr>`;
     $("#tbl-mentioned tbody").innerHTML = d.mentioned.length ? d.mentioned.map(m =>
       `<tr class="click" data-topic="product|${esc(m.name)}"><td><span class="topic-name">${esc(m.name)}</span> ${pdots(m.platforms)}
        <div class="meta">${m.in_store ? "in winkeldata" : m.store_tracked ? '<span class="up">nog niet in winkeldata</span>' : ""}</div></td>
@@ -354,8 +371,9 @@
     $("#tbl-zaken tbody").innerHTML = d.places.length ? d.places.map(p =>
       `<tr class="click" data-topic="zaak|${esc(p.name)}"><td><span class="topic-name">${esc(p.display)}</span> ${pdots(p.platforms)}${p.aliases && p.aliases.length ? `<div class="meta muted">ook: ${esc(p.aliases.join(", "))}</div>` : ""}</td>
        <td class="hide-s">${esc(p.city || "")}</td><td class="num">${p.posts}</td><td class="num">${growth(p)}</td>
-       <td>${p.reviewed ? `<span class="badge ok">✓ gereviewd</span>` : `<span class="badge new">reviewkandidaat</span>`}</td></tr>`).join("")
-      : `<tr><td colspan="5" class="muted">Nog geen zaken herkend in deze periode.</td></tr>`;
+       <td>${p.reviewed ? `<span class="badge ok">✓ gereviewd</span>` : `<span class="badge new">reviewkandidaat</span>`}</td>
+       <td>${starBtn("zaak", p.name, p.display, null, p.city)}</td></tr>`).join("")
+      : `<tr><td colspan="6" class="muted">Nog geen zaken herkend in deze periode.</td></tr>`;
 
     $("#list-cities").innerHTML = d.cities.slice(0, 12).map(c =>
       `<li><div class="row"><button class="linkish" data-topic="stad|${esc(c.name)}">${esc(c.name)}</button><span class="meta">${c.posts} posts · ${growth(c)}</span></div></li>`).join("")
@@ -521,17 +539,141 @@
     }
   }
 
+  // --- bewaren (Mijn lijst) ---------------------------------------------------
+
+  const PHASES = { vroeg: "🌱 Vroeg", groeit: "📈 Groeit", piek: "🔥 Piek", over: "📉 Over hoogtepunt" };
+  const phaseBadge = p => p ? `<span class="phase ${p}">${PHASES[p] || p}</span>` : "";
+
+  function starBtn(kind, ref, title, url, city) {
+    const on = state.watch.has(`${kind}|${ref}`);
+    return `<button class="star ${on ? "on" : ""}" title="${on ? "Bewaard in Mijn lijst" : "Bewaren in Mijn lijst"}"
+      aria-label="Bewaren" data-kind="${esc(kind)}" data-ref="${esc(ref)}" data-title="${esc(title || ref)}"
+      data-url="${esc(url || "")}" data-city="${esc(city || "")}">${on ? "★" : "☆"}</button>`;
+  }
+
+  async function loadWatch() {
+    try {
+      const d = await api("/api/lijst");
+      state.watch = new Map(d.items.map(i => [`${i.kind}|${i.ref}`, i]));
+      state.statuses = d.statuses;
+      const open = d.items.filter(i => !["gereviewd", "afgevallen"].includes(i.status)).length;
+      $("#lijst-count").textContent = open ? `(${open})` : "";
+      return d;
+    } catch (e) { return { items: [], statuses: [] }; }
+  }
+
+  async function toggleWatch(item) {
+    const existing = state.watch.get(`${item.kind}|${item.ref}`);
+    if (existing) {
+      await api(`/api/lijst/${existing.id}`, { method: "DELETE" });
+      toast("Uit je lijst gehaald");
+    } else {
+      await api("/api/lijst", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(item) });
+      toast("Bewaard in Mijn lijst");
+    }
+    await loadWatch();
+  }
+
+  async function loadLijst() {
+    await state.pendingNote;  // een notitie die net is weggeklikt eerst opslaan
+    const d = await loadWatch();
+    const filters = [["open", "Open"], ...d.statuses.map(st => [st, st]), ["alle", "Alle"]];
+    $("#lijst-filter").innerHTML = filters.map(([v, l]) =>
+      `<button class="chip ${state.lijstFilter === v ? "on" : ""}" data-lf="${esc(v)}">${esc(l)}</button>`).join("");
+    const rows = d.items.filter(i => state.lijstFilter === "alle" ? true
+      : state.lijstFilter === "open" ? !["gereviewd", "afgevallen"].includes(i.status) : i.status === state.lijstFilter);
+    const KIND = { post: "Post", zaak: "Zaak", product: "Product", onderwerp: "Onderwerp" };
+    $("#tbl-lijst tbody").innerHTML = rows.length ? rows.map(i => {
+      const open = i.kind === "onderwerp" ? `data-topic="${esc(i.ref)}"` : "";
+      const title = i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>`
+        : i.kind === "onderwerp" ? `<button class="linkish" ${open}>${esc(i.title)}</button>` : esc(i.title);
+      return `<tr><td><span class="topic-name">${title}</span>${i.city ? `<div class="meta">📍 ${esc(i.city)}</div>` : ""}</td>
+        <td class="hide-s"><span class="badge">${KIND[i.kind] || i.kind}</span></td>
+        <td><select data-status="${i.id}" aria-label="Status">${d.statuses.map(st => `<option ${st === i.status ? "selected" : ""}>${st}</option>`).join("")}</select></td>
+        <td><textarea class="note-input" rows="1" data-note="${i.id}" placeholder="Notitie…">${esc(i.note || "")}</textarea></td>
+        <td class="hide-s meta">${ago(i.added_at)}</td>
+        <td><button class="btn small ghost" data-wdel="${i.id}" aria-label="Verwijderen">✕</button></td></tr>`;
+    }).join("") : `<tr><td colspan="6" class="muted">Nog niets bewaard. Klik op ☆ bij een post, zaak, product of onderwerp.</td></tr>`;
+  }
+
+  // --- vandaag ---------------------------------------------------------------
+
+  function newsList(items, empty) {
+    return items.length ? items.map(n =>
+      `<li><div class="row"><span>${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a>` : esc(n.title)}</span>
+       <span class="meta">${esc(n.outlet || "")} · ${ago(n.published_at)}</span></div></li>`).join("")
+      : `<li class="meta">${empty}</li>`;
+  }
+
+  function miniCandidates(items, empty) {
+    return items.length ? items.map(p =>
+      `<li><div class="row"><span><span class="ptag" style="--pc:${PLATFORM[p.platform]?.color}">${esc(PLATFORM[p.platform]?.name)}</span> @${esc(p.author || "?")}</span>
+       ${starBtn("post", p.id, (p.summary || p.text || "").slice(0, 90), p.url, p.city)}</div>
+       <div class="reasons">${(p.reasons || []).map(r => `<span class="reason">${esc(r)}</span>`).join("")}</div>
+       <div class="meta">${esc((p.summary || p.text || "").slice(0, 110))}${p.url ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">bekijk</a>` : ""}</div></li>`).join("")
+      : `<li class="meta">${empty}</li>`;
+  }
+
+  async function loadVandaag() {
+    const d = await api("/api/vandaag");
+    $("#v-candidates").innerHTML = d.candidates.length ? d.candidates.map(postCard).join("")
+      : '<p class="muted">Nog geen kandidaten. Na een paar ophaalrondes verschijnen hier posts met een nieuwe creatie of een kleine viral.</p>';
+    $("#v-early").innerHTML = d.early_topics.length ? d.early_topics.map(t =>
+      `<li><div class="row"><button class="linkish" data-topic="${esc(t.type)}|${esc(t.name)}">${esc(t.name)}</button>
+       <span>${phaseBadge(t.phase)} ${starBtn("onderwerp", t.type + "|" + t.name, t.name)}</span></div>
+       <div class="meta"><span class="badge">${esc(t.type_label)}</span>${t.authors} makers · ${t.posts} posts ${pdots(t.platforms)}</div></li>`).join("")
+      : `<li class="meta">Niets in de vroege fase op dit moment.</li>`;
+    $("#v-news-me").innerHTML = newsList(d.snackspert_news, "Geen berichten over Snackspert in de afgelopen 30 dagen.");
+    $("#v-news").innerHTML = newsList(d.snack_news, "Geen snacknieuws in de afgelopen 3 dagen.");
+    $("#v-products").innerHTML = d.new_products.length ? d.new_products.map(p =>
+      `<li><div class="row"><span>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>` : esc(p.name)}</span>
+       ${starBtn("product", p.id, `${p.name} (${p.store})`, p.url)}</div>
+       <div class="meta">${esc(p.store)}${p.price != null ? " · € " + Number(p.price).toFixed(2).replace(".", ",") : ""}${p.social_makers ? ` · <span class="up">${p.social_makers} makers posten erover</span>` : ""}</div></li>`).join("")
+      : `<li class="meta">Geen nieuwe snackproducten in de afgelopen 2 dagen.</li>`;
+    $("#v-amsterdam").innerHTML = miniCandidates(d.amsterdam, "Geen Amsterdamse kandidaten op dit moment.");
+  }
+
+  // --- amsterdam -------------------------------------------------------------
+
+  async function loadAmsterdam() {
+    const city = { city: "Amsterdam" };
+    const win = state.window === "nu" ? "24u" : state.window;
+    const [cands, tr, zk, news, posts] = await Promise.all([
+      api("/api/kandidaten?" + qs(city)),
+      api("/api/trends?" + qs(city)),
+      api("/api/zaken?" + qs({ ...city, window: win })),
+      api("/api/nieuws?soort=amsterdam"),
+      api("/api/posts?" + qs({ ...city, sort: "nieuw", limit: 24 })),
+    ]);
+    $("#a-candidates").innerHTML = cands.length ? cands.map(postCard).join("")
+      : '<p class="muted">Geen Amsterdamse kandidaten in de afgelopen 3 dagen.</p>';
+    $("#a-sub").textContent = `· ${tr.label}`;
+    const topics = tr.topics.filter(t => !["categorie", "stad"].includes(t.type)).slice(0, 15);
+    $("#tbl-a-topics tbody").innerHTML = topics.length ? topics.map(t =>
+      `<tr class="click" data-topic="${esc(t.type)}|${esc(t.name)}"><td><span class="badge">${esc(t.type_label)}</span><span class="topic-name">${esc(t.name)}</span></td>
+       <td class="num">${t.posts}</td><td>${phaseBadge(t.phase)}</td><td>${starBtn("onderwerp", t.type + "|" + t.name, t.name)}</td></tr>`).join("")
+      : `<tr><td colspan="4" class="muted">Nog geen onderwerpen in deze periode.</td></tr>`;
+    $("#tbl-a-zaken tbody").innerHTML = zk.places.length ? zk.places.slice(0, 15).map(p =>
+      `<tr class="click" data-topic="zaak|${esc(p.name)}"><td><span class="topic-name">${esc(p.display)}</span> ${pdots(p.platforms)}</td>
+       <td class="num">${p.posts}</td>
+       <td>${p.reviewed ? `<span class="badge ok">✓ gereviewd</span>` : `<span class="badge new">kandidaat</span>`}</td>
+       <td>${starBtn("zaak", p.name, p.display, null, "Amsterdam")}</td></tr>`).join("")
+      : `<tr><td colspan="4" class="muted">Nog geen Amsterdamse zaken herkend.</td></tr>`;
+    $("#a-news").innerHTML = newsList(news, "Geen Amsterdams eetnieuws in de afgelopen 2 weken.");
+    $("#a-posts").innerHTML = posts.posts.map(postCard).join("") || '<p class="muted">Nog geen posts uit Amsterdam.</p>';
+  }
+
   // --- navigatie -------------------------------------------------------------
 
-  const LOADERS = { trends: loadTrends, posts: () => loadPosts(), supermarkt: loadSupermarkt, zaken: loadZaken,
-    bronnen: loadSources, beheer: loadBeheer };
+  const LOADERS = { vandaag: loadVandaag, trends: loadTrends, posts: () => loadPosts(), amsterdam: loadAmsterdam,
+    supermarkt: loadSupermarkt, zaken: loadZaken, lijst: loadLijst, bronnen: loadSources, beheer: loadBeheer };
 
   function switchTab(tab) {
     state.tab = tab;
     remember();
     $$(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
     $$(".panel").forEach(p => (p.hidden = p.dataset.panel !== tab));
-    $("#filters").hidden = ["bronnen", "beheer"].includes(tab);
+    $("#filters").hidden = ["bronnen", "beheer", "vandaag", "lijst"].includes(tab);
     refresh();
   }
 
@@ -564,7 +706,18 @@
       renderTopics();
     });
 
-    document.addEventListener("click", e => {
+    document.addEventListener("click", async e => {
+      const star = e.target.closest(".star");
+      if (star) {
+        e.stopPropagation();
+        const d = star.dataset;
+        await toggleWatch({ kind: d.kind, ref: d.ref, title: d.title, url: d.url || null, city: d.city || null });
+        star.classList.toggle("on", !!state.watch.get(`${d.kind}|${d.ref}`));
+        star.textContent = star.classList.contains("on") ? "★" : "☆";
+        return;
+      }
+      const go = e.target.closest("[data-goto]");
+      if (go) { switchTab(go.dataset.goto); return; }
       const t = e.target.closest("[data-topic]");
       if (t) {
         const [type, ...rest] = t.dataset.topic.split("|");
@@ -602,6 +755,33 @@
       refresh();
     });
     $("#form-settings").addEventListener("submit", saveSettings);
+    $("#lijst-filter").addEventListener("click", e => {
+      const b = e.target.closest("[data-lf]");
+      if (b) { state.lijstFilter = b.dataset.lf; loadLijst(); }
+    });
+    $("#tbl-lijst").addEventListener("change", async e => {
+      const sel = e.target.closest("[data-status]");
+      if (sel) {
+        await api(`/api/lijst/${sel.dataset.status}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: sel.value }) });
+        toast(`Status: ${sel.value}`);
+        loadLijst();
+      }
+    });
+    $("#tbl-lijst").addEventListener("focusout", async e => {
+      const note = e.target.closest("[data-note]");
+      if (note) {
+        state.pendingNote = api(`/api/lijst/${note.dataset.note}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ note: note.value }) }).catch(() => toast("Notitie niet opgeslagen"));
+      }
+    });
+    $("#tbl-lijst").addEventListener("click", async e => {
+      const del = e.target.closest("[data-wdel]");
+      if (del && confirm("Uit je lijst verwijderen?")) {
+        await api(`/api/lijst/${del.dataset.wdel}`, { method: "DELETE" });
+        loadLijst();
+      }
+    });
     $("#form-source").addEventListener("submit", async e => {
       e.preventDefault();
       const f = e.target;
@@ -632,7 +812,7 @@
     });
     window.addEventListener("resize", () => { clearTimeout(init.rt); init.rt = setTimeout(() => state.tab === "trends" && loadTrends(), 250); });
 
-    loadStatus().then(() => switchTab(state.tab));
+    Promise.all([loadStatus(), loadWatch()]).then(() => switchTab(state.tab));
     setInterval(poll, 15000);
   }
 

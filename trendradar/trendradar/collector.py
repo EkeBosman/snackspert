@@ -80,8 +80,8 @@ def store_posts(conn, posts: list[dict], source_id: int | None,
                 "INSERT INTO posts(id, platform, source_id, author, author_name, author_followers, "
                 "text, url, thumbnail, location, posted_at, first_fetched, likes, comments, shares, "
                 "views, hashtags, mentions, relevance, nl_score, categories, brands, products, "
-                "places, phrases, city, demo, fetched_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "places, phrases, city, demo, fetched_at, flags) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (p["id"], p["platform"], source_id, p.get("author"), p.get("author_name"),
                  p.get("author_followers") or 0, p.get("text") or "", p.get("url"),
                  p.get("thumbnail"), p.get("location"), p["posted_at"], now,
@@ -89,7 +89,8 @@ def store_posts(conn, posts: list[dict], source_id: int | None,
                  config.dumps(c["hashtags"]), config.dumps(c["mentions"]), c["relevance"],
                  c["nl_score"], config.dumps(c["categories"]), config.dumps(c["brands"]),
                  config.dumps(p.get("products") or c["products"]), config.dumps(c["places"]),
-                 config.dumps(c["phrases"]), c["city"], int(demo), p.get("snapshot_at", now)))
+                 config.dumps(c["phrases"]), c["city"], int(demo), p.get("snapshot_at", now),
+                 config.dumps(c["flags"])))
             new += 1
             relevant += c["relevance"] >= 0.35
             new_relevant += c["relevance"] >= 0.35 and c["nl_score"] >= 0.4
@@ -356,7 +357,7 @@ def step_news(run: Run, settings: dict) -> None:
 
 # Verhoog dit getal als de woordenlijsten of regels in classify.py veranderen:
 # bij de volgende start worden alle posts (zonder AI-oordeel) opnieuw beoordeeld.
-CLASSIFY_VERSION = 3
+CLASSIFY_VERSION = 5
 
 
 def reclassify_if_needed() -> int:
@@ -370,11 +371,11 @@ def reclassify_if_needed() -> int:
             c = classify.classify_rules(p)
             conn.execute(
                 "UPDATE posts SET relevance=?, nl_score=?, categories=?, brands=?, places=?, "
-                "phrases=?, city=?, hashtags=?, mentions=?, products=? WHERE id=?",
+                "phrases=?, city=?, hashtags=?, mentions=?, products=?, flags=? WHERE id=?",
                 (c["relevance"], c["nl_score"], config.dumps(c["categories"]),
                  config.dumps(c["brands"]), config.dumps(c["places"]), config.dumps(c["phrases"]),
                  c["city"], config.dumps(c["hashtags"]), config.dumps(c["mentions"]),
-                 config.dumps(p["products"] or c["products"]), p["id"]))
+                 config.dumps(p["products"] or c["products"]), config.dumps(c["flags"]), p["id"]))
         removed = discovery.prune_bad_hashtags(conn)
         if removed:
             log.info("Opgeruimd: %s", ", ".join("#" + r for r in removed))
@@ -482,8 +483,7 @@ def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict 
     try:
         with db.session() as conn:
             settings = db.get_settings(conn)
-            if not conn.execute("SELECT 1 FROM sources LIMIT 1").fetchone():
-                seeds.install(conn, db.iso(db.now()))
+            seeds.upgrade(conn, db.iso(db.now()))
             demo_mode = demo_active(conn)
         run = Run(trigger)
         try:
