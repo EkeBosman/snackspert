@@ -357,7 +357,7 @@ def step_news(run: Run, settings: dict) -> None:
 
 # Verhoog dit getal als de woordenlijsten of regels in classify.py veranderen:
 # bij de volgende start worden alle posts (zonder AI-oordeel) opnieuw beoordeeld.
-CLASSIFY_VERSION = 5
+CLASSIFY_VERSION = 6
 
 
 def reclassify_if_needed() -> int:

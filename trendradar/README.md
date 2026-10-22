@@ -164,6 +164,7 @@ Snackhits beginnen vaak hetzelfde: een kleine zaak zet iets nieuws op de kaart, 
 |---|---|
 | 🆕 Nieuw op de kaart | De post noemt iets als "nieuw op de kaart", "eigen creatie", "weekspecial" of "vanaf vandaag". |
 | 🧪 Combinatie | Twee snacks die normaal niet samengaan, zoals *kaassoufflé + döner*. Gewone combinaties (friet met frikandel) tellen niet. |
+| 🔄 Twist | Een bekende snack in een nieuwe vorm: *loaded kipcorn*, *gevulde kroket*, *xxl frikandel*. Heel gewone twists (loaded friet, mini frikandel) tellen niet. |
 
 **Kandidaten** (bij Vandaag en Amsterdam) krijgen punten voor zo'n label, voor een doorbraak, voor veel views of doorsturen, voor een kleine maker en voor een post van minder dan een dag oud. Per maker en per onderwerp komen er maximaal twee in de lijst, zodat je verschillende dingen ziet.
 
@@ -178,6 +179,17 @@ Snackhits beginnen vaak hetzelfde: een kleine zaak zet iets nieuws op de kaart, 
 
 **TikTok** zoekt naast hashtags vooral op zoektermen. Zoekresultaten bevatten nieuwe video's van kleine makers, terwijl hashtagpagina's steeds dezelfde bekende video's tonen. Daarom krijgen TikTok-hashtags minder budget. De tool haalt de nieuwste video's op (niet de vastgepinde) en zoekt vanuit Nederland. Woorden en combinaties die opkomen (in de fase vroeg of groeit) worden **automatisch nieuwe TikTok-zoektermen**.
 
+### Leren van Mijn lijst
+
+Alles wat je met ☆ bewaart, maakt de tool slimmer. Hij kijkt wat je bewaarde posts, zaken, producten en onderwerpen gemeen hebben: een woordcombinatie (*loaded kipcorn*), een twist, een combinatie, een snack, een zaak of een maker.
+
+- **Vandaag** geeft posts die daarop lijken extra punten, met de reden erbij: *⭐ Lijkt op je lijst: loaded kipcorn*. Wat je al bewaard hebt, verdwijnt uit de kandidaten.
+- **Bronnen**: een bewaarde woordcombinatie, twist of zaak wordt een TikTok-zoekopdracht, en de maker van een bewaarde post wordt een gevolgd account. Bij de bron staat dan *"uit Mijn lijst"*.
+- **Afgevallen** telt juist tegen: lijkt een post op iets wat je hebt afgewezen, dan zakt hij.
+- **Gereviewd** telt half mee: je weet dan al wat je ervan vindt.
+
+Op Vandaag zie je bij **⭐ Geleerd van Mijn lijst** wat de tool tot nu toe van je heeft geleerd.
+
 ## Bronnen ontdekken
 
 Na elke ronde zoekt de tool in de relevante Nederlandse posts van de afgelopen 7 dagen naar nieuwe bronnen:
@@ -185,6 +197,7 @@ Na elke ronde zoekt de tool in de relevante Nederlandse posts van de afgelopen 7
 - **Hashtags** die bij minstens 3 verschillende makers voorkomen.
 - **Accounts** die minstens 2 relevante posts plaatsten.
 - **Accounts** die door meerdere makers genoemd worden.
+- **Wat je bewaart in Mijn lijst** (zie hierboven). Deze gaan voor alles.
 - **Opkomende woorden en combinaties** (zoals *frikandelijs*) als TikTok-zoekterm.
 - **Hashtags en makers uit virale posts**, ook als het om één maker gaat. Deze gaan altijd voor. Bij de bron staat dan bijvoorbeeld: *"uit virale post van @maker (40× views, bereik 276× het aantal volgers)"*.
 

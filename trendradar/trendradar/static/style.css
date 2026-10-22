@@ -294,5 +294,6 @@ details summary { cursor: pointer; }
 .phase.over { color: var(--muted); }
 .reasons { display: flex; flex-wrap: wrap; gap: 4px; }
 .reason { font-size: .72rem; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 12%, var(--surface)); color: var(--accent); font-weight: 600; }
+.reason.taste { background: color-mix(in srgb, var(--good) 14%, var(--surface)); color: var(--good-ink); }
 .count { font-size: .72rem; color: var(--muted); }
 .note-input { width: 100%; min-width: 160px; font: inherit; font-size: .82rem; padding: 4px 6px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); color: var(--text); resize: vertical; }

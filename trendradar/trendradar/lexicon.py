@@ -395,6 +395,15 @@ COMMON_PAIRS = {
     )
 }
 
+# Een bekende snack in een nieuwe vorm: 'loaded kipcorn', 'gevulde kroket',
+# 'xxl frikandel'. Dat is vaak hoe een snackbar iets nieuws maakt.
+TWIST_WORDS = ("loaded", "dirty", "gevulde", "gevuld", "xxl", "mega", "giga", "monster",
+               "gefrituurde", "gefrituurd", "deepfried", "crispy", "crunchy", "smashed", "mini")
+# Twists die al heel gewoon zijn.
+COMMON_TWISTS = {"loaded friet", "dirty friet", "mini kroket", "mini frikandel", "crispy kip",
+                 "mega burger", "xxl burger", "smashed burger", "mini pizza", "gevulde wafel",
+                 "mini donut", "gefrituurde kip", "crunchy kip"}
+
 # Amsterdamse wijken en buurten: een post met een van deze namen telt als Amsterdam.
 AMSTERDAM_AREAS = (
     "jordaan", "de pijp", "oud-west", "oud west", "westerpark", "de baarsjes", "bos en lommer",

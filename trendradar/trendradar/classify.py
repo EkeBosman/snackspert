@@ -177,11 +177,38 @@ def item_groups(text: str, hashtags: list[str]) -> list[str]:
     return found
 
 
+def find_twist(text: str, hashtags: list[str]) -> str | None:
+    """'loaded kipcorn', 'gevulde kroket': een twistwoord vlak voor een bekende snack.
+
+    Werkt ook voor hashtags als #loadedkipcorn. Geeft 'loaded kipcorn' terug,
+    met de snack als groepsnaam (dus 'gevulde kroket', ook bij 'gevulde kroketten').
+    """
+    words = TOKEN_RE.findall(text)
+    for i, w in enumerate(words[:-1]):
+        if w in lexicon.TWIST_WORDS:
+            for group in item_groups(f" {words[i + 1]} ", []):
+                twist = f"{w} {group}"
+                if twist not in lexicon.COMMON_TWISTS:
+                    return twist
+    for tag in hashtags:
+        for tw in lexicon.TWIST_WORDS:
+            if tag.startswith(tw) and len(tag) > len(tw) + 3:
+                for group in item_groups(f" {tag[len(tw):]} ", []):
+                    twist = f"{tw} {group}"
+                    if twist not in lexicon.COMMON_TWISTS:
+                        return twist
+    return None
+
+
 def find_flags(text: str, hashtags: list[str], relevance: float) -> list[str]:
-    """Labels voor kandidaten: 'nieuw_op_kaart' en 'combinatie:a + b'."""
+    """Labels voor kandidaten: 'nieuw_op_kaart', 'combinatie:a + b' en 'twist:loaded kipcorn'."""
     flags = []
     if relevance >= 0.5 and any(p in text for p in lexicon.NEW_MENU_PHRASES):
         flags.append("nieuw_op_kaart")
+    if relevance >= 0.5:
+        twist = find_twist(text, hashtags)
+        if twist:
+            flags.append(f"twist:{twist}")
     groups = item_groups(text, hashtags)
     for i, a in enumerate(groups):
         for b in groups[i + 1:]:

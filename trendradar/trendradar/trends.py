@@ -20,7 +20,7 @@ import math
 from collections import defaultdict
 from datetime import timedelta
 
-from . import db, lexicon, seeds, signals
+from . import db, lexicon, seeds, signals, taste
 from .classify import norm
 
 WINDOWS = {
@@ -102,10 +102,13 @@ def candidates(conn, hours: int = 72, city: str | None = None, include_demo: boo
     """
     since = db.now() - timedelta(hours=hours)
     base = signals.baselines(conn, include_demo=include_demo)
+    # Wat je al bewaard hebt, hoef je niet nog eens te zien; wat erop lijkt wel.
+    prof = taste.profile(conn)
+    saved = {r["ref"] for r in conn.execute("SELECT ref FROM watchlist WHERE kind = 'post'")}
     scored = []
     for p in load_posts(conn, since, db.now() + timedelta(minutes=1), None, 0.5, 0.4,
                         include_demo, city):
-        if p["platform"] == "nieuws":
+        if p["platform"] == "nieuws" or p["id"] in saved:
             continue
         flags = json.loads(p["flags"] or "[]") if "flags" in p.keys() else []
         sig = signals.of_post(p, base)
@@ -117,6 +120,10 @@ def candidates(conn, hours: int = 72, city: str | None = None, include_demo: boo
         if combo:
             score += 3
             reasons.append(f"Combinatie: {combo}")
+        twist = next((f.split(":", 1)[1] for f in flags if f.startswith("twist:")), None)
+        if twist:
+            score += 2
+            reasons.append(f"Twist: {twist}")
         if sig["breakout"]:
             score += 3
             reasons.append("Doorbraak")
@@ -129,12 +136,19 @@ def candidates(conn, hours: int = 72, city: str | None = None, include_demo: boo
         if sig["small_creator"] and score:
             score += 0.5
             reasons.append(f"kleine maker ({sig['followers']} volgers)")
-        if not score:
+        bonus, alike = taste.match(prof, taste.post_features(p))
+        # Alleen 'lijkt op je lijst' is genoeg als het specifiek is (een zin, twist of maker).
+        if bonus > 0 and (score or bonus >= 1.5):
+            score += bonus
+            reasons.append("Lijkt op je lijst: " + ", ".join(alike))
+        elif bonus < 0:
+            score += bonus
+        if score <= 0:
             continue
         age_h = (db.now() - db.parse_iso(p["posted_at"])).total_seconds() / 3600
         score += 1 if age_h < 24 else 0
         phrases = json.loads(p["phrases"] or "[]")
-        subject = combo or (phrases[0] if phrases else p["id"])
+        subject = combo or twist or (phrases[0] if phrases else p["id"])
         scored.append((score, p, reasons, sig, subject))
     scored.sort(key=lambda x: x[0], reverse=True)
     # Spreiding: maximaal 2 posts per maker en per onderwerp, anders vult één

@@ -740,3 +740,61 @@ def test_apify_retries_without_optional_fields(monkeypatch):
     ap.run_actor("tiktok", "zoekterm", ["broodje kaassoufflé"], 10, 0.5)
     assert len(bodies) == 2
     assert ap.OPTIONAL_KEYS & bodies[0].keys() and not ap.OPTIONAL_KEYS & bodies[1].keys()
+
+
+# --- leren van Mijn lijst --------------------------------------------------------
+
+def test_twist_on_a_known_snack():
+    for text in ("Loaded kipcorn gehaald bij de snackbar 🔥", "Mijn eerste #loadedkipcorn bij de cafetaria"):
+        assert "twist:loaded kipcorn" in classify.classify_rules({"text": text, "platform": "tiktok"})["flags"]
+    gewoon = classify.classify_rules({"text": "Loaded friet bij de snackbar", "platform": "tiktok"})
+    assert not any(f.startswith("twist:") for f in gewoon["flags"])
+
+
+def _save(conn, kind, ref, title, status="te proberen"):
+    now = db.iso(db.now())
+    conn.execute("INSERT INTO watchlist(kind, ref, title, status, added_at, updated_at) VALUES (?,?,?,?,?,?)",
+                 (kind, ref, title, status, now, now))
+
+
+def test_saved_items_teach_vandaag(conn):
+    from trendradar import taste
+
+    # Een gewone kipcorn-post zonder bijzondere signalen: eerst geen kandidaat.
+    store_posts(conn, [post("oud", "Loaded kipcorn bij de snackbar, echt lekker", hours_ago=30,
+                            platform="tiktok", author="eerste"),
+                       post("nieuw", "Vandaag loaded kipcorn gehaald bij de cafetaria #snackbar", hours_ago=2,
+                            platform="tiktok", author="tweede")], None)
+    before = {c["id"]: c for c in trends.candidates(conn, include_demo=False)}
+    assert "Lijkt op je lijst" not in " ".join(before.get("tiktok:nieuw", {}).get("reasons", []))
+
+    _save(conn, "post", "tiktok:oud", "Loaded kipcorn")
+    prof = taste.profile(conn)
+    assert prof["twist:loaded kipcorn"] > 0 and prof["snack:kipcorn"] > 0
+    after = {c["id"]: c for c in trends.candidates(conn, include_demo=False)}
+    assert "tiktok:oud" not in after  # al bewaard
+    assert any(r.startswith("Lijkt op je lijst") for r in after["tiktok:nieuw"]["reasons"])
+    assert after["tiktok:nieuw"]["score"] > before.get("tiktok:nieuw", {"score": 0})["score"]
+    learned = taste.summary(prof)
+    assert learned[0]["kenmerk"] == "loaded kipcorn" and learned[0]["soort"] == "twist"
+    assert [item["kenmerk"] for item in learned].count("loaded kipcorn") == 1
+
+
+def test_rejected_items_count_against(conn):
+    from trendradar import taste
+
+    _save(conn, "onderwerp", "zin|loaded kipcorn", "loaded kipcorn", status="afgevallen")
+    assert taste.profile(conn)["zin:loaded kipcorn"] < 0
+    bonus, _ = taste.match(taste.profile(conn), {"zin:loaded kipcorn"})
+    assert bonus < 0
+
+
+def test_saved_items_become_sources(conn):
+    _save(conn, "onderwerp", "zin|loaded kipcorn", "loaded kipcorn")
+    store_posts(conn, [post("km", "Loaded kipcorn bij de snackbar", platform="tiktok", author="kleinemaker")], None)
+    _save(conn, "post", "tiktok:km", "Loaded kipcorn")
+    found = discovery.list_searches(conn, discovery._known(conn), limit=5)
+    values = {(f["platform"], f["kind"], f["value"]) for f in found}
+    assert ("tiktok", "zoekterm", "loaded kipcorn") in values
+    assert ("tiktok", "account", "kleinemaker") in values
+    assert all(f["reason"].startswith("uit Mijn lijst") for f in found)
