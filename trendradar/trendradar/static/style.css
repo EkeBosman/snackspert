@@ -331,3 +331,36 @@ td .status-select { min-width: 120px; }
 @media (max-width: 640px) { .kpis.kpis-5 { grid-template-columns: repeat(2, minmax(0, 1fr)); } .routes { grid-template-columns: 1fr; } }
 .panel > .seg { align-self: flex-start; }
 .route .meta { color: var(--muted); font-size: .78rem; }
+
+/* Viral-potentie */
+.pot-list { list-style: none; margin: 12px 0 0; padding: 0; display: flex; flex-direction: column; }
+.pot { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--grid); }
+.pot:last-child { border-bottom: 0; }
+.pot-rank { font-size: 1.3rem; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; text-align: right; }
+.pot-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.pot-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 12px; align-items: baseline; }
+.pot-head .where { color: var(--muted); font-size: .8rem; }
+.pot-spec { font-size: .88rem; color: var(--text-2); overflow-wrap: anywhere; }
+.pot-score { display: inline-flex; align-items: center; gap: 8px; font-variant-numeric: tabular-nums; }
+.pot-score .meter { width: 90px; margin-top: 0; }
+.pot-score b { font-size: 1rem; }
+.pot-foot { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: .78rem; color: var(--muted); }
+.reason.minus { background: color-mix(in srgb, var(--critical) 10%, var(--surface)); color: var(--critical-ink); }
+.reason.small { background: var(--surface-2); color: var(--text-2); font-weight: 500; }
+.how { list-style: none; margin: 0; padding: 0; font-size: .84rem; }
+.how li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--grid); }
+.how li:last-child { border-bottom: 0; }
+.how b { font-variant-numeric: tabular-nums; }
+
+/* Tip toevoegen, voorstellen */
+.tip-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.tip-form .wide { grid-column: span 2; }
+.tip-form .actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tip-form[hidden] { display: none; }
+.route.proposal { border-style: dashed; }
+.route .stop-reasons { color: var(--muted); font-size: .76rem; display: block; }
+.geo-note { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface)); font-size: .84rem; margin: 8px 0 4px; }
+@media (max-width: 640px) { .tip-form { grid-template-columns: 1fr; } .tip-form .wide { grid-column: auto; } }
+.tipbtn { font: inherit; background: none; border: 0; cursor: pointer; font-size: .95rem; padding: 2px 3px; line-height: 1; opacity: .75; }
+.tipbtn:hover { opacity: 1; }

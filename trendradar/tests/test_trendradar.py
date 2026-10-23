@@ -1,6 +1,7 @@
 """Tests: draai met  python -m pytest  in de map trendradar/."""
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from datetime import timedelta
@@ -12,6 +13,21 @@ os.environ["TRENDRADAR_DATA"] = tempfile.mkdtemp()
 from trendradar import budget, classify, config, db, discovery, snackspert, trends  # noqa: E402
 from trendradar.collector import store_posts  # noqa: E402
 from trendradar.sources import apify, news  # noqa: E402
+
+
+REAL_ACCOUNT_USAGE = apify.account_usage
+
+
+@pytest.fixture(autouse=True)
+def offline(monkeypatch):
+    """Tests gaan nooit echt naar internet (Apify-tegoed, OpenStreetMap)."""
+    from trendradar import geo
+
+    monkeypatch.setattr(apify, "account_usage", lambda: None)
+
+    def no_lookup(place):
+        raise geo.requests.ConnectionError("offline in tests")
+    monkeypatch.setattr(geo, "lookup", no_lookup)
 
 
 @pytest.fixture()
@@ -944,3 +960,248 @@ def test_feedback_teaches_and_hides(conn):
     assert "Past bij jou: kroket" in cand["reasons"]
     client.post("/api/feedback", json={"post_id": "tiktok:a", "value": 0})
     assert client.get("/api/feedback").get_json() == {"tiktok:b": -1}
+
+
+# --- viral-potentie ---------------------------------------------------------------
+
+def test_viral_potential_signals():
+    from trendradar import potential
+
+    ctx = {"radar": {}, "snacks": {}, "locations": {}, "channels": {}, "recognition": {}, "user": {}}
+
+    def tip(name, specialty, **kw):
+        return {"id": 1, "name": name, "place": kw.get("place", "Zwolle"), "specialty": specialty, "lists": [],
+                "note": "", "status": "te proberen"}
+
+    koet = potential.score_tip(tip("Snackbar de Poppe", "broodje lammert (hamburger met kaassoufflé)"), ctx)
+    kinds = {r["kind"] for r in koet["reasons"]}
+    assert {"creatie", "combinatie", "herkenbaar"} <= kinds
+    assert "Eigen creatie: broodje lammert" in [r["text"] for r in koet["reasons"]]
+    plain = potential.score_tip(tip("Burgerbar", "lekker vlees, goed broodje, geen gekke dingen"), ctx)
+    assert plain["score"] < koet["score"] and plain["potential"] < 30
+    tank = potential.score_tip(tip("Cafetaria", "Friet Tank (friet in de vorm van een pantservoertuig)"), ctx)
+    assert "spektakel" in {r["kind"] for r in tank["reasons"]}
+    tipped = potential.score_tip(tip("Burgerbar", "smashburger; twee keer getipt"), ctx)
+    assert "getipt" in {r["kind"] for r in tipped["reasons"]}
+    # De naam van de zaak is geen snack: 'Cafetaria de Mariënburgher' levert geen 'creatie' op.
+    named = potential.score_tip(tip("Cafetaria de Mariënburgher", "snack de Bamia (zelf ontwikkeld)"), ctx)
+    assert "Eigen creatie: snack de bamia" in [r["text"] for r in named["reasons"]]
+    # Jouw publiek telt mee.
+    ctx2 = {**ctx, "snacks": {"friet": {"lift": 1.3, "posts": 30}}}
+    assert potential.score_tip(tip("X", "friet speciaal"), ctx2)["score"] > potential.score_tip(tip("X", "friet speciaal"), ctx)["score"]
+
+
+def test_viral_potential_ranking_skips_done_and_adds_route_stops(conn):
+    from trendradar import potential
+    from trendradar.web import app
+
+    now = db.iso(db.now())
+    for name, spec, status in (("Snackbar de Poppe", "broodje lammert (hamburger met kaassoufflé)", "te proberen"),
+                               ("Al Gedaan", "broodje viagraa met döner", "gereviewd"),
+                               ("Gewoon Burgers", "burgers", "te proberen")):
+        conn.execute("INSERT INTO spots(name, place, specialty, status, added_at, updated_at) VALUES (?,?,?,?,?,?)",
+                     (name, "Coevorden", spec, status, now, now))
+    conn.execute("INSERT INTO routes(name, stops, added_at) VALUES (?, ?, ?)",
+                 ("Drenthe", json.dumps(["Snackbar de Poppe (Coevorden) - broodje lammert",
+                                         "Snackbar de Luifel (Barger-Compascuum) - luifel snack"]), now))
+    conn.commit()
+    r = potential.ranking(conn, 10, include_demo=False)
+    names = [t["name"] for t in r["top"]]
+    assert names[0] == "Snackbar de Poppe" and "Al Gedaan" not in names
+    luifel = next(t for t in r["top"] if t["name"] == "Snackbar de Luifel")
+    assert luifel["id"] is None and luifel["lists"] == ["Uit routes"]
+    assert r["skipped"]["status"] == 1
+    assert r["routes"][0]["name"] == "Drenthe" and r["routes"][0]["maps"].startswith("https://www.google.com/maps/dir/")
+    assert app.test_client().get("/api/potentie?limit=5").status_code == 200
+
+
+# --- uit de ronde van 23 oktober ---------------------------------------------------
+
+def test_relisted_supermarket_product_is_not_new(conn, monkeypatch):
+    from trendradar import collector
+    from trendradar.sources import supermarket
+
+    base = [{"id": "spar:chips-1", "store": "Spar", "name": "Lay's Paprika chips", "size": "225 Gram",
+             "price": 2.5, "url": None}]
+    later = base + [{"id": "spar:chips-2", "store": "Spar", "name": "Lay's paprika chips", "size": "225 gram",
+                     "price": 2.5, "url": None},
+                    {"id": "spar:kroket-9", "store": "Spar", "name": "Kwekkeboom kroket", "size": "4 stuks",
+                     "price": 3.5, "url": None}]
+    responses = iter([({"Spar": base}, '"a"'), ({"Spar": later}, '"b"')])
+    monkeypatch.setattr(supermarket, "fetch", lambda etag=None: next(responses))
+    run = collector.Run("test")
+    collector.step_supermarkets(run, dict(config.DEFAULTS), force=True)
+    collector.step_supermarkets(run, dict(config.DEFAULTS), force=True)
+    new = [r["name"] for r in conn.execute("SELECT name FROM products WHERE is_new = 1")]
+    assert new == ["Kwekkeboom kroket"]
+    assert "Spar 1 (1)" in run.lines[-1]["tekst"]
+    # Al eerder ten onrechte als nieuw gemeld: wordt rechtgezet.
+    conn.execute("UPDATE products SET is_new = 1 WHERE id = 'spar:chips-2'")
+    assert collector.unmark_relisted(conn) == 1
+
+
+def test_apify_retries_only_when_safe(monkeypatch):
+    import requests as rq
+
+    from trendradar.sources import apify as ap
+
+    monkeypatch.setattr(ap, "RETRY_WAIT_S", 0)
+    calls = []
+
+    def flaky(exc):
+        def f(*a, **k):
+            calls.append(1)
+            if len(calls) == 1:
+                raise exc
+            return "ok"
+        return f
+
+    monkeypatch.setattr(ap.requests, "post", flaky(rq.ConnectionError("DNS weg")))
+    assert ap._start("https://x") == "ok" and len(calls) == 2
+    calls.clear()
+    monkeypatch.setattr(ap.requests, "post", flaky(rq.ReadTimeout("run loopt misschien al")))
+    with pytest.raises(rq.ReadTimeout):
+        ap._start("https://x")  # niet opnieuw starten: dat zou dubbel kosten
+    assert len(calls) == 1
+    calls.clear()
+    monkeypatch.setattr(ap.requests, "get", flaky(rq.Timeout("traag")))
+    assert ap._get("https://x") == "ok" and len(calls) == 2
+
+
+def test_network_error_does_not_punish_sources(conn, monkeypatch):
+    import requests as rq
+
+    from trendradar import collector
+    from trendradar.sources import apify as ap
+
+    conn.execute("INSERT INTO sources(platform, kind, value, status, origin, added_at) "
+                 "VALUES ('instagram', 'account', 'snackbardepoppe', 'actief', 'ontdekt', 'x')")
+    conn.commit()
+    monkeypatch.setattr(ap, "available", lambda: True)
+
+    def down(*a, **k):
+        raise rq.ConnectionError("Failed to resolve 'api.apify.com'")
+    monkeypatch.setattr(ap, "run_actor", down)
+    run = collector.Run("test")
+    for _ in range(3):
+        collector.step_apify(run, dict(config.DEFAULTS), set())
+    s = conn.execute("SELECT status, empty_streak FROM sources WHERE value = 'snackbardepoppe'").fetchone()
+    assert (s["status"], s["empty_streak"]) == ("actief", 0)
+    assert any("geen verbinding met Apify" in line["tekst"] for line in run.lines)
+
+
+def test_tips_alone_never_become_sources(conn):
+    now = db.iso(db.now())
+    # Dezelfde zaak in twee lijsten (met een iets andere plaatsnaam) telde eerder dubbel.
+    for place in ("Colmschate", "Colmschate (Deventer)"):
+        conn.execute("INSERT INTO spots(name, place, specialty, added_at, updated_at) VALUES (?, ?, '', ?, ?)",
+                     ("Paul van Gurp", place, now, now))
+    assert not discovery.list_searches(conn, discovery._known(conn), limit=10)
+    # Een bron die eerder zo is toegevoegd, gaat terug naar kandidaat.
+    conn.execute("INSERT INTO sources(platform, kind, value, status, origin, reason, added_at) VALUES "
+                 "('tiktok', 'zoekterm', 'paul van gurp', 'actief', 'ontdekt', 'uit Mijn lijst of ♥: Paul van Gurp', ?)",
+                 (now,))
+    assert discovery.prune_list_sources(conn) == ["paul van gurp"]
+    assert conn.execute("SELECT status FROM sources WHERE value = 'paul van gurp'").fetchone()[0] == "kandidaat"
+
+
+def test_viral_post_hashtags_must_be_about_food():
+    assert not discovery.acceptable_hashtag("gerbrandytoren", viral=True)
+    assert discovery.acceptable_hashtag("frikandelijs", viral=True)
+    assert discovery.acceptable_hashtag("birriatacos")
+
+
+# --- Apify-tegoed, routes bedenken, nieuwe tips uit de radar ------------------------
+
+def test_apify_account_limit_stops_the_round(conn, monkeypatch):
+    from trendradar import collector
+    from trendradar.sources import apify as ap
+
+    class Resp:
+        ok, status_code = True, 200
+
+        def json(self):
+            return {"data": {"current": {"monthlyUsageUsd": 5.02}, "limits": {"maxMonthlyUsageUsd": 5},
+                             "monthlyUsageCycle": {"endAt": "2026-11-01T00:00:00.000Z"}}}
+
+    monkeypatch.setenv("APIFY_TOKEN", "tok")
+    monkeypatch.setattr(ap.requests, "get", lambda *a, **k: Resp())
+    monkeypatch.setattr(ap, "account_usage", REAL_ACCOUNT_USAGE)
+    assert ap.account_usage() == {"used_usd": 5.02, "limit_usd": 5.0, "cycle_end": "2026-11-01T00:00:00.000Z"}
+    started = []
+    monkeypatch.setattr(ap, "run_actor", lambda *a, **k: started.append(1) or ([], 0.0))
+    conn.execute("INSERT INTO sources(platform, kind, value, status, origin, added_at) "
+                 "VALUES ('tiktok', 'zoekterm', 'broodje kaassoufflé', 'actief', 'start', 'x')")
+    conn.commit()
+    run = collector.Run("test")
+    collector.step_apify(run, dict(config.DEFAULTS), set())
+    assert not started
+    assert any("Apify-tegoed op" in line["tekst"] for line in run.lines)
+    assert db.get_state(conn, "apify_account")["limit_usd"] == 5.0
+    assert budget.overview(conn, dict(config.DEFAULTS))["apify_account"]["used_usd"] == 5.02
+    assert ap._is_limit_error(402, "") and ap._is_limit_error(403, "Monthly usage hard limit exceeded")
+    assert not ap._is_limit_error(400, "invalid input")
+
+
+def test_route_proposals_learn_and_can_be_rejected(conn):
+    from trendradar import geo, routeplan
+
+    assert geo.clean_place("Colmschate (Deventer)") == "Colmschate, Deventer"
+    assert geo.clean_place("ONBEKEND") == ""
+    now = db.iso(db.now())
+    tips = [("Snackbar de Poppe", "Coevorden", "broodje lammert (hamburger met kaassoufflé)", (52.66, 6.74)),
+            ("Snackbar de Luifel", "Barger-Compascuum", "luifel snack, zelfgemaakt", (52.75, 7.04)),
+            ("Lunchroom Old Amsterdam", "Nieuw-Amsterdam", "broodje smikkelvlees met joppiesaus", (52.71, 6.86)),
+            ("Ver Weg", "Maastricht", "kapsalon met kaassoufflé", (50.85, 5.69))]
+    for name, place, spec, (lat, lon) in tips:
+        conn.execute("INSERT INTO spots(name, place, specialty, added_at, updated_at) VALUES (?,?,?,?,?)",
+                     (name, place, spec, now, now))
+        conn.execute("INSERT INTO geo(place, lat, lon, looked_up) VALUES (?,?,?,?)", (place, lat, lon, now))
+    conn.execute("INSERT INTO routes(name, km, stops, added_at) VALUES ('kort', '~450 km', ?, ?)",
+                 (json.dumps(["A (Nergenshuizen)", "B (Nergenshuizen)", "C (Nergenshuizen)"]), now))
+    conn.commit()
+    p = routeplan.proposals(conn, include_demo=False)
+    assert p["habits"]["stops"] == [3] and p["habits"]["max_km"] == 450
+    assert p["missing"] == 1  # alleen Nergenshuizen uit de route is nog onbekend
+    routes = p["routes"]
+    assert routes, p
+    names = {s["name"] for s in routes[0]["stops"]}
+    assert names == {"Snackbar de Poppe", "Snackbar de Luifel", "Lunchroom Old Amsterdam"}
+    assert "Ver Weg" not in names  # ligt niet bij de andere drie
+    assert routes[0]["maps"].startswith("https://www.google.com/maps/dir/")
+    # Bewaren zet hem bij je routes, afwijzen laat hem niet meer terugkomen.
+    routeplan.save(conn, routes[0])
+    assert conn.execute("SELECT COUNT(*) FROM routes WHERE origin = 'bedacht'").fetchone()[0] == 1
+    assert not routeplan.proposals(conn, include_demo=False)["routes"]  # bestaat nu al als route
+    conn.execute("DELETE FROM routes WHERE origin = 'bedacht'")
+    routeplan.reject(conn, routes[0]["key"])
+    assert not routeplan.proposals(conn, include_demo=False)["routes"]
+
+
+def test_geocoding_fills_missing_places(conn, monkeypatch):
+    from trendradar import geo
+
+    now = db.iso(db.now())
+    conn.execute("INSERT INTO spots(name, place, specialty, added_at, updated_at) VALUES ('X', 'Barger-Compascuum', '', ?, ?)",
+                 (now, now))
+    conn.commit()
+    monkeypatch.setattr(geo, "PAUSE_S", 0)
+    monkeypatch.setattr(geo, "lookup", lambda place: (52.75, 7.04))
+    assert geo.missing(conn) == ["Barger-Compascuum"]  # Amsterdam (thuisbasis) kent de tool al
+    assert geo.fill(limit=10)["found"] == 1
+    assert geo.coords(conn, "Barger-Compascuum") == (52.75, 7.04)
+    assert geo.missing(conn) == []
+
+
+def test_radar_suggestions_are_new_places(conn):
+    from trendradar import spots
+
+    store_posts(conn, [post(f"s{i}", "Nieuw op de kaart bij @frituurdekoe in Zwolle: kroket met kaassoufflé",
+                            hours_ago=2 + i, author=f"maker{i}", platform="tiktok") for i in range(3)], None)
+    sugg = spots.radar_suggestions(conn, include_demo=False)
+    koe = next(s for s in sugg if s["name"] == "frituurdekoe")
+    assert any("nieuw op de kaart" in r for r in koe["reasons"])
+    now = db.iso(db.now())
+    conn.execute("INSERT INTO spots(name, place, added_at, updated_at) VALUES ('Frituur de Koe', 'Zwolle', ?, ?)",
+                 (now, now))
+    assert not any(s["name"] == "frituurdekoe" for s in spots.radar_suggestions(conn, include_demo=False))

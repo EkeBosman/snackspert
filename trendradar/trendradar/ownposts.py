@@ -84,6 +84,17 @@ def snack_lifts(rows: list[dict], overall_median: float | None = None) -> dict[s
     return dict(sorted(out.items(), key=lambda kv: kv[1]["lift"], reverse=True))
 
 
+def dimension_lifts(conn, dim: str) -> dict[str, dict]:
+    """Per waarde (bijv. 'Buiten Amsterdam'): mediaan views gedeeld door de mediaan van alle ingedeelde posts."""
+    rows = [r for r in _rows(conn) if r[dim]]
+    overall = _med(r["views"] for r in rows)
+    per = defaultdict(list)
+    for r in rows:
+        per[r[dim]].append(r)
+    return {k: {"lift": round(_med(i["views"] for i in v) / overall, 2), "posts": len(v)}
+            for k, v in per.items() if len(v) >= MIN_GROUP and overall}
+
+
 def lifts(conn) -> dict[str, dict]:
     """Snack-lift over al je posts: gebruikt door de trendradar."""
     return snack_lifts(_rows(conn))

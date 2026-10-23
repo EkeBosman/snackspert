@@ -97,6 +97,8 @@ def overview(conn, settings: dict) -> dict:
         "rondes_over": p["runs_left"],
         "per_ronde_eur": round(p["per_run_usd"] * rate, 2),
         "plan": p["platforms"],
+        # Wat Apify zelf meldt over je account (bijgewerkt bij elke ophaalronde).
+        "apify_account": db.get_state(conn, "apify_account"),
     }
 
 

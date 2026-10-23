@@ -53,7 +53,11 @@ def acceptable_hashtag(tag: str, viral: bool = False) -> bool:
         return False
     if any(place in tag for place in _PLACES if len(place) >= 6) and not _is_food_word(tag):
         return False
-    return viral or _is_food_word(tag) or any(stem in tag for stem in STREETFOOD_STEMS)
+    if _is_food_word(tag) or any(stem in tag for stem in STREETFOOD_STEMS):
+        return True
+    # Uit een virale post mag ook een onbekend woord komen (#tanghulu): juist een nieuwe
+    # snack staat nog niet in de woordenlijst. Maar geen gebouw of plek (#gerbrandytoren).
+    return viral and not any(w in tag for w in lexicon.PLACE_WORDS)
 
 
 def prune_bad_hashtags(conn) -> list[str]:
@@ -204,10 +208,25 @@ def list_searches(conn, known: set, limit: int = 3) -> list[dict]:
     """
     out = []
     prof = taste.profile(conn)
-    ranked = sorted(prof.items(), key=lambda kv: kv[1], reverse=True)
-    for feature, weight in ranked:
-        # Alleen wat je zelf bewaarde of een ♥ gaf. Je ruim 200 tips worden geen
-        # zoekopdrachten: dat zou het budget over te veel bronnen verdelen.
+    for feature, weight, src in _list_sources(prof):
+        if src in known:
+            continue
+        out.append({"platform": src[0], "kind": src[1], "value": src[2], "score": 25 + min(5, weight),
+                    "reason": f"uit Mijn lijst of ♥: {taste.label(feature, prof)}"})
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _list_sources(prof) -> list[tuple[str, float, tuple[str, str, str]]]:
+    """(kenmerk, gewicht, bron) voor wat je zelf bewaarde of een ♥ gaf.
+
+    Alleen je eigen ☆ en ♥ tellen (prof.user), niet je tips: een tip die in twee
+    lijsten staat, telde anders dubbel en werd zo toch een zoekopdracht. Je ruim
+    200 tips als zoekopdracht zou het budget over te veel bronnen verdelen.
+    """
+    out = []
+    for feature, weight in sorted(prof.user.items(), key=lambda kv: kv[1], reverse=True):
         if weight < taste.FEEDBACK_WEIGHT:
             break
         kind, _, value = feature.partition(":")
@@ -222,17 +241,32 @@ def list_searches(conn, known: set, limit: int = 3) -> list[dict]:
             platform, _, author = value.partition(":")
             if platform in ("instagram", "tiktok", "facebook"):
                 src = (platform, "account", author)
-        if not src or src in known or len(src[2]) < 4:
-            continue
-        out.append({"platform": src[0], "kind": src[1], "value": src[2], "score": 25 + min(5, weight),
-                    "reason": f"uit Mijn lijst of ♥: {taste.label(feature, prof)}"})
-        if len(out) >= limit:
-            break
+        if src and len(src[2]) >= 4:
+            out.append((feature, weight, src))
     return out
+
+
+def prune_list_sources(conn) -> list[str]:
+    """Zoekopdrachten 'uit Mijn lijst' die niet (meer) op je eigen ☆ of ♥ rusten: terug naar kandidaat.
+
+    Je kunt ze daarna zelf weer aanzetten bij Bronnen als je ze wilt houden.
+    """
+    wanted = {src for _, _, src in _list_sources(taste.profile(conn))}
+    moved = []
+    for s in conn.execute("SELECT id, platform, kind, value FROM sources WHERE origin = 'ontdekt' "
+                          "AND status = 'actief' AND reason LIKE 'uit Mijn lijst%'").fetchall():
+        if (s["platform"], s["kind"], s["value"]) not in wanted:
+            conn.execute("UPDATE sources SET status = 'kandidaat', reason = ? WHERE id = ?",
+                         ("uit je tips, niet uit je eigen ☆ of ♥: zet hem zelf aan als je hem wilt volgen",
+                          s["id"]))
+            moved.append(s["value"])
+    return moved
 
 
 def run(conn, settings: dict, demo: bool = False) -> list[dict]:
     """Voegt ontdekte bronnen toe. Geeft de toegevoegde terug."""
+    prune_bad_hashtags(conn)
+    prune_list_sources(conn)
     found = candidates(conn)
     auto = settings.get("auto_toevoegen", True)
     cap = settings.get("max_nieuwe_bronnen_per_run", 6)

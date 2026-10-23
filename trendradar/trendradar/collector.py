@@ -5,6 +5,8 @@ import logging
 import threading
 from datetime import timedelta
 
+import requests
+
 from . import budget, classify, config, db, discovery, lexicon, seeds, signals, snackspert
 from .sources import apify, meta_graph, news, supermarket
 
@@ -181,6 +183,22 @@ def step_apify(run: Run, settings: dict, skip: set[int]) -> None:
         sources = [dict(r) for r in conn.execute("SELECT * FROM sources WHERE status='actief'")]
     run.note(f"Budget deze ronde: ${p['per_run_usd']:.2f} "
              f"(nog ${p['left_usd']:.2f} voor {p['runs_left']} rondes deze maand)")
+    # Het budget in de tool is iets anders dan het tegoed op je Apify-account.
+    acct = apify.account_usage()
+    with db.session() as conn:
+        db.set_state(conn, "apify_account", {**acct, "checked": db.iso(db.now())} if acct else None)
+    if acct:
+        left = acct["limit_usd"] - acct["used_usd"]
+        if left < 0.05:
+            run.note(f"Apify-tegoed op: ${acct['used_usd']:.2f} van ${acct['limit_usd']:.2f} gebruikt deze maand. "
+                     "Het budget in de tool verhoogt je Apify-tegoed niet: dat doe je met een betaald plan op "
+                     "apify.com (Billing). Deze ronde haalt de tool niets op via Apify.", "fout")
+            return
+        if left < p["per_run_usd"]:
+            factor = left / p["per_run_usd"]
+            for plan in p["platforms"].values():
+                plan["usd"], plan["results"] = plan["usd"] * factor, int(plan["results"] * factor)
+            run.note(f"Apify-account: nog ${left:.2f} tegoed, deze ronde haalt de tool daarom minder op", "waarschuwing")
     for platform in budget.PLATFORMS:
         plan = p["platforms"][platform]
         price = settings[f"prijs_{platform}_per_1000"]
@@ -215,6 +233,21 @@ def step_apify(run: Run, settings: dict, skip: set[int]) -> None:
                 try:
                     items, cost = apify.run_actor(platform, kind, values, per_value, cap, since,
                                                   price_per_1000=price)
+                except apify.ApifyLimitError:
+                    run.note("Apify weigert: het tegoed of de limiet van je Apify-account is op. Het budget in de "
+                             "tool verhoogt je Apify-tegoed niet: dat doe je met een betaald plan op apify.com "
+                             "(Billing). De rest van deze ronde slaat Apify over.", "fout")
+                    return
+                except (requests.ConnectionError, requests.Timeout) as exc:
+                    # Internet of DNS even weg: de bronnen tellen niet als leeg en komen
+                    # de volgende ronde gewoon weer aan de beurt. Er is niets betaald.
+                    run.note(f"Apify {platform}/{kind}: geen verbinding met Apify (internet even weg?), ook niet "
+                             f"na een tweede poging. {len(values)} bronnen komen de volgende ronde weer aan de beurt.",
+                             "waarschuwing")
+                    with db.session() as conn:
+                        conn.executemany("UPDATE sources SET last_error = ? WHERE id = ?",
+                                         [(config.redact(str(exc))[:300], s["id"]) for s in batch])
+                    continue
                 except Exception as exc:  # noqa: BLE001
                     run.note(f"Apify {platform}/{kind}: {exc}", "fout")
                     with db.session() as conn:
@@ -420,14 +453,22 @@ def step_supermarkets(run: Run, settings: dict, force: bool = False) -> None:
                 status[store] = {"ok": False, "melding": "geen assortiment beschikbaar", "t": now}
                 continue
             baseline_done = db.get_state(conn, f"nulmeting_cjb_{store}", False)
-            known = {r["id"] for r in conn.execute("SELECT id FROM products WHERE store = ?", (store,))}
+            known, known_names = set(), set()
+            for r in conn.execute("SELECT id, name, size FROM products WHERE store = ?", (store,)):
+                known.add(r["id"])
+                known_names.add(_product_key(r["name"], r["size"]))
             fresh = [p for p in products if p["id"] not in known]
             rows = []
             new_relevant = 0
+            relisted = 0
             for p in fresh:
+                # Winkels zetten bestaande producten soms opnieuw online met een ander
+                # artikelnummer (Spar). Zelfde naam en verpakking = niet nieuw.
+                again = _product_key(p["name"], p["size"]) in known_names
+                relisted += again
                 # Bij de nulmeting is niets nieuw, dus beoordelen is niet nodig (scheelt een minuut).
-                relevant = baseline_done and is_snack_product(p["name"])
-                is_new = int(baseline_done)
+                relevant = baseline_done and not again and is_snack_product(p["name"])
+                is_new = int(baseline_done and not again)
                 new_relevant += is_new and relevant
                 rows.append((p["id"], p["store"], p["name"], p["size"], p["price"], p["url"],
                              now, now, is_new, int(relevant)))
@@ -437,16 +478,38 @@ def step_supermarkets(run: Run, settings: dict, force: bool = False) -> None:
             conn.execute("UPDATE products SET last_seen = ? WHERE store = ? AND demo = 0", (now, store))
             db.set_state(conn, f"nulmeting_cjb_{store}", True)
             if baseline_done:
+                n_new = len(fresh) - relisted
                 status[store] = {"ok": True, "t": now, "producten": len(products),
-                                 "melding": f"{len(products)} producten, {len(fresh)} nieuw "
-                                            f"({new_relevant} snack-relevant)"}
-                summary.append(f"{store} {len(fresh)} ({new_relevant})")
+                                 "melding": f"{len(products)} producten, {n_new} nieuw "
+                                            f"({new_relevant} snack-relevant)"
+                                            + (f", {relisted} opnieuw online gezet" if relisted else "")}
+                summary.append(f"{store} {n_new} ({new_relevant})")
             else:
                 status[store] = {"ok": True, "t": now, "producten": len(products),
                                  "melding": f"{len(products)} producten vastgelegd (nulmeting)"}
                 summary.append(f"{store} nulmeting")
         db.set_state(conn, "supermarkt_status", status)
-    run.note("Supermarkten (nieuw, waarvan snack-relevant): " + ", ".join(summary))
+        fixed = unmark_relisted(conn)
+    run.note("Supermarkten (nieuw, waarvan snack-relevant): " + ", ".join(summary)
+             + (f". {fixed} eerder als nieuw gemelde producten bleken al bekend" if fixed else ""))
+
+
+def _product_key(name: str, size: str | None) -> tuple[str, str]:
+    return (classify.norm(name or ""), classify.norm(size or ""))
+
+
+def unmark_relisted(conn) -> int:
+    """Haal 'nieuw' weg bij producten die de winkel al onder een ander artikelnummer had."""
+    older = {}
+    for r in conn.execute("SELECT store, name, size, first_seen FROM products WHERE demo = 0 AND is_new = 0"):
+        key = (r["store"], *_product_key(r["name"], r["size"]))
+        if key not in older or r["first_seen"] < older[key]:
+            older[key] = r["first_seen"]
+    ids = [r["id"] for r in conn.execute("SELECT id, store, name, size, first_seen FROM products "
+                                         "WHERE demo = 0 AND is_new = 1")
+           if (first := older.get((r["store"], *_product_key(r["name"], r["size"])))) and first <= r["first_seen"]]
+    conn.executemany("UPDATE products SET is_new = 0 WHERE id = ?", [(i,) for i in ids])
+    return len(ids)
 
 
 def step_snackspert(run: Run) -> None:
@@ -472,9 +535,20 @@ def step_discovery(run: Run, settings: dict, demo: bool = False) -> None:
         added = discovery.run(conn, settings, demo=demo)
     if added:
         act = [a for a in added if a["status"] == "actief"]
-        names = ", ".join(("#" if a["kind"] == "hashtag" else "@") + a["value"] for a in act[:6])
+        names = ", ".join({"hashtag": "#", "account": "@"}.get(a["kind"], "zoekterm ") + a["value"]
+                          for a in act[:6])
         run.note(f"Ontdekt: {len(added)} nieuwe bronnen, {len(act)} direct actief"
                  + (f" ({names})" if names else ""))
+
+
+def step_geocode(run: Run) -> None:
+    """Zoek plaatsen van tips op (OpenStreetMap, gratis) voor routes die de tool zelf bedenkt."""
+    from . import geo
+
+    res = geo.fill(limit=40)
+    if res.get("found") or res.get("failed"):
+        run.note(f"Plaatsen opgezocht voor routes: {res['found']} gevonden"
+                 + (f", {res['failed']} niet gevonden" if res["failed"] else ""))
 
 
 def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict | None:
@@ -509,6 +583,7 @@ def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict 
                 step_supermarkets(run, settings, force_supermarkets)
                 step_snackspert(run)
                 step_discovery(run, settings)
+                step_geocode(run)
         except Exception as exc:  # noqa: BLE001 - ronde altijd netjes afsluiten
             log.exception("Ophaalronde mislukt")
             run.note(f"Ronde afgebroken: {exc}", "fout")
