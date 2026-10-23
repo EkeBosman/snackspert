@@ -998,3 +998,99 @@ def test_viral_potential_ranking_skips_done_and_adds_route_stops(conn):
     assert r["skipped"]["status"] == 1
     assert r["routes"][0]["name"] == "Drenthe" and r["routes"][0]["maps"].startswith("https://www.google.com/maps/dir/")
     assert app.test_client().get("/api/potentie?limit=5").status_code == 200
+
+
+# --- uit de ronde van 23 oktober ---------------------------------------------------
+
+def test_relisted_supermarket_product_is_not_new(conn, monkeypatch):
+    from trendradar import collector
+    from trendradar.sources import supermarket
+
+    base = [{"id": "spar:chips-1", "store": "Spar", "name": "Lay's Paprika chips", "size": "225 Gram",
+             "price": 2.5, "url": None}]
+    later = base + [{"id": "spar:chips-2", "store": "Spar", "name": "Lay's paprika chips", "size": "225 gram",
+                     "price": 2.5, "url": None},
+                    {"id": "spar:kroket-9", "store": "Spar", "name": "Kwekkeboom kroket", "size": "4 stuks",
+                     "price": 3.5, "url": None}]
+    responses = iter([({"Spar": base}, '"a"'), ({"Spar": later}, '"b"')])
+    monkeypatch.setattr(supermarket, "fetch", lambda etag=None: next(responses))
+    run = collector.Run("test")
+    collector.step_supermarkets(run, dict(config.DEFAULTS), force=True)
+    collector.step_supermarkets(run, dict(config.DEFAULTS), force=True)
+    new = [r["name"] for r in conn.execute("SELECT name FROM products WHERE is_new = 1")]
+    assert new == ["Kwekkeboom kroket"]
+    assert "Spar 1 (1)" in run.lines[-1]["tekst"]
+    # Al eerder ten onrechte als nieuw gemeld: wordt rechtgezet.
+    conn.execute("UPDATE products SET is_new = 1 WHERE id = 'spar:chips-2'")
+    assert collector.unmark_relisted(conn) == 1
+
+
+def test_apify_retries_only_when_safe(monkeypatch):
+    import requests as rq
+
+    from trendradar.sources import apify as ap
+
+    monkeypatch.setattr(ap, "RETRY_WAIT_S", 0)
+    calls = []
+
+    def flaky(exc):
+        def f(*a, **k):
+            calls.append(1)
+            if len(calls) == 1:
+                raise exc
+            return "ok"
+        return f
+
+    monkeypatch.setattr(ap.requests, "post", flaky(rq.ConnectionError("DNS weg")))
+    assert ap._start("https://x") == "ok" and len(calls) == 2
+    calls.clear()
+    monkeypatch.setattr(ap.requests, "post", flaky(rq.ReadTimeout("run loopt misschien al")))
+    with pytest.raises(rq.ReadTimeout):
+        ap._start("https://x")  # niet opnieuw starten: dat zou dubbel kosten
+    assert len(calls) == 1
+    calls.clear()
+    monkeypatch.setattr(ap.requests, "get", flaky(rq.Timeout("traag")))
+    assert ap._get("https://x") == "ok" and len(calls) == 2
+
+
+def test_network_error_does_not_punish_sources(conn, monkeypatch):
+    import requests as rq
+
+    from trendradar import collector
+    from trendradar.sources import apify as ap
+
+    conn.execute("INSERT INTO sources(platform, kind, value, status, origin, added_at) "
+                 "VALUES ('instagram', 'account', 'snackbardepoppe', 'actief', 'ontdekt', 'x')")
+    conn.commit()
+    monkeypatch.setattr(ap, "available", lambda: True)
+
+    def down(*a, **k):
+        raise rq.ConnectionError("Failed to resolve 'api.apify.com'")
+    monkeypatch.setattr(ap, "run_actor", down)
+    run = collector.Run("test")
+    for _ in range(3):
+        collector.step_apify(run, dict(config.DEFAULTS), set())
+    s = conn.execute("SELECT status, empty_streak FROM sources WHERE value = 'snackbardepoppe'").fetchone()
+    assert (s["status"], s["empty_streak"]) == ("actief", 0)
+    assert any("geen verbinding met Apify" in line["tekst"] for line in run.lines)
+
+
+def test_tips_alone_never_become_sources(conn):
+    now = db.iso(db.now())
+    # Dezelfde zaak in twee lijsten (met een iets andere plaatsnaam) telde eerder dubbel.
+    for place in ("Colmschate", "Colmschate (Deventer)"):
+        conn.execute("INSERT INTO spots(name, place, specialty, added_at, updated_at) VALUES (?, ?, '', ?, ?)",
+                     ("Paul van Gurp", place, now, now))
+    assert not discovery.list_searches(conn, discovery._known(conn), limit=10)
+    # Een bron die eerder zo is toegevoegd, gaat terug naar kandidaat.
+    conn.execute("INSERT INTO sources(platform, kind, value, status, origin, reason, added_at) VALUES "
+                 "('tiktok', 'zoekterm', 'paul van gurp', 'actief', 'ontdekt', 'uit Mijn lijst of ♥: Paul van Gurp', ?)",
+                 (now,))
+    assert discovery.prune_list_sources(conn) == ["paul van gurp"]
+    assert conn.execute("SELECT status FROM sources WHERE value = 'paul van gurp'").fetchone()[0] == "kandidaat"
+
+
+def test_viral_post_hashtags_must_be_about_food():
+    assert not discovery.acceptable_hashtag("gerbrandytoren", viral=True)
+    assert discovery.acceptable_hashtag("frikandelijs", viral=True)
+    assert discovery.acceptable_hashtag("birriatacos")

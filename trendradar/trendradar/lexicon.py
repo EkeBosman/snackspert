@@ -473,3 +473,8 @@ CHANNEL_HINTS = {
     "Streetfood": ("foodtruck", "kraam", "markt", "street"),
     "Restaurant": ("restaurant", "bistro", "brasserie"),
 }
+
+# Gebouwen, plekken en gelegenheden: uit een virale post geen bron (#gerbrandytoren, #domplein).
+PLACE_WORDS = ("toren", "kerk", "plein", "straat", "park", "strand", "haven", "museum", "station", "brug", "dijk",
+               "laan", "kade", "gracht", "stadion", "arena", "kasteel", "molen", "vakantie", "bruiloft",
+               "wedding", "verjaardag", "birthday", "uitzicht", "sunset", "zonsondergang")

@@ -5,6 +5,8 @@ import logging
 import threading
 from datetime import timedelta
 
+import requests
+
 from . import budget, classify, config, db, discovery, lexicon, seeds, signals, snackspert
 from .sources import apify, meta_graph, news, supermarket
 
@@ -215,6 +217,16 @@ def step_apify(run: Run, settings: dict, skip: set[int]) -> None:
                 try:
                     items, cost = apify.run_actor(platform, kind, values, per_value, cap, since,
                                                   price_per_1000=price)
+                except (requests.ConnectionError, requests.Timeout) as exc:
+                    # Internet of DNS even weg: de bronnen tellen niet als leeg en komen
+                    # de volgende ronde gewoon weer aan de beurt. Er is niets betaald.
+                    run.note(f"Apify {platform}/{kind}: geen verbinding met Apify (internet even weg?), ook niet "
+                             f"na een tweede poging. {len(values)} bronnen komen de volgende ronde weer aan de beurt.",
+                             "waarschuwing")
+                    with db.session() as conn:
+                        conn.executemany("UPDATE sources SET last_error = ? WHERE id = ?",
+                                         [(config.redact(str(exc))[:300], s["id"]) for s in batch])
+                    continue
                 except Exception as exc:  # noqa: BLE001
                     run.note(f"Apify {platform}/{kind}: {exc}", "fout")
                     with db.session() as conn:
@@ -420,14 +432,22 @@ def step_supermarkets(run: Run, settings: dict, force: bool = False) -> None:
                 status[store] = {"ok": False, "melding": "geen assortiment beschikbaar", "t": now}
                 continue
             baseline_done = db.get_state(conn, f"nulmeting_cjb_{store}", False)
-            known = {r["id"] for r in conn.execute("SELECT id FROM products WHERE store = ?", (store,))}
+            known, known_names = set(), set()
+            for r in conn.execute("SELECT id, name, size FROM products WHERE store = ?", (store,)):
+                known.add(r["id"])
+                known_names.add(_product_key(r["name"], r["size"]))
             fresh = [p for p in products if p["id"] not in known]
             rows = []
             new_relevant = 0
+            relisted = 0
             for p in fresh:
+                # Winkels zetten bestaande producten soms opnieuw online met een ander
+                # artikelnummer (Spar). Zelfde naam en verpakking = niet nieuw.
+                again = _product_key(p["name"], p["size"]) in known_names
+                relisted += again
                 # Bij de nulmeting is niets nieuw, dus beoordelen is niet nodig (scheelt een minuut).
-                relevant = baseline_done and is_snack_product(p["name"])
-                is_new = int(baseline_done)
+                relevant = baseline_done and not again and is_snack_product(p["name"])
+                is_new = int(baseline_done and not again)
                 new_relevant += is_new and relevant
                 rows.append((p["id"], p["store"], p["name"], p["size"], p["price"], p["url"],
                              now, now, is_new, int(relevant)))
@@ -437,16 +457,38 @@ def step_supermarkets(run: Run, settings: dict, force: bool = False) -> None:
             conn.execute("UPDATE products SET last_seen = ? WHERE store = ? AND demo = 0", (now, store))
             db.set_state(conn, f"nulmeting_cjb_{store}", True)
             if baseline_done:
+                n_new = len(fresh) - relisted
                 status[store] = {"ok": True, "t": now, "producten": len(products),
-                                 "melding": f"{len(products)} producten, {len(fresh)} nieuw "
-                                            f"({new_relevant} snack-relevant)"}
-                summary.append(f"{store} {len(fresh)} ({new_relevant})")
+                                 "melding": f"{len(products)} producten, {n_new} nieuw "
+                                            f"({new_relevant} snack-relevant)"
+                                            + (f", {relisted} opnieuw online gezet" if relisted else "")}
+                summary.append(f"{store} {n_new} ({new_relevant})")
             else:
                 status[store] = {"ok": True, "t": now, "producten": len(products),
                                  "melding": f"{len(products)} producten vastgelegd (nulmeting)"}
                 summary.append(f"{store} nulmeting")
         db.set_state(conn, "supermarkt_status", status)
-    run.note("Supermarkten (nieuw, waarvan snack-relevant): " + ", ".join(summary))
+        fixed = unmark_relisted(conn)
+    run.note("Supermarkten (nieuw, waarvan snack-relevant): " + ", ".join(summary)
+             + (f". {fixed} eerder als nieuw gemelde producten bleken al bekend" if fixed else ""))
+
+
+def _product_key(name: str, size: str | None) -> tuple[str, str]:
+    return (classify.norm(name or ""), classify.norm(size or ""))
+
+
+def unmark_relisted(conn) -> int:
+    """Haal 'nieuw' weg bij producten die de winkel al onder een ander artikelnummer had."""
+    older = {}
+    for r in conn.execute("SELECT store, name, size, first_seen FROM products WHERE demo = 0 AND is_new = 0"):
+        key = (r["store"], *_product_key(r["name"], r["size"]))
+        if key not in older or r["first_seen"] < older[key]:
+            older[key] = r["first_seen"]
+    ids = [r["id"] for r in conn.execute("SELECT id, store, name, size, first_seen FROM products "
+                                         "WHERE demo = 0 AND is_new = 1")
+           if (first := older.get((r["store"], *_product_key(r["name"], r["size"])))) and first <= r["first_seen"]]
+    conn.executemany("UPDATE products SET is_new = 0 WHERE id = ?", [(i,) for i in ids])
+    return len(ids)
 
 
 def step_snackspert(run: Run) -> None:
@@ -472,7 +514,8 @@ def step_discovery(run: Run, settings: dict, demo: bool = False) -> None:
         added = discovery.run(conn, settings, demo=demo)
     if added:
         act = [a for a in added if a["status"] == "actief"]
-        names = ", ".join(("#" if a["kind"] == "hashtag" else "@") + a["value"] for a in act[:6])
+        names = ", ".join({"hashtag": "#", "account": "@"}.get(a["kind"], "zoekterm ") + a["value"]
+                          for a in act[:6])
         run.note(f"Ontdekt: {len(added)} nieuwe bronnen, {len(act)} direct actief"
                  + (f" ({names})" if names else ""))
 

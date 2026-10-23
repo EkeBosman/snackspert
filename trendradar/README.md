@@ -285,7 +285,7 @@ Na elke ronde zoekt de tool in de relevante Nederlandse posts van de afgelopen 7
 - **Accounts** die door meerdere makers genoemd worden.
 - **Wat je bewaart in Mijn lijst of een ♥ geeft** (zie hierboven). Deze gaan voor alles.
 - **Opkomende woorden en combinaties** (zoals *frikandelijs*) als TikTok-zoekterm.
-- **Hashtags en makers uit virale posts**, ook als het om één maker gaat. Deze gaan altijd voor. Bij de bron staat dan bijvoorbeeld: *"uit virale post van @maker (40× views, bereik 276× het aantal volgers)"*.
+- **Hashtags en makers uit virale posts**, ook als het om één maker gaat. Deze gaan altijd voor. Bij de bron staat dan bijvoorbeeld: *"uit virale post van @maker (40× views, bereik 276× het aantal volgers)"*. Een onbekend woord mag hier (#tanghulu: een nieuwe snack staat nog niet in de woordenlijst), maar geen gebouw, plek of gelegenheid (#gerbrandytoren, #domplein, #bruiloft).
 
 Standaard worden per ronde maximaal 6 ontdekte bronnen direct geactiveerd. De rest komt als **kandidaat** in de lijst, zodat jij kunt kiezen. Omgekeerd ruimt de tool ook op:
 
@@ -294,6 +294,15 @@ Standaard worden per ronde maximaal 6 ontdekte bronnen direct geactiveerd. De re
 
 Bronnen die je **zelf** toevoegt, worden nooit automatisch gepauzeerd. Wat de tool ontdekt, hoe streng hij is en hoeveel bronnen er maximaal actief zijn, stel je in onder **Budget & instellingen**.
 
+### Als het internet even wegvalt
+
+Lukt het niet om Apify te bereiken (geen internet, of de naam api.apify.com is even niet te vinden), dan probeert de tool het na 20 seconden nog één keer. Lukt het dan nog niet, dan zie je in het logboek *"geen verbinding met Apify"*.
+- Er is niets betaald.
+- De bronnen tellen niet als leeg. Een account wordt dus niet ten onrechte als "ongeldig" gemarkeerd.
+- De bronnen komen de volgende ronde weer aan de beurt. De ronde heet dan *deels*.
+
+Een run die al gestart is, wordt nooit opnieuw gestart: dat zou dubbel kosten.
+
 ## Supermarkten
 
 De tool legt drie bronnen naast elkaar: het **assortiment** van de supermarkten, **social posts** en **nieuws**.
@@ -301,7 +310,7 @@ De tool legt drie bronnen naast elkaar: het **assortiment** van de supermarkten,
 **Assortiment.** Dat komt van [checkjebon](https://github.com/supermarkt/checkjebon). Dat open project (MIT-licentie, de data mag hergebruikt worden) verzamelt elke dag het online assortiment van Albert Heijn, Jumbo, Lidl, Plus, Dirk, Hoogvliet, DekaMarkt, Spar, Vomar en Poiesz. Samen zijn dat ruim 100.000 producten. De tool vergelijkt dat twee keer per dag:
 
 - **Nulmeting.** De eerste keer legt de tool alleen vast wat elke winkel verkoopt.
-- **Nieuw.** Alles wat daarna voor het eerst opduikt, is nieuw. Een product dat even uitverkocht was en terugkomt, telt niet opnieuw.
+- **Nieuw.** Alles wat daarna voor het eerst opduikt, is nieuw. Een product dat even uitverkocht was en terugkomt, telt niet opnieuw. Zet een winkel een bestaand product opnieuw online onder een ander artikelnummer (Spar doet dat), dan herkent de tool het aan naam en verpakking. Het telt dan niet als nieuw.
 - **Alleen snacks.** Standaard zie je alleen nieuwe producten die over snacks, streetfood, snoep of drinken gaan. Een vinkje toont ook de rest. Dierenvoer en schoonmaakmiddelen worden altijd overgeslagen.
 - **Zuinig.** Is het bestand niet veranderd, dan downloadt de tool de 10 MB niet opnieuw.
 

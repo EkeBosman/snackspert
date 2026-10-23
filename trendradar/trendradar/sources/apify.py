@@ -124,6 +124,34 @@ OPTIONAL_KEYS = {"searchSection", "proxyCountryCode", "profileSorting", "exclude
                  "oldestPostDateUnified", "onlyPostsNewerThan"}
 
 
+RETRY_WAIT_S = 20
+
+
+def _get(url: str, **kw):
+    """GET met één nieuwe poging bij een netwerkfout: opvragen kost niets extra."""
+    try:
+        return requests.get(url, **kw)
+    except (requests.ConnectionError, requests.Timeout):
+        time.sleep(RETRY_WAIT_S)
+        return requests.get(url, **kw)
+
+
+def _start(url: str, **kw):
+    """Run starten, met één nieuwe poging als de verbinding niet eens tot stand kwam.
+
+    Alleen bij een verbindingsfout (DNS, geen internet): dan is er zeker niets
+    gestart. Bij een time-out tijdens het wachten op antwoord kan de run wél al
+    lopen; opnieuw starten zou dan dubbel kosten, dus dat doen we niet.
+    """
+    try:
+        return requests.post(url, **kw)
+    except requests.ReadTimeout:
+        raise
+    except requests.ConnectionError:
+        time.sleep(RETRY_WAIT_S)
+        return requests.post(url, **kw)
+
+
 def run_actor(platform: str, kind: str, values: list[str], per_value: int,
               max_usd: float, since: str | None = None, price_per_1000: float = 0.0,
               timeout_s: int = 900) -> tuple[list[dict], float]:
@@ -137,15 +165,13 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
         "waitForFinish": 60,
     }
     body = build(values, per_value, since)
-    resp = requests.post(f"{API}/acts/{actor}/runs", params=params, headers=headers,
-                         json=body, timeout=90)
+    resp = _start(f"{API}/acts/{actor}/runs", params=params, headers=headers, json=body, timeout=90)
     if resp.status_code == 400 and OPTIONAL_KEYS & body.keys():
         # Kent de actor een van de extra velden niet (meer)? Probeer het zonder,
         # zodat één verkeerde veldnaam niet de hele ronde kost.
         log.warning("%s weigerde de invoer, opnieuw zonder extra velden: %s", actor, resp.text[:200])
         body = {k: v for k, v in body.items() if k not in OPTIONAL_KEYS}
-        resp = requests.post(f"{API}/acts/{actor}/runs", params=params, headers=headers,
-                             json=body, timeout=90)
+        resp = _start(f"{API}/acts/{actor}/runs", params=params, headers=headers, json=body, timeout=90)
     if resp.status_code >= 400:
         raise ApifyError(f"{actor}: {resp.status_code} {resp.text[:300]}")
     run = resp.json()["data"]
@@ -153,8 +179,7 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
     deadline = time.time() + timeout_s
     while run.get("status") in ("READY", "RUNNING") and time.time() < deadline:
         time.sleep(10)
-        r = requests.get(f"{API}/actor-runs/{run['id']}", headers=headers,
-                         params={"waitForFinish": 60}, timeout=90)
+        r = _get(f"{API}/actor-runs/{run['id']}", headers=headers, params={"waitForFinish": 60}, timeout=90)
         r.raise_for_status()
         run = r.json()["data"]
 
@@ -165,9 +190,8 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
     items: list[dict] = []
     dataset = run.get("defaultDatasetId")
     if dataset:
-        r = requests.get(f"{API}/datasets/{dataset}/items", headers=headers,
-                         params={"clean": "true", "format": "json", "limit": max_items},
-                         timeout=120)
+        r = _get(f"{API}/datasets/{dataset}/items", headers=headers,
+                 params={"clean": "true", "format": "json", "limit": max_items}, timeout=120)
         r.raise_for_status()
         items = r.json()
     if run.get("status") not in ("SUCCEEDED", "ABORTED", "TIMED-OUT") and not items:
