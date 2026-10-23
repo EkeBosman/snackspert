@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import math
 import re
+from collections import defaultdict
 
 from . import classify, db, imports, lexicon, ownposts, signals, spots, taste
 
 # Punten per signaal. Bewust zichtbaar en eenvoudig, zodat je kunt zien waarom.
 POINTS = {
     "creatie": 3.0,       # een eigen snack met een eigen naam
+    "variant": 1.0,       # een bekende snack met een ander ingrediënt: rundvleeskroket
     "combinatie": 3.0,    # twee bekende snacks die normaal niet samengaan
     "twist": 2.0,         # bekende snack in een nieuwe vorm
     "getipt": 2.0,        # meerdere volgers tipten deze zaak
@@ -31,39 +33,71 @@ POINTS = {
     "herkenbaar": 1.0,    # mainstream snack
     "niche": -0.75,
     "algemeen": -1.0,     # 'geen gekke dingen'
+    "gesloten": -3.0,     # 'tijdelijk gesloten', 'failliet'
     "radar": 1.5,         # nu al posts over
     "kleine_viral": 1.5,  # en een daarvan doet het ver boven normaal
 }
 SKIP = ("gereviewd", "afgevallen")
 
 
-def _has(text: str, words) -> str | None:
-    return next((w for w in words if w in text), None)
+def _has(text: str, words, whole: bool = False) -> str | None:
+    """Eerste woord uit de lijst dat in de tekst staat, als (begin van een) los woord.
+
+    'tank' telt niet in 'tankstation' (whole=True), 'zelfgemaakt' wel in 'zelfgemaakte'.
+    """
+    for w in words:
+        if w in ("€",):
+            if w in text:
+                return w
+            continue
+        end = r"(?![\w])" if whole else ""
+        if re.search(r"(?<![\w])" + re.escape(w) + end, text):
+            return w
+    return None
 
 
-def _creation(raw: str) -> str | None:
-    """'broodje lammert', 'Steenwijkerbal', 'luifel snack', 'Jacksalon': een eigen creatie?"""
+def _is_ingredient(word: str) -> bool:
+    w = word.strip("-")
+    if w in lexicon.INGREDIENT_WORDS:
+        return True
+    # Tussen-s of -en: 'rundvlees-s-kroket', 'garnalen-kroket'.
+    return any(w.endswith(link) and w[:-len(link)] in lexicon.INGREDIENT_WORDS for link in ("s", "en", "e"))
+
+
+def _creation(raw: str) -> tuple[str, str] | None:
+    """Een eigen creatie ('broodje lammert', 'Steenwijkerbal', 'luifel snack') of een variant
+    ('rundvleeskroket', 'truffelburger')? Geeft (soort, naam) of None."""
     text = raw.lower()
+    if "zelf ontwikkeld" in text or "eigen creatie" in text:
+        m = re.search(r"([a-zà-ÿ][\w\-]{3,})\s*\((?:zelf ontwikkeld|eigen creatie)", text)
+        return ("creatie", m.group(1) if m else "eigen creatie")
     m = re.search(r"\bbroodje\s+([a-zà-ÿ][\w\-éëï]*)", text)
-    if m and m.group(1) not in lexicon.NOT_A_NAME and m.group(1) not in lexicon.DUTCH_FOODS \
-            and not classify.item_groups(f" {m.group(1)} ", []):
-        return f"broodje {m.group(1)}"
+    if m:
+        name = m.group(1).strip("-")
+        if (name not in lexicon.NOT_A_NAME and name not in lexicon.ORDINARY_FILLINGS
+                and name not in lexicon.DUTCH_FOODS and not _is_ingredient(name)
+                and not classify.item_groups(f" {name} ", []) and not classify._is_food_word(name)
+                and len(name) >= 3):
+            return ("creatie", f"broodje {name}")
     m = re.search(r"\bsnack\s+de\s+([a-zà-ÿ]{3,})", text)
     if m:
-        return f"snack de {m.group(1)}"
+        return ("creatie", f"snack de {m.group(1)}")
     m = re.search(r"\b([a-zà-ÿ]{4,})\s+snack\b", text)
-    if m and m.group(1) not in lexicon.NOT_A_NAME:
-        return f"{m.group(1)} snack"
+    # 'luifel snack' wel; 'lekkere snack' en 'warme snack' niet (bijvoeglijk naamwoord op -e).
+    if m and m.group(1) not in lexicon.NOT_A_NAME and not m.group(1).endswith("e") \
+            and not _is_ingredient(m.group(1)) and m.group(1) not in lexicon.DUTCH_WORDS:
+        return ("creatie", f"{m.group(1)} snack")
     for word in re.findall(r"[a-zà-ÿ\-]+", text):
         w = word.strip("-")
         if w in lexicon.COMMON_COMPOUNDS or w in lexicon.DUTCH_FOODS:
             continue
-        for suffix in lexicon.CREATION_SUFFIXES:
+        # Langste eerst: 'boerenfrikandel' is boeren + frikandel, niet boerenfri + kandel.
+        for suffix in sorted(set(lexicon.CREATION_SUFFIXES) | {"frikandel"}, key=len, reverse=True):
             if w.endswith(suffix) and len(w) >= len(suffix) + 4:
-                return w
-    # Een eigennaam midden in de beschrijving: 'Briljantje (zelf ontwikkeld)', 'de Vlamburger'.
-    if "zelf ontwikkeld" in text or "eigen creatie" in text:
-        return "eigen creatie"
+                prefix = w[:-len(suffix)].strip("-")
+                if _is_ingredient(prefix) or classify._is_food_word(prefix):
+                    return ("variant", w)
+                return ("creatie", w)
     return None
 
 
@@ -79,15 +113,18 @@ def _num(x: float) -> str:
 def _candidates(conn) -> list[dict]:
     """Je tips, aangevuld met stops uit routes die (nog) niet als tip in je lijst staan."""
     out, seen = [], {}
-    for r in conn.execute("SELECT * FROM spots"):
+    for r in conn.execute("SELECT * FROM spots ORDER BY id"):
         d = db.row_to_dict(r)
-        key = (taste.zaak_key(d["name"]), d["place"].lower())
+        # Dezelfde zaak twee keer in je tips ('Colmschate' en 'Colmschate (Deventer)'): één keer tellen.
+        key = imports.spot_key(d["name"], d["place"])
+        if key in seen:
+            continue
         seen[key] = d
         out.append(d)
     for route in conn.execute("SELECT name, stops FROM routes"):
         for stop in db.row_to_dict(route)["stops"]:
             s = imports.parse_stop(stop)
-            key = (taste.zaak_key(s["name"]), s["place"].lower())
+            key = imports.spot_key(s["name"], s["place"])
             if key in seen:
                 # Routes hebben soms een uitgebreidere beschrijving.
                 if len(s["specialty"]) > len(seen[key]["specialty"] or ""):
@@ -113,9 +150,18 @@ def score_tip(tip: dict, ctx: dict) -> dict:
         kinds.add(kind)
         reasons.append({"kind": kind, "text": why, "points": round(pts, 1)})
 
-    # Eerst de specialiteit; de naam van de zaak alleen als die zelf de snack is ('Steenwijkerbal').
-    if creation := (_creation(tip["specialty"] or "") or (_creation(tip["name"]) if not tip["specialty"] else None)):
-        add("creatie", f"Eigen creatie: {creation}")
+    # Ontkenningen en 'gesloten' eerst: 'geen gekke dingen' is geen spektakel.
+    if w := _has(text, lexicon.CLOSED_WORDS):
+        add("gesloten", f"Mogelijk gesloten: '{w}'")
+    generic = _has(text, lexicon.GENERIC_WORDS)
+    for g in lexicon.GENERIC_WORDS:
+        text = text.replace(g, " ")
+    if generic:
+        add("algemeen", "Weinig bijzonders genoemd")
+    # Alleen de specialiteit, nooit de naam van de zaak ('Cafetaria De Smulhap' is geen snack).
+    if found := _creation(tip["specialty"] or ""):
+        kind, name = found
+        add(kind, f"Eigen creatie: {name}" if kind == "creatie" else f"Variant: {name}")
     flags = classify.find_flags(text, [], 1.0)
     combo = next((f.split(":", 1)[1] for f in flags if f.startswith("combinatie:")), None)
     if combo:
@@ -125,18 +171,16 @@ def score_tip(tip: dict, ctx: dict) -> dict:
         add("twist", f"Twist: {twist}")
     if w := _has(text, lexicon.TIPPED_WORDS):
         add("getipt", "Vaker getipt door volgers")
-    if w := _has(text, lexicon.SPECTACLE_WORDS):
+    if w := _has(text, lexicon.SPECTACLE_WORDS, whole=True):
         add("spektakel", f"Opvallend: '{w}'")
     if _has(text, lexicon.HOMEMADE_WORDS):
         add("huisgemaakt", "Huisgemaakt")
     if w := _has(text, lexicon.CLAIM_WORDS):
         add("claim", f"Verhaal of claim: '{w}'")
-    if w := _has(text, lexicon.SCARCITY_WORDS):
+    if (w := _has(text, lexicon.SCARCITY_WORDS)) and "gesloten" not in kinds:
         add("schaarste", f"Schaars: '{w}'")
     if _has(text, lexicon.PRICE_WORDS):
         add("prijs", "Prijs als haakje")
-    if _has(text, lexicon.GENERIC_WORDS):
-        add("algemeen", "Weinig bijzonders genoemd")
     mainstream = _has(text, lexicon.MAINSTREAM_SNACKS)
     if mainstream:
         add("herkenbaar", f"Herkenbare snack: {mainstream}")
@@ -172,6 +216,8 @@ def score_tip(tip: dict, ctx: dict) -> dict:
         add("smaak", "Past bij jou" if mine > 0 else "Lijkt op wat je afwees", max(-2.0, min(2.0, mine)))
 
     strong = len(kinds & {"creatie", "combinatie", "twist", "getipt", "spektakel", "claim", "schaarste", "radar"})
+    if "gesloten" in kinds:
+        strong = 0
     confidence = "hoog" if strong >= 2 else "middel" if strong == 1 or tip["specialty"] else "laag"
     return {"score": round(score, 2), "reasons": reasons, "confidence": confidence,
             # 0-100: een paar sterke signalen samen geven al snel een hoge kans.
@@ -183,7 +229,7 @@ def _context(conn, include_demo: bool) -> dict:
     base = signals.baselines(conn, include_demo=include_demo)
     for hit in hits.values():
         best = 0.0
-        for pid in hit["post_ids"]:
+        for pid in hit["post_ids"][:10]:  # de nieuwste tien
             row = conn.execute("SELECT * FROM posts WHERE id = ?", (pid,)).fetchone()
             if row:
                 best = max(best, signals.of_post(row, base)["views_x"] or 0)
@@ -204,6 +250,13 @@ def ranking(conn, limit: int = 10, include_demo: bool = True) -> dict:
     handles = {taste.zaak_key(h): v for h, v in ownposts.posted_handles(conn).items()}
     captions = ownposts.caption_index(conn)
     route_rows = [db.row_to_dict(r) for r in conn.execute("SELECT id, name, stops FROM routes")]
+    # Elke stop één keer ontleden, niet opnieuw voor elke tip.
+    in_routes = defaultdict(list)
+    for r in route_rows:
+        r["parsed"] = [imports.parse_stop(x) for x in r["stops"]]
+        r["keys"] = [taste.zaak_key(p["name"]) for p in r["parsed"]]
+        for k in dict.fromkeys(r["keys"]):
+            in_routes[k].append(r["name"])
     scored, skipped = [], {"gepost": 0, "status": 0}
     for tip in _candidates(conn):
         if tip["status"] in SKIP:
@@ -217,8 +270,7 @@ def ranking(conn, limit: int = 10, include_demo: bool = True) -> dict:
         tkey = taste.zaak_key(tip["name"])
         s.update({k: tip[k] for k in ("id", "name", "place", "specialty", "region", "lists", "status")})
         s["maps"] = spots.maps_search(tip["name"], tip["place"])
-        s["routes"] = [r["name"] for r in route_rows
-                       if any(taste.zaak_key(imports.parse_stop(x)["name"]) == tkey for x in r["stops"])][:3]
+        s["routes"] = in_routes.get(tkey, [])[:3]
         scored.append(s)
     scored.sort(key=lambda s: (s["score"], s["specialty"] != ""), reverse=True)
     top = scored[:limit]
@@ -226,11 +278,11 @@ def ranking(conn, limit: int = 10, include_demo: bool = True) -> dict:
     by_key = {taste.zaak_key(s["name"]): s for s in scored}
     best_routes = []
     for r in route_rows:
-        stops = [by_key.get(taste.zaak_key(imports.parse_stop(x)["name"])) for x in r["stops"]]
+        stops = [by_key.get(k) for k in r["keys"]]
         total = sum(s["score"] for s in stops if s)
         best_routes.append({"id": r["id"], "name": r["name"], "score": round(total, 1),
-                            "stops": [{"name": imports.parse_stop(x)["name"], "place": imports.parse_stop(x)["place"],
-                                       "potential": s["potential"] if s else None} for x, s in zip(r["stops"], stops)],
+                            "stops": [{"name": p["name"], "place": p["place"], "potential": s["potential"] if s else None}
+                                      for p, s in zip(r["parsed"], stops)],
                             "maps": spots.maps_url(r["stops"])})
     best_routes.sort(key=lambda r: r["score"], reverse=True)
     lifts = {"snacks": [{"snack": k, **v} for k, v in list(ctx["snacks"].items())[:3]],

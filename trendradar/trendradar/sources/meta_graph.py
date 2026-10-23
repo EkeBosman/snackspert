@@ -59,26 +59,29 @@ def hashtag_slots(conn) -> tuple[set[str], int]:
     return used, max(0, WEEK_LIMIT - len(used))
 
 
-def _hashtag_id(conn, tag: str) -> str:
+def cached_hashtag_id(conn, tag: str) -> str | None:
     row = conn.execute("SELECT hashtag_id, first_used FROM graph_hashtags WHERE hashtag = ?",
                        (tag,)).fetchone()
     cutoff = db.iso(db.now() - timedelta(days=7))
-    if row and row["hashtag_id"] and row["first_used"] > cutoff:
-        return row["hashtag_id"]
+    return row["hashtag_id"] if row and row["hashtag_id"] and row["first_used"] > cutoff else None
+
+
+def search_hashtag_id(tag: str) -> str:
     data = _get("ig_hashtag_search", {"user_id": config.secret("META_IG_USER_ID"), "q": tag})
     if not data.get("data"):
         raise GraphError(f"hashtag #{tag} niet gevonden")
-    hid = data["data"][0]["id"]
+    return data["data"][0]["id"]
+
+
+def remember_hashtag_id(conn, tag: str, hid: str) -> None:
     conn.execute(
         "INSERT INTO graph_hashtags(hashtag, hashtag_id, first_used) VALUES(?, ?, ?) "
         "ON CONFLICT(hashtag) DO UPDATE SET hashtag_id = excluded.hashtag_id, "
         "first_used = excluded.first_used",
         (tag, hid, db.iso(db.now())))
-    return hid
 
 
-def fetch_hashtag(conn, tag: str, limit: int = 50) -> list[dict]:
-    hid = _hashtag_id(conn, tag)
+def hashtag_media(hid: str, limit: int = 50) -> list[dict]:
     data = _get(f"{hid}/recent_media", {"user_id": config.secret("META_IG_USER_ID"),
                                         "fields": MEDIA_FIELDS, "limit": min(limit, 50)})
     return [p for p in (_normalize(m, author=None) for m in data.get("data", [])) if p]

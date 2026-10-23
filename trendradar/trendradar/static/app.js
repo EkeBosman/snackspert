@@ -35,6 +35,16 @@
     } catch (e) { /* negeren */ }
   }
 
+  // Alleen echte webadressen als link: een 'javascript:'-link uit een post of feed doet niets.
+  const safeHref = u => /^https?:\/\//i.test(u || "") ? esc(u) : "#";
+
+  // Alleen het antwoord op de laatste vraag tekenen: een trager, ouder antwoord mag een nieuwer niet overschrijven.
+  const latest = {};
+  function ticket(name) {
+    const t = (latest[name] = (latest[name] || 0) + 1);
+    return () => latest[name] === t;
+  }
+
   const nf = new Intl.NumberFormat("nl-NL");
   const fmt = n => nf.format(Math.round(n || 0));
   const compact = n => (n >= 10000 ? nf.format(Math.round(n / 1000)) + "k" : fmt(n));
@@ -133,15 +143,30 @@
   async function poll() {
     try {
       const s = await loadStatus();
-      if (wasRunning && !s.running) { toast("Ophaalronde klaar"); refresh(); }
+      if (wasRunning && !s.running) { toast("Ophaalronde klaar"); refreshWhenIdle(); }
       wasRunning = s.running;
     } catch (e) { /* server even weg */ }
+  }
+
+  // Na een ronde opnieuw laden, maar niet terwijl je een notitie of instelling typt: dan pas als je klaar bent.
+  function refreshWhenIdle() {
+    const el = document.activeElement;
+    if (el?.matches("input, textarea, select") && el.closest(".panel:not([hidden])")) {
+      if (!refreshWhenIdle.waiting) {
+        refreshWhenIdle.waiting = true;
+        el.addEventListener("blur", () => { refreshWhenIdle.waiting = false; setTimeout(refresh, 300); }, { once: true });
+      }
+      return;
+    }
+    refresh();
   }
 
   // --- trends -------------------------------------------------------------
 
   async function loadTrends() {
+    const fresh = ticket("trends");
     const d = await api("/api/trends?" + qs());
+    if (!fresh()) return;
     state.trends = d;
     const note = $("#history-note");
     if (!d.history_ok) {
@@ -183,13 +208,13 @@
       return `<li><div class="row"><span><span class="ptag" style="--pc:${PLATFORM[p.platform]?.color}">${esc(PLATFORM[p.platform]?.name)}</span> @${esc(p.author || "?")} <span class="meta">· ${fol}</span></span>
         <span class="meta">${compact(p.views)} views${b.count > 1 ? ` · ${b.count} virale posts` : ""}</span></div>
         <div>${sigChips(b.signals, { reach: true })}</div>
-        <div class="meta">${esc((p.summary || p.text || "").slice(0, 120))}${p.url ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">bekijk</a>` : ""}</div></li>`;
+        <div class="meta">${esc((p.summary || p.text || "").slice(0, 120))}${p.url ? ` · <a href="${safeHref(p.url)}" target="_blank" rel="noopener">bekijk</a>` : ""}</div></li>`;
     }).join("") : `<li class="meta">Geen doorbraken in deze periode.</li>`;
 
     $("#list-rising").innerHTML = d.rising_posts.length ? d.rising_posts.slice(0, 6).map(p =>
       `<li><div class="row"><span><span class="ptag" style="--pc:${PLATFORM[p.platform]?.color}">${esc(PLATFORM[p.platform]?.name)}</span> @${esc(p.author || "?")}</span>
        <span class="meta up">+${fmt(p.gain_per_hour)}/uur</span></div>
-       <div class="meta">${esc((p.summary || p.text || "").slice(0, 110))}${p.url ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">bekijk</a>` : ""}</div></li>`).join("")
+       <div class="meta">${esc((p.summary || p.text || "").slice(0, 110))}${p.url ? ` · <a href="${safeHref(p.url)}" target="_blank" rel="noopener">bekijk</a>` : ""}</div></li>`).join("")
       : `<li class="meta">Er zijn minstens twee ophaalrondes nodig om groei te meten.</li>`;
 
     const keys = Object.keys(vol.series).sort((a, b) => Object.keys(PLATFORM).indexOf(a) - Object.keys(PLATFORM).indexOf(b));
@@ -225,7 +250,9 @@
         <td class="num hide-s">${makers(t)}</td><td class="hide-s">${sigChips(t.signals)}</td>
         <td class="hide-s">${pdots(t.platforms)}</td><td>${starBtn("onderwerp", t.type + "|" + t.name, t.name)}</td>`;
       tr.querySelector(".spark").appendChild(sparkline(t.series, d.baseline_buckets));
-      tr.addEventListener("click", () => openTopic(t.type, t.name));
+      tr.addEventListener("click", e => {
+        if (!e.target.closest("button, a, select, textarea, input")) openTopic(t.type, t.name);
+      });
       tbody.appendChild(tr);
     });
   }
@@ -233,21 +260,13 @@
   // --- onderwerp-detail ---------------------------------------------------
 
   async function openTopic(type, name) {
+    const fresh = ticket("topic");
     const drawer = $("#drawer");
     drawer.hidden = false;
     $("#d-title").textContent = name;
     $("#d-type").textContent = (TYPE_CHIPS.find(c => c[0] === type) || [, type])[1];
     $("#d-chart").innerHTML = '<div class="empty">Laden…</div>';
-    $("#d-posts").innerHTML = "";
-    const win = state.window === "nu" ? "24u" : state.window;
-    const d = await api("/api/topic?" + new URLSearchParams({ type, name, window: win, min_rel: state.minRel }));
-    columnChart($("#d-chart"), d.labels, d.series, { currentFrom: d.current_from, label: `Posts over ${name}` });
-    $("#d-meta").innerHTML = `<span class="chip static">${d.total} posts</span><span class="chip static">${d.makers} makers</span>` +
-      (d.signals ? sigChips(d.signals) : "") +
-      Object.entries(d.platforms).map(([p, n]) => `<span class="chip static"><span class="pdot" style="--c:${PLATFORM[p]?.color}"></span> ${esc(PLATFORM[p]?.name || p)} ${n}</span>`).join("");
-    $("#d-related").innerHTML = d.related.length ? d.related.map(([t, n]) =>
-      `<button class="chip" data-topic="hashtag|${esc(t)}">${esc(t)} · ${n}</button>`).join("") : '<span class="muted">–</span>';
-    $("#d-posts").innerHTML = d.posts.map(postCard).join("");
+    ["#d-posts", "#d-meta", "#d-related"].forEach(id => ($(id).innerHTML = ""));
     const dstar = $("#d-star");
     const watchedTopic = state.watch.get(`onderwerp|${type}|${name}`);
     dstar.textContent = watchedTopic ? "★ Bewaard" : "☆ Bewaren";
@@ -258,6 +277,7 @@
     $("#d-all").onclick = () => {
       drawer.hidden = true;
       state.posts.topic = { type, name };
+      $("#p-q").value = "";
       switchTab("posts");
     };
     const follow = $("#d-follow");
@@ -270,6 +290,23 @@
       }
       toast(`#${value} wordt gevolgd op Instagram en TikTok`);
     };
+
+    const win = state.window === "nu" ? "24u" : state.window;
+    let d;
+    try {
+      d = await api("/api/topic?" + new URLSearchParams({ type, name, window: win, min_rel: state.minRel }));
+    } catch (e) {
+      if (fresh()) $("#d-chart").innerHTML = `<div class="empty">Laden mislukt: ${esc(e.message)}</div>`;
+      return;
+    }
+    if (!fresh()) return;  // intussen een ander onderwerp aangeklikt
+    columnChart($("#d-chart"), d.labels, d.series, { currentFrom: d.current_from, label: `Posts over ${name}` });
+    $("#d-meta").innerHTML = `<span class="chip static">${d.total} posts</span><span class="chip static">${d.makers} makers</span>` +
+      (d.signals ? sigChips(d.signals) : "") +
+      Object.entries(d.platforms).map(([p, n]) => `<span class="chip static"><span class="pdot" style="--c:${PLATFORM[p]?.color}"></span> ${esc(PLATFORM[p]?.name || p)} ${n}</span>`).join("");
+    $("#d-related").innerHTML = d.related.length ? d.related.map(([t, n]) =>
+      `<button class="chip" data-topic="hashtag|${esc(t)}">${esc(t)} · ${n}</button>`).join("") : '<span class="muted">–</span>';
+    $("#d-posts").innerHTML = d.posts.map(postCard).join("");
   }
 
   function postCard(p) {
@@ -302,38 +339,50 @@
       <div class="post-body">${thumb}<div class="post-text">${esc(p.text)}</div></div>
       <div>${tags}${p.city ? `<span class="badge">📍 ${esc(p.city)}</span>` : ""}${p.demo ? '<span class="badge warn">demo</span>' : ""}</div>
       <div class="post-foot">${metrics.join(" ")}<span>relevantie ${Math.round((p.relevance || 0) * 100)}%</span>
-      ${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">Open ↗</a>` : ""}</div>
+      ${p.url ? `<a href="${safeHref(p.url)}" target="_blank" rel="noopener">Open ↗</a>` : ""}</div>
     </article>`;
   }
 
   // --- posts --------------------------------------------------------------
 
   async function loadPosts(append = false) {
-    if (!append) state.posts.offset = 0;
-    const extra = { sort: $("#p-sort").value, offset: state.posts.offset, limit: 60 };
+    const fresh = ticket("posts");
+    const more = $("#p-more");
+    more.disabled = true;  // twee keer 'Meer laden' gaf dubbele posts
+    const offset = append ? state.posts.offset : 0;
+    const extra = { sort: $("#p-sort").value, offset, limit: 60 };
     const q = $("#p-q").value.trim();
     if (q) extra.q = q;
     if ($("#p-cat").value) extra.category = $("#p-cat").value;
     const topic = state.posts.topic;
-    if (topic) { extra.topic_type = topic.type; extra.topic = topic.name; }
-    const d = await api("/api/posts?" + qs(extra));
-    const note = $("#p-topic");
-    note.hidden = !topic;
-    if (topic) {
-      note.innerHTML = `Gefilterd op <strong>${esc(topic.name)}</strong> · <button class="btn small ghost" id="p-untopic">filter weghalen</button>`;
-      $("#p-untopic").onclick = () => { state.posts.topic = null; loadPosts(); };
+    if (topic?.ids) extra.ids = topic.ids.join(",");
+    else if (topic) { extra.topic_type = topic.type; extra.topic = topic.name; }
+    try {
+      const d = await api("/api/posts?" + qs(extra));
+      if (!fresh()) return;
+      const note = $("#p-topic");
+      note.hidden = !topic;
+      if (topic) {
+        note.innerHTML = `${topic.ids ? "Posts over" : "Gefilterd op"} <strong>${esc(topic.name)}</strong> · <button class="btn small ghost" id="p-untopic">filter weghalen</button>`;
+        $("#p-untopic").onclick = () => { state.posts.topic = null; loadPosts(); };
+      }
+      const html = d.posts.map(postCard).join("");
+      if (append) $("#posts").insertAdjacentHTML("beforeend", html);
+      else $("#posts").innerHTML = html || '<p class="muted">Geen posts gevonden.</p>';
+      state.posts.offset = offset + d.posts.length;
+      $("#p-count").textContent = `${fmt(d.total)} posts`;
+      more.hidden = state.posts.offset >= d.total;
+    } finally {
+      if (fresh()) more.disabled = false;
     }
-    const html = d.posts.map(postCard).join("");
-    $("#posts").innerHTML = append ? $("#posts").innerHTML + html : (html || '<p class="muted">Geen posts gevonden.</p>');
-    state.posts.offset += d.posts.length;
-    $("#p-count").textContent = `${fmt(d.total)} posts`;
-    $("#p-more").hidden = state.posts.offset >= d.total;
   }
 
   // --- supermarkt ---------------------------------------------------------
 
   async function loadSupermarkt() {
+    const fresh = ticket("supermarkt");
     const d = await api("/api/supermarkt?" + qs(state.allProducts ? { alles: "1" } : {}));
+    if (!fresh()) return;
     const st = Object.entries(d.status || {});
     $("#store-status").innerHTML = st.length ? st.map(([store, s]) =>
       `<span class="chip static"><span class="badge ${s.ok ? "ok" : "bad"}">${s.ok ? "✓ werkt" : "✗ storing"}</span>${esc(store)}: ${esc(s.melding)} · ${ago(s.t)}</span>`).join("")
@@ -346,7 +395,7 @@
         ${m.store_tracked ? '<span class="badge new">nog niet in winkeldata</span>' : '<span class="badge">geen winkeldata voor deze winkel</span>'}</div></li>`).join("")
       : `<li class="meta">Geen vroege signalen deze week.</li>`;
     $("#tbl-products tbody").innerHTML = d.products.length ? d.products.map(p =>
-      `<tr><td><span class="topic-name">${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>` : esc(p.name)}</span>${p.demo ? ' <span class="badge warn">demo</span>' : ""}<div class="meta muted">${esc(p.brand || "")}</div></td>
+      `<tr><td><span class="topic-name">${p.url ? `<a href="${safeHref(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>` : esc(p.name)}</span>${p.demo ? ' <span class="badge warn">demo</span>' : ""}<div class="meta muted">${esc(p.brand || "")}</div></td>
        <td>${esc(p.store)}</td><td class="hide-s">${esc(p.size || p.category || "")}</td>
        <td class="num">${p.price != null ? "€ " + Number(p.price).toFixed(2).replace(".", ",") : "–"}</td>
        <td>${dateNl(p.first_seen)}</td>
@@ -359,7 +408,7 @@
        <td class="hide-s">${esc(m.stores.join(", "))}</td><td class="num">${m.makers}</td><td class="num">${m.posts}</td><td class="num hide-s">${compact(m.engagement)}</td></tr>`).join("")
       : `<tr><td colspan="5" class="muted">Nog geen producten genoemd in deze week.</td></tr>`;
     $("#list-news").innerHTML = d.news.length ? d.news.map(n =>
-      `<li><div class="row"><span>${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a>` : esc(n.title)}</span>
+      `<li><div class="row"><span>${n.url ? `<a href="${safeHref(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a>` : esc(n.title)}</span>
        <span class="meta">${esc(n.outlet || "")} · ${ago(n.published_at)}</span></div></li>`).join("")
       : `<li class="meta">Nog geen nieuws opgehaald.</li>`;
   }
@@ -368,8 +417,10 @@
 
   let map, mapLayer;
   async function loadZaken() {
+    const fresh = ticket("zaken");
     const win = state.window === "nu" ? "24u" : state.window;
     const d = await api("/api/zaken?" + qs({ window: win }));
+    if (!fresh()) return;
     $("#zaken-hint").textContent = `Eetzaken en foodtrucks die in posts genoemd of getagd worden (${win === state.window ? "" : "minimaal 24 uur, "}periode ${win}). Vergeleken met ${d.reviewed_count} zaken die al op Snackspert staan.`;
     $("#tbl-zaken tbody").innerHTML = d.places.length ? d.places.map(p =>
       `<tr class="click" data-topic="zaak|${esc(p.name)}"><td><span class="topic-name">${esc(p.display)}</span> ${pdots(p.platforms)}${p.aliases && p.aliases.length ? `<div class="meta muted">ook: ${esc(p.aliases.join(", "))}</div>` : ""}</td>
@@ -543,14 +594,15 @@
     const out = { verdeling: {} };
     SETTINGS_FORM.forEach(([, fields]) => fields.forEach(([k, , type]) => {
       const input = form.elements[k];
+      if (type === "number" && input.value.trim() === "") return;  // leeg gelaten: oude waarde houden, niet 0
       let v = type === "checkbox" ? input.checked : type === "textarea" ? input.value.split("\n") : input.value;
       if (type === "number") v = Number(v);
       if (k.includes(".")) out.verdeling[k.split(".")[1]] = v; else out[k] = v;
     }));
     try {
       await api("/api/settings", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(out) });
+      await loadBeheer();  // tekent het formulier opnieuw, dus de melding pas daarna
       $("#settings-msg").textContent = "Opgeslagen";
-      loadBeheer();
     } catch (e) {
       $("#settings-msg").textContent = e.message;
     }
@@ -602,7 +654,7 @@
     const KIND = { post: "Post", zaak: "Zaak", product: "Product", onderwerp: "Onderwerp" };
     $("#tbl-lijst tbody").innerHTML = rows.length ? rows.map(i => {
       const open = i.kind === "onderwerp" ? `data-topic="${esc(i.ref)}"` : "";
-      const title = i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>`
+      const title = i.url ? `<a href="${safeHref(i.url)}" target="_blank" rel="noopener">${esc(i.title)}</a>`
         : i.kind === "onderwerp" ? `<button class="linkish" ${open}>${esc(i.title)}</button>` : esc(i.title);
       return `<tr><td><span class="topic-name">${title}</span>${i.city ? `<div class="meta">📍 ${esc(i.city)}</div>` : ""}</td>
         <td class="hide-s"><span class="badge">${KIND[i.kind] || i.kind}</span></td>
@@ -617,7 +669,7 @@
 
   function newsList(items, empty) {
     return items.length ? items.map(n =>
-      `<li><div class="row"><span>${n.url ? `<a href="${esc(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a>` : esc(n.title)}</span>
+      `<li><div class="row"><span>${n.url ? `<a href="${safeHref(n.url)}" target="_blank" rel="noopener">${esc(n.title)}</a>` : esc(n.title)}</span>
        <span class="meta">${esc(n.outlet || "")} · ${ago(n.published_at)}</span></div></li>`).join("")
       : `<li class="meta">${empty}</li>`;
   }
@@ -627,7 +679,7 @@
       `<li><div class="row"><span><span class="ptag" style="--pc:${PLATFORM[p.platform]?.color}">${esc(PLATFORM[p.platform]?.name)}</span> @${esc(p.author || "?")}</span>
        <span class="post-actions">${fbBtns(p.id)}${starBtn("post", p.id, (p.summary || p.text || "").slice(0, 90), p.url, p.city)}</span></div>
        <div class="reasons">${(p.reasons || []).map(r => `<span class="reason">${esc(r)}</span>`).join("")}</div>
-       <div class="meta">${esc((p.summary || p.text || "").slice(0, 110))}${p.url ? ` · <a href="${esc(p.url)}" target="_blank" rel="noopener">bekijk</a>` : ""}</div></li>`).join("")
+       <div class="meta">${esc((p.summary || p.text || "").slice(0, 110))}${p.url ? ` · <a href="${safeHref(p.url)}" target="_blank" rel="noopener">bekijk</a>` : ""}</div></li>`).join("")
       : `<li class="meta">${empty}</li>`;
   }
 
@@ -648,7 +700,7 @@
     $("#v-tips").innerHTML = d.tips_in_radar.map(t =>
       `<li><div class="row"><span class="tip-name">${esc(t.name)}</span><span class="badge new">🔥 ${t.radar.posts} ${t.radar.posts === 1 ? "post" : "posts"}</span></div>
        <div class="meta">${esc([t.place, t.specialty].filter(Boolean).join(" · "))} · ${esc(t.status)} ·
-       <button class="linkish" data-search="${esc(t.name)}">bekijk posts</button></div></li>`).join("");
+       <button class="linkish" data-posts="${esc(t.radar.post_ids.join(","))}" data-label="${esc(t.name)}">bekijk posts</button></div></li>`).join("");
     $("#v-early").innerHTML = d.early_topics.length ? d.early_topics.map(t =>
       `<li><div class="row"><button class="linkish" data-topic="${esc(t.type)}|${esc(t.name)}">${esc(t.name)}</button>
        <span>${phaseBadge(t.phase)} ${starBtn("onderwerp", t.type + "|" + t.name, t.name)}</span></div>
@@ -657,7 +709,7 @@
     $("#v-news-me").innerHTML = newsList(d.snackspert_news, "Geen berichten over Snackspert in de afgelopen 30 dagen.");
     $("#v-news").innerHTML = newsList(d.snack_news, "Geen snacknieuws in de afgelopen 3 dagen.");
     $("#v-products").innerHTML = d.new_products.length ? d.new_products.map(p =>
-      `<li><div class="row"><span>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>` : esc(p.name)}</span>
+      `<li><div class="row"><span>${p.url ? `<a href="${safeHref(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>` : esc(p.name)}</span>
        ${starBtn("product", p.id, `${p.name} (${p.store})`, p.url)}</div>
        <div class="meta">${esc(p.store)}${p.price != null ? " · € " + Number(p.price).toFixed(2).replace(".", ",") : ""}${p.social_makers ? ` · <span class="up">${p.social_makers} makers posten erover</span>` : ""}</div></li>`).join("")
       : `<li class="meta">Geen nieuwe snackproducten in de afgelopen 2 dagen.</li>`;
@@ -667,6 +719,7 @@
   // --- amsterdam -------------------------------------------------------------
 
   async function loadAmsterdam() {
+    const fresh = ticket("amsterdam");
     const city = { city: "Amsterdam" };
     const win = state.window === "nu" ? "24u" : state.window;
     const [cands, tr, zk, news, posts] = await Promise.all([
@@ -676,6 +729,7 @@
       api("/api/nieuws?soort=amsterdam"),
       api("/api/posts?" + qs({ ...city, sort: "nieuw", limit: 24 })),
     ]);
+    if (!fresh()) return;
     $("#a-candidates").innerHTML = cands.length ? cands.map(postCard).join("")
       : '<p class="muted">Geen Amsterdamse kandidaten in de afgelopen 3 dagen.</p>';
     $("#a-sub").textContent = `· ${tr.label}`;
@@ -693,6 +747,7 @@
     $("#a-news").innerHTML = newsList(news, "Geen Amsterdams eetnieuws in de afgelopen 2 weken.");
     $("#a-posts").innerHTML = posts.posts.map(postCard).join("") || '<p class="muted">Nog geen posts uit Amsterdam.</p>';
     const tips = await api("/api/tips");
+    if (!fresh()) return;
     const order = st => tips.statuses.indexOf(st);
     const ams = tips.spots.filter(t => t.place === "Amsterdam" || t.lists.includes("Amsterdam"))
       .sort((a, b) => (b.radar ? 1 : 0) - (a.radar ? 1 : 0) || order(a.status) - order(b.status));
@@ -733,7 +788,7 @@
 
   function zaakBadges(p, fallback) {
     const out = [p.reviewed ? `<span class="badge ok">✓ gereviewd</span>` : ""];
-    if (p.posted) out.push(p.posted.url ? `<a class="badge ok" href="${esc(p.posted.url)}" target="_blank" rel="noopener" title="Je eigen post">✓ gepost ${esc(p.posted.date || "")}</a>`
+    if (p.posted) out.push(p.posted.url ? `<a class="badge ok" href="${safeHref(p.posted.url)}" target="_blank" rel="noopener" title="Je eigen post">✓ gepost ${esc(p.posted.date || "")}</a>`
       : `<span class="badge ok">✓ gepost ${esc(p.posted.date || "")}</span>`);
     if (p.tip) out.push(`<span class="badge" title="Staat in je tips">📍 tip · ${esc(p.tip.status)}</span>`);
     if (!p.reviewed && !p.posted) out.push(`<span class="badge new">${fallback}</span>`);
@@ -750,8 +805,11 @@
     toast("Bezig met inlezen…");
     try {
       const r = await api("/api/import", { method: "POST", body: form });
+      // Nieuwe routes, regio's en jaren: wat de pagina onthouden had, opnieuw ophalen.
+      state.routes = null;
+      state.mpYear = null;
       toast(r.melding);
-      LOADERS[state.tab]?.();
+      refresh();
     } catch (e) {
       toast(e.message);
     } finally {
@@ -821,12 +879,12 @@
     $("#t-proposals").innerHTML = d.routes.length ? d.routes.map((r, i) => `<div class="route proposal">
       <h3>${esc(r.name)}</h3>
       <div class="meta">±${fmt(r.km)} km retour · ±${esc(r.duration)} rijden · gemiddelde potentie <b>${r.potential}</b></div>
-      <ol>${r.stops.map(s => `<li><a href="${esc(s.maps)}" target="_blank" rel="noopener"><b>${esc(s.name)}</b></a> <span class="muted">(${esc(s.place)})</span> <b>${s.potential}</b>
+      <ol>${r.stops.map(s => `<li><a href="${safeHref(s.maps)}" target="_blank" rel="noopener"><b>${esc(s.name)}</b></a> <span class="muted">(${esc(s.place)})</span> <b>${s.potential}</b>
         ${s.specialty ? ` – ${esc(s.specialty)}` : ""}<span class="stop-reasons">${esc(s.reasons.join(" · "))}</span></li>`).join("")}</ol>
-      <div class="foot"><a class="btn small primary" href="${esc(r.maps)}" target="_blank" rel="noopener">Route in Google Maps ↗</a>
+      <div class="foot"><a class="btn small primary" href="${safeHref(r.maps)}" target="_blank" rel="noopener">Route in Google Maps ↗</a>
         <span><button class="btn small" data-prop-save="${i}">Bewaren</button>
         <button class="btn small ghost" data-prop-reject="${i}" title="Deze route niet meer voorstellen">👎 Niet voor mij</button></span></div>
-    </div>`).join("") : `<p class="muted">${d.melding || "Nog geen voorstellen: er zijn (nog) te weinig kansrijke tips dicht bij elkaar met een bekende plaats."}</p>`;
+    </div>`).join("") : `<p class="muted">${esc(d.melding || "") || "Nog geen voorstellen: er zijn (nog) te weinig kansrijke tips dicht bij elkaar met een bekende plaats."}</p>`;
   }
 
   function renderTips() {
@@ -838,10 +896,10 @@
       && (!lst || x.lists.includes(lst)) && (!reg || x.region === reg) && (!st || x.status === st) && (!radar || x.radar))
       .sort((a, b) => (b.radar?.posts || 0) - (a.radar?.posts || 0));
     $("#tbl-tips tbody").innerHTML = rows.length ? rows.map(x => `<tr>
-      <td><a class="tip-name" href="${esc(x.maps)}" target="_blank" rel="noopener" title="Open in Google Maps">${esc(x.name)}</a>
+      <td><a class="tip-name" href="${safeHref(x.maps)}" target="_blank" rel="noopener" title="Open in Google Maps">${esc(x.name)}</a>
         <div class="meta">${esc([x.place, x.region].filter(Boolean).join(" · "))}
-        ${x.radar ? ` · <button class="linkish" data-search="${esc(x.name)}">🔥 ${x.radar.posts} ${x.radar.posts === 1 ? "post" : "posts"}</button>` : ""}
-        ${x.posted ? ` · ${x.posted.url ? `<a href="${esc(x.posted.url)}" target="_blank" rel="noopener">✓ gepost ${esc(x.posted.date || "")}</a>` : `✓ gepost ${esc(x.posted.date || "")}`}` : ""}</div></td>
+        ${x.radar ? ` · <button class="linkish" data-posts="${esc(x.radar.post_ids.join(","))}" data-label="${esc(x.name)}">🔥 ${x.radar.posts} ${x.radar.posts === 1 ? "post" : "posts"}</button>` : ""}
+        ${x.posted ? ` · ${x.posted.url ? `<a href="${safeHref(x.posted.url)}" target="_blank" rel="noopener">✓ gepost ${esc(x.posted.date || "")}</a>` : `✓ gepost ${esc(x.posted.date || "")}`}` : ""}</div></td>
       <td>${esc(x.specialty || "")}</td>
       <td class="hide-s">${x.lists.map(l => `<span class="badge">${esc(l)}</span>`).join(" ")}</td>
       <td><select class="status-select" data-tip-status="${x.id}" aria-label="Status">${t.statuses.map(s => `<option ${s === x.status ? "selected" : ""}>${s}</option>`).join("")}</select></td>
@@ -851,12 +909,12 @@
   }
 
   async function loadRoutes() {
-    if (!state.routes) state.routes = await api("/api/routes");
-    const r = state.routes;
-    const sel = $("#r-region");
-    if (sel.options.length <= 1) {
-      const regions = [...new Set(r.routes.map(x => x.region).filter(Boolean))].sort();
+    if (!state.routes) {
+      state.routes = await api("/api/routes");
+      const sel = $("#r-region"), cur = sel.value;
+      const regions = [...new Set(state.routes.routes.map(x => x.region).filter(Boolean))].sort();
       sel.innerHTML = `<option value="">Alle regio's</option>` + regions.map(v => `<option>${esc(v)}</option>`).join("");
+      sel.value = regions.includes(cur) ? cur : "";
     }
     renderRoutes();
   }
@@ -872,21 +930,23 @@
       <div class="meta">${esc(x.region)}${x.km ? " · " + esc(x.km) + " retour" : ""}${x.duration ? " · " + esc(x.duration) + " rijden" : ""}</div>
       <ol>${x.stops.map(s => `<li><b>${esc(s.name)}</b>${s.place ? ` <span class="muted">(${esc(s.place)})</span>` : ""}${s.specialty ? ` – ${esc(s.specialty)}` : ""}${s.status && s.status !== "te proberen" ? ` <span class="badge ok">${esc(s.status)}</span>` : ""}</li>`).join("")}</ol>
       ${x.note ? `<div class="meta">${esc(x.note)}</div>` : ""}
-      <div class="foot"><a class="btn small primary" href="${esc(x.maps)}" target="_blank" rel="noopener">Route in Google Maps ↗</a>
+      <div class="foot"><a class="btn small primary" href="${safeHref(x.maps)}" target="_blank" rel="noopener">Route in Google Maps ↗</a>
       <select class="status-select" data-route-status="${x.id}" aria-label="Status">${r.statuses.map(s => `<option ${s === x.status ? "selected" : ""}>${s}</option>`).join("")}</select></div>
     </div>`).join("") : `<p class="muted">${r.routes.length ? "Geen routes met deze filters." : "Nog geen routes. Importeer je Excel-bestand met tabbladen 'Route' en 'Stop 1'."}</p>`;
   }
 
   // --- viral-potentie -------------------------------------------------------------
 
-  const POT_LABELS = { creatie: "Eigen creatie", combinatie: "Combinatie van snacks", spektakel: "Opvallend om te zien",
+  const POT_LABELS = { creatie: "Eigen creatie", variant: "Variant op een bekende snack", combinatie: "Combinatie van snacks", spektakel: "Opvallend om te zien",
     twist: "Twist op een bekende snack", getipt: "Vaker getipt door volgers", radar: "Nu al posts over (🔥)",
     kleine_viral: "Een daarvan gaat hard", huisgemaakt: "Huisgemaakt", claim: "Verhaal of claim",
     schaarste: "Schaars (alleen op vrijdag…)", herkenbaar: "Herkenbare snack", prijs: "Prijs als haakje",
-    niche: "Niche gerecht", algemeen: "Weinig bijzonders genoemd" };
+    niche: "Niche gerecht", algemeen: "Weinig bijzonders genoemd", gesloten: "Mogelijk gesloten" };
 
   async function loadPotentie() {
+    const fresh = ticket("potentie");
     const d = await api(`/api/potentie?limit=${state.potLimit || 10}`);
+    if (!fresh()) return;
     state.pot = d;
     $("#pot-list").innerHTML = d.top.length ? d.top.map((t, i) => {
       const chips = t.reasons.slice().sort((a, b) => b.points - a.points).map(r =>
@@ -895,7 +955,7 @@
         ? `<select class="status-select" data-pot-status="${t.id}" aria-label="Status">${d.statuses.map(s => `<option ${s === t.status ? "selected" : ""}>${s}</option>`).join("")}</select>`
         : `<button class="btn small ghost" data-pot-add="${i}">+ Bewaren als tip</button>`;
       return `<li class="pot"><div class="pot-rank">${i + 1}</div><div class="pot-body">
-        <div class="pot-head"><span><a class="tip-name" href="${esc(t.maps)}" target="_blank" rel="noopener" title="Open in Google Maps">${esc(t.name)}</a>
+        <div class="pot-head"><span><a class="tip-name" href="${safeHref(t.maps)}" target="_blank" rel="noopener" title="Open in Google Maps">${esc(t.name)}</a>
           <span class="where">${esc([t.place, t.region].filter(Boolean).join(" · "))}</span></span>
           <span class="pot-score" title="Potentie op een schaal van 0 tot 100"><span class="meter"><span style="width:${t.potential}%"></span></span><b>${t.potential}</b></span></div>
         ${t.specialty ? `<div class="pot-spec">${esc(t.specialty)}</div>` : ""}
@@ -907,7 +967,7 @@
       </div></li>`;
     }).join("") : `<li class="meta">Nog geen tips. Importeer je tips en routes bij <b>Tips &amp; routes</b>.</li>`;
     $("#pot-routes").innerHTML = d.routes.filter(r => r.score > 0).map(r =>
-      `<li><div class="row"><span class="tip-name">${esc(r.name)}</span><a class="btn small primary" href="${esc(r.maps)}" target="_blank" rel="noopener">Maps ↗</a></div>
+      `<li><div class="row"><span class="tip-name">${esc(r.name)}</span><a class="btn small primary" href="${safeHref(r.maps)}" target="_blank" rel="noopener">Maps ↗</a></div>
        <div class="meta">${r.stops.map(s => `${esc(s.name)}${s.potential != null ? ` <b>${s.potential}</b>` : ""}`).join(" → ")}</div></li>`).join("")
       || `<li class="meta">Nog geen routes.</li>`;
     const P = d.points;
@@ -916,7 +976,7 @@
       const parts = [];
       if (rec.Mainstream && rec.Niche) parts.push(`herkenbare snacks ${String((rec.Mainstream.lift / rec.Niche.lift).toFixed(1)).replace(".", ",")}× zo goed als niche`);
       if (loc["Buiten Amsterdam"] && loc.Amsterdam) parts.push(`buiten Amsterdam ${String(loc["Buiten Amsterdam"].lift).replace(".", ",")}× en Amsterdam ${String(loc.Amsterdam.lift).replace(".", ",")}× je mediaan`);
-      if (d.lifts.snacks.length) parts.push("snacks die bij jou het best scoren: " + d.lifts.snacks.map(s => `${s.snack} ${String(s.lift).replace(".", ",")}×`).join(", "));
+      if (d.lifts.snacks.length) parts.push("snacks die bij jou het best scoren: " + d.lifts.snacks.map(s => `${esc(s.snack)} ${String(s.lift).replace(".", ",")}×`).join(", "));
       return `<p class="hint">Uit je ${fmt(d.own_posts)} eigen posts: ${parts.join("; ")}. Dat telt mee als extra punten (tot ±1,5).</p>`;
     })() : `<p class="hint">Importeer je posts bij <b>Mijn posts</b>, dan telt ook mee wat bij jouw publiek werkt.</p>`;
     $("#pot-how").innerHTML = `<ul class="how">${Object.entries(POT_LABELS).filter(([k]) => P[k] != null)
@@ -932,11 +992,13 @@
   const kfmt = v => v >= 1e6 ? (v / 1e6).toFixed(1).replace(".", ",") + "M" : v >= 1000 ? Math.round(v / 1000) + "k" : String(Math.round(v));
 
   async function loadMijnPosts() {
+    const fresh = ticket("mijnposts");
     if (state.mpYear === null) {
       const first = await api("/api/mijnposts");
       state.mpYear = first.years?.[0] || "";
     }
-    const d = await api("/api/mijnposts" + (state.mpYear ? `?jaar=${state.mpYear}` : ""));
+    const d = await api("/api/mijnposts" + (state.mpYear ? `?jaar=${encodeURIComponent(state.mpYear)}` : ""));
+    if (!fresh()) return;
     state.mp = d;
     $("#m-years").innerHTML = (d.years || []).length ? [...d.years.map(y => [y, y]), ["", "Alles"]].map(([v, l]) =>
       `<button class="chip ${state.mpYear === v ? "on" : ""}" data-year="${v}">${l}</button>`).join("") : "";
@@ -979,7 +1041,7 @@
       : `<tr><td colspan="4" class="muted">Nog geen snack met 6 of meer posts in deze periode.</td></tr>`;
     renderMpTop();
     $("#tbl-m-tests tbody").innerHTML = d.supermarket_tests.length ? d.supermarket_tests.map((t, i) =>
-      `<tr><td class="num">${i + 1}</td><td>${t.url ? `<a href="${esc(t.url)}" target="_blank" rel="noopener">${esc(t.product)}</a>` : esc(t.product)} <span class="meta">${esc(t.month || "")}</span></td>
+      `<tr><td class="num">${i + 1}</td><td>${t.url ? `<a href="${safeHref(t.url)}" target="_blank" rel="noopener">${esc(t.product)}</a>` : esc(t.product)} <span class="meta">${esc(t.month || "")}</span></td>
        <td class="num">${fmt(t.views)}</td><td class="num">${t.followers != null ? fmt(t.followers) : "–"}</td></tr>`).join("")
       : `<tr><td colspan="4" class="muted">Geen supermarkttests in deze periode.</td></tr>`;
   }
@@ -1007,7 +1069,7 @@
     if (!d) return;
     const rows = d["top_" + state.mpTop] || [];
     $("#tbl-m-top tbody").innerHTML = rows.length ? rows.map(p =>
-      `<tr><td>${p.url ? `<a href="${esc(p.url)}" target="_blank" rel="noopener">${esc((p.caption || "").slice(0, 70))}</a>` : esc((p.caption || "").slice(0, 70))}
+      `<tr><td>${p.url ? `<a href="${safeHref(p.url)}" target="_blank" rel="noopener">${esc((p.caption || "").slice(0, 70))}</a>` : esc((p.caption || "").slice(0, 70))}
         <div class="meta">${esc(p.date || p.month || "")}</div></td>
        <td class="hide-s">${p.format ? `<span class="badge">${esc(p.format)}</span>` : ""}</td>
        <td class="num">${fmt(p.views)}</td><td class="num">${p.followers_count && p.followers != null ? fmt(p.followers) : "–"}</td>
@@ -1037,6 +1099,12 @@
   }
 
   function init() {
+    // Een klik die mislukt (server even weg, ongeldige invoer) geeft een melding in plaats van stilte.
+    window.addEventListener("unhandledrejection", e => toast("Er ging iets mis: " + (e.reason?.message || e.reason || "onbekende fout")));
+    // Bewaarde keuzes van een oudere versie (een tabblad of periode die niet meer bestaat) negeren.
+    if (!LOADERS[state.tab]) state.tab = "vandaag";
+    if (!$$("#f-window button").some(b => b.dataset.v === state.window)) state.window = "24u";
+    if (![...$("#f-platform").options].some(o => o.value === state.platform)) state.platform = "";
     $$(".tabs button").forEach(b => b.addEventListener("click", () => switchTab(b.dataset.tab)));
     $$("#f-window button").forEach(b => {
       b.classList.toggle("on", b.dataset.v === state.window);
@@ -1085,11 +1153,11 @@
         zt.remove();
         return;
       }
-      const search = e.target.closest("[data-search]");
-      if (search) {
-        $("#p-q").value = search.dataset.search;
-        state.window = "7d";
-        $$("#f-window button").forEach(x => x.classList.toggle("on", x.dataset.v === "7d"));
+      const posts = e.target.closest("[data-posts]");
+      if (posts) {
+        // Precies de posts waarmee een tip in de radar kwam, ook als de naam anders gespeld is.
+        state.posts.topic = { name: posts.dataset.label, ids: posts.dataset.posts.split(",").filter(Boolean) };
+        $("#p-q").value = "";
         switchTab("posts");
         return;
       }
@@ -1097,6 +1165,9 @@
       if (go) { switchTab(go.dataset.goto); return; }
       const t = e.target.closest("[data-topic]");
       if (t) {
+        // Een knop of link binnen een klikbare rij doet zijn eigen ding, zonder het zijpaneel te openen.
+        const inner = e.target.closest("button, a, select, textarea, input");
+        if (inner && inner !== t && t.contains(inner)) return;
         const [type, ...rest] = t.dataset.topic.split("|");
         openTopic(type, rest.join("|"));
       }
@@ -1206,7 +1277,10 @@
       const save = e.target.closest("[data-prop-save]"), rej = e.target.closest("[data-prop-reject]");
       if (save) {
         const r = state.proposals.routes[Number(save.dataset.propSave)];
-        await api("/api/routes/bewaar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r) });
+        save.disabled = true;
+        try {
+          await api("/api/routes/bewaar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r) });
+        } finally { save.disabled = false; }
         state.routes = null;
         toast("Route bewaard bij Routes");
         loadProposals();
@@ -1318,7 +1392,10 @@
     });
     window.addEventListener("resize", () => { clearTimeout(init.rt); init.rt = setTimeout(() => state.tab === "trends" && loadTrends(), 250); });
 
-    Promise.all([loadStatus(), loadWatch(), loadFeedback()]).then(() => switchTab(state.tab));
+    // Ook als de status niet laadt (server net gestart), toch het tabblad tonen in plaats van een lege pagina.
+    Promise.all([loadStatus(), loadWatch(), loadFeedback()])
+      .catch(e => toast("Status laden mislukt: " + e.message))
+      .finally(() => switchTab(state.tab));
     setInterval(poll, 15000);
   }
 

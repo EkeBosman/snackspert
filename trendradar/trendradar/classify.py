@@ -7,6 +7,7 @@ Twee lagen:
 """
 from __future__ import annotations
 
+import functools
 import json
 import logging
 import re
@@ -37,6 +38,7 @@ def strip_accents(text: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", text) if not unicodedata.combining(c))
 
 
+@functools.lru_cache(maxsize=8192)
 def norm(text: str) -> str:
     """Voor vergelijken van namen: kleine letters, geen accenten of leestekens."""
     text = strip_accents(text.lower())
@@ -59,37 +61,125 @@ def _keyword_hit(keyword: str, text: str, tokens: set[str], tag_blob: str) -> bo
     return keyword in tokens or (len(keyword) >= 5 and keyword in tag_blob)
 
 
+def _food_forms(food: str) -> re.Pattern:
+    """'frikandel' ook als frikandellen, frikandelletje; 'kroket' als kroketten, kroketjes."""
+    last = re.escape(food[-1])
+    return re.compile(rf"^{re.escape(food)}(?:{last}?en|s|je|jes|tje|tjes|{last}?etje|{last}?etjes|pje|pjes)?$")
+
+
+_FOOD_FORMS: dict[str, re.Pattern] = {}
+
+
 def _dutch_food(food: str, text: str, tokens: set[str], hashtags: list[str]) -> bool:
     # Hele woorden, geen stukjes: 'patat' mag niet matchen op het Spaanse 'patatas'.
     if " " in food:
         return f" {food} " in text or food.replace(" ", "") in hashtags
     if food in tokens or food in hashtags:
         return True
+    forms = _FOOD_FORMS.setdefault(food, _food_forms(food))
+    if any(forms.match(t) for t in tokens):
+        return True
     return len(food) >= 6 and any(food in tag for tag in hashtags)
 
 
+def _place_in_text(name: str, hay: str) -> bool:
+    """Staat de plaatsnaam als los woord in de tekst? Twijfelnamen alleen na 'in', 'uit', 'bij'."""
+    n = re.escape(name.lower())
+    if name.lower() in lexicon.AMBIGUOUS_PLACES:
+        preps = "|".join(lexicon.PLACE_PREPOSITIONS)
+        return bool(re.search(rf"(?<![\w])(?:{preps})\s+{n}(?![\w])", hay))
+    return bool(re.search(rf"(?<![\w]){n}(?![\w-])", hay))
+
+
+def _place_in_tag(name: str, tag: str) -> bool:
+    """#amsterdam, #amsterdamfood, #foodspotsamsterdam: ja. #ijshoorn, #goudakaas: nee."""
+    n = name.lower().replace(" ", "").replace("-", "").replace("'", "")
+    if len(n) < 3:
+        return False
+    if tag == n:
+        return True
+    if tag.startswith(n):
+        rest = tag[len(n):]
+        return any(rest.startswith(a) for a in lexicon.CITY_TAG_AFFIXES)
+    if tag.endswith(n):
+        rest = tag[:-len(n)]
+        return any(rest.endswith(a) for a in lexicon.CITY_TAG_AFFIXES)
+    return False
+
+
+def _alias_in_tag(alias: str, tag: str) -> bool:
+    """Netnummers en bijnamen: #eten010 en #rdamfood wel, #oliebollen2026 en #madam niet."""
+    if tag == alias:
+        return True
+    if alias.isdigit():
+        # Een netnummer achter letters (#eten010, #food020), niet in een jaartal (#2026).
+        return bool(re.search(rf"[a-z]{alias}$", tag) or re.match(rf"^{alias}[a-z]", tag))
+    if tag.startswith(alias):
+        return any(tag[len(alias):].startswith(a) for a in lexicon.CITY_TAG_AFFIXES)
+    if tag.endswith(alias):
+        return any(tag[:-len(alias)].endswith(a) for a in lexicon.CITY_TAG_AFFIXES)
+    return False
+
+
 def find_city(text: str, hashtags: list[str], location: str | None) -> str | None:
-    hay = " " + (location or "").lower() + " " + text + " "
-    for city in sorted(lexicon.CITIES, key=len, reverse=True):
-        c = city.lower()
-        if re.search(r"(?<![\w])" + re.escape(c) + r"(?![\w])", hay):
+    loc = " " + (location or "").lower() + " "
+    hay = " " + text.lower() + " "
+    big = sorted(lexicon.CITIES, key=len, reverse=True)
+    towns = sorted(lexicon.NL_TOWNS, key=len, reverse=True)
+    # 1. De locatie die bij de post hoort is het betrouwbaarst.
+    if loc.strip():
+        for name in big + towns:
+            if re.search(r"(?<![\w])" + re.escape(name.lower()) + r"(?![\w])", loc):
+                return "Den Bosch" if name == "'s-Hertogenbosch" else name
+        if any(re.search(r"(?<![\w])" + re.escape(a) + r"(?![\w-])", loc) for a in lexicon.AMSTERDAM_AREAS):
+            return "Amsterdam"
+    # 2. Een stad of buurt in de tekst.
+    for city in big:
+        if _place_in_text(city, hay):
             return "Den Bosch" if city == "'s-Hertogenbosch" else city
     tags = set(hashtags)
-    if any(area in hay for area in lexicon.AMSTERDAM_AREAS) or tags & set(lexicon.AMSTERDAM_TAGS):
+    if (any(re.search(r"(?<![\w])" + re.escape(a) + r"(?![\w-])", hay) for a in lexicon.AMSTERDAM_AREAS)
+            or tags & set(lexicon.AMSTERDAM_TAGS)):
         return "Amsterdam"
-    for town in lexicon.NL_TOWNS:
-        t = town.lower()
-        if re.search(r"(?<![\w])" + re.escape(t) + r"(?![\w])", hay) or t.replace("-", "") in hashtags:
+    for town in towns:
+        if _place_in_text(town, hay):
             return town
+    # 3. Hashtags: eerst volledige namen (#foodamsterdam), dan bijnamen en netnummers (#eten010).
+    for tag in hashtags:
+        for name in big + towns:
+            if _place_in_tag(name, tag):
+                return "Den Bosch" if name == "'s-Hertogenbosch" else name
     for tag in hashtags:
         for alias, city in lexicon.CITY_ALIASES.items():
-            if tag.endswith(alias) or tag.startswith(alias):
-                return city
-        for city in lexicon.CITIES:
-            c = city.lower().replace(" ", "")
-            if len(c) >= 5 and c in tag:
+            if _alias_in_tag(alias, tag):
                 return city
     return None
+
+
+_POSTCODE_RE = re.compile(r"\b\d{4}\s?[a-z]{2}\b")
+_STREET_RE = re.compile(r"\d+.*|.*(straat|weg|laan|plein|gracht|kade|dijk|singel|steeg|hof)\s*\d+")
+_PLACE_NOISE = re.compile(r"\b(centrum|centraal|station|binnenstad|city|stad|noord|zuid|oost|west|nl)\b")
+
+
+def location_is_business(location: str) -> bool:
+    """Is de locatie van een post een zaak, of alleen een stad, land of adres?
+
+    'Snackbar De Poppe' is een zaak. 'Amsterdam, Netherlands', 'Nederland' en
+    'Kalverstraat 12, 1012 NX Amsterdam' zijn dat niet.
+    """
+    low = (location or "").lower().strip()
+    if not low or _POSTCODE_RE.search(low):
+        return False
+    parts = [p.strip() for p in re.split(r"[,|/·]", low) if p.strip() and p.strip() not in lexicon.COUNTRY_WORDS]
+    if not parts:
+        return False
+    first = parts[0]
+    if _STREET_RE.fullmatch(first):
+        return False
+    known = ({c.lower() for c in lexicon.CITIES} | {t.lower() for t in lexicon.NL_TOWNS}
+             | set(lexicon.AMSTERDAM_AREAS) | lexicon.COUNTRY_WORDS)
+    stripped = re.sub(r"\s+", " ", _PLACE_NOISE.sub(" ", first)).strip(" -")
+    return first not in known and stripped not in known and bool(stripped)
 
 
 # Woorden die duidelijk over eten gaan; een woordcombinatie moet er minstens
@@ -112,6 +202,28 @@ _PLACE_WORDS = ("snackbar", "cafetaria", "frituur", "friettent", "foodtruck", "s
                 "foodspot", "food")
 
 
+# Achtervoegsels die een woord niet tot een nieuwe snack maken: #burgerlover, #snacktime.
+_LIFESTYLE_SUFFIXES = ("lover", "lovers", "time", "addict", "addicts", "life", "love", "queen", "king", "fan", "fans",
+                       "gang", "squad", "mood", "day", "dag", "tour", "review", "reviews", "porn", "holic", "holics",
+                       "spot", "spots", "guide", "blog", "vlog", "tiktok", "insta", "lifestyle", "challenge")
+
+
+def _base_form(word: str) -> str:
+    """Meervoud en verkleinwoord terug naar het gewone woord: frikandellen -> frikandel."""
+    for suffix in ("etjes", "etje", "tjes", "tje", "jes", "je", "en", "s"):
+        if word.endswith(suffix) and len(word) - len(suffix) >= 4:
+            base = word[:-len(suffix)]
+            if len(base) >= 2 and base[-1] == base[-2]:
+                base = base[:-1]  # frikandell -> frikandel, kroket+t -> kroket
+            if base in _KNOWN_WORDS or base in _FOOD_WORDS:
+                return base
+    return word
+
+
+_BRAND_WORDS = {norm(b).replace(" ", "") for b in lexicon.BRANDS} | {"burgerking", "mcdonalds", "kfc", "dominos",
+                                                                      "newyorkpizza", "febo", "smullers"}
+
+
 def new_compounds(words: list[str]) -> list[str]:
     """Nieuwe samengestelde snackwoorden, zoals 'frikandelijs' of 'pistachekroket'.
 
@@ -124,7 +236,9 @@ def new_compounds(words: list[str]) -> list[str]:
     for w in words:
         if len(w) < 8 or not w.isalpha() or w in _KNOWN_WORDS or w in out:
             continue
-        if any(p in w for p in _PLACE_WORDS):
+        if any(p in w for p in _PLACE_WORDS) or w in _BRAND_WORDS:
+            continue
+        if _base_form(w) != w or w.endswith(_LIFESTYLE_SUFFIXES):
             continue
         if any(stem in w and stem != w for stem in _FOOD_STEMS):
             out.append(w)
@@ -156,6 +270,12 @@ def key_phrases(text: str, limit: int = 8, hashtags: list[str] | None = None) ->
 
 def item_groups(text: str, hashtags: list[str]) -> list[str]:
     """Welke herkenbare snacks en dragers (brioche, pita, suikerbrood) staan erin?"""
+    return list(_item_groups(text, tuple(hashtags)))
+
+
+@functools.lru_cache(maxsize=8192)
+def _item_groups(text: str, hashtags: tuple[str, ...]) -> tuple[str, ...]:
+    # Dezelfde posts en captions komen bij elke pagina terug: één keer uitrekenen is genoeg.
     found = []
     words = set(TOKEN_RE.findall(text))
     blobs = list(hashtags) + new_compounds(list(words))
@@ -174,7 +294,7 @@ def item_groups(text: str, hashtags: list[str]) -> list[str]:
             hit = any(b.endswith("ijs") and len(b) > 6 for b in blobs)
         if hit:
             found.append(group)
-    return found
+    return tuple(found)
 
 
 def find_twist(text: str, hashtags: list[str]) -> str | None:
@@ -200,6 +320,119 @@ def find_twist(text: str, hashtags: list[str]) -> str | None:
     return None
 
 
+# Woorden die twee snacks tot één gerecht maken ('döner met kaassoufflé', 'burger tussen
+# suikerbrood'), tegenover opsommingen ('een frikandel en een kipcorn').
+_JOINERS = {"met", "in", "op", "tussen", "gevuld", "gevulde", "vol", "plus", "+", "&", "x", "×", "à", "ín"}
+_ARTICLES = {"een", "1", "2", "3", "twee", "drie", "vier", "paar", "wat", "extra"}
+_LIST_WORDS = {",", "en"}
+_SENTENCE_END = {".", "!", "?", ";", ":"}
+_COMBI_CUES = ("combi", "combinatie", "mix", "samen", "fusion", "kruising", "in één", "erop", "ertussen", "erin")
+# Een woord als 'burgerbar', 'kebabhouse' of 'pizzeria' is een zaak, geen snack.
+_BUSINESS_SUFFIXES = ("bar", "house", "huis", "huys", "corner", "paleis", "palace", "express", "point", "plaza",
+                      "shop", "ria", "grill", "kitchen", "keuken", "boys", "brothers", "bros", "company", "kingdom",
+                      "time", "lover", "lovers", "spot", "spots", "review", "reviews", "tour")
+# Kaas en kip zijn een gewone vulling of topping; alleen bij zoet is het bijzonder.
+_TOPPINGS = {"kaas", "kip"}
+_SWEET = {"donut", "wafel", "chocolade", "softijs", "poffertjes", "pannenkoek", "oliebol", "suikerbrood"}
+_COMBI_TOKEN_RE = re.compile(r"[a-zà-ÿ0-9][a-zà-ÿ0-9'’-]*|[+&×,.!?;:]")
+
+
+def _token_groups(token: str) -> list[str]:
+    """Snackgroepen in één woord. 'kroketburger' -> kroket en burger; 'kaassoufflé' alleen kaassoufflé."""
+    if token.endswith(_BUSINESS_SUFFIXES) and len(token) > 6 and token not in ("ijsbar",):
+        return []
+    spans = []
+    for group, keywords in lexicon.ITEM_GROUPS.items():
+        for kw in keywords:
+            k = kw.strip()
+            if " " in k:
+                continue
+            start = token.find(k)
+            if start >= 0 and (token == k or len(k) >= 4):
+                spans.append((start, start + len(k), group))
+                break
+    if not spans and len(token) > 6 and token.endswith("ijs"):
+        spans.append((len(token) - 3, len(token), "softijs"))  # frikandelijs
+    elif len(token) > 6 and token.endswith("ijs") and not any(g == "softijs" for *_, g in spans):
+        spans.append((len(token) - 3, len(token), "softijs"))
+    # 'kaas' binnen 'kaassoufflé' en 'kip' binnen 'kipcorn' tellen niet apart.
+    keep = [sp for sp in spans if not any(o is not sp and o[0] <= sp[0] and sp[1] <= o[1]
+                                          and (o[1] - o[0]) > (sp[1] - sp[0]) for o in spans)]
+    return list(dict.fromkeys(g for *_, g in sorted(keep)))
+
+
+def _uncommon(a: str, b: str) -> bool:
+    if a == b or frozenset((a, b)) in lexicon.COMMON_PAIRS:
+        return False
+    for x, y in ((a, b), (b, a)):
+        if x in _TOPPINGS and y not in _SWEET:
+            return False
+    return True
+
+
+def _pair_name(a: str, b: str) -> str:
+    order = list(lexicon.ITEM_GROUPS)
+    a, b = sorted((a, b), key=order.index)
+    return f"{a} + {b}"
+
+
+def find_combination(text: str, hashtags: list[str]) -> str | None:
+    """Twee snacks in één gerecht, die normaal niet samengaan: 'kaassoufflé + döner'.
+
+    Telt mee: één woord met twee snacks (kroketburger, #kapsalonchips), twee snacks
+    vlak naast elkaar (croissant döner, pistache kroket) of verbonden door 'met',
+    'in', 'op' of 'tussen'. Niet: een opsomming ('een frikandel en een kipcorn'),
+    snacks in de naam van een zaak ('bij Burgerbar Smash') of in een @account.
+    """
+    t = " " + text.lower() + " "
+    t = re.sub(r"@[\w.]+", " ", t)
+    t = re.sub(r"https?://\S+", " ", t)
+    t = re.sub(r"#[\w]+", " ", t)
+    # De naam na 'bij' is meestal de zaak: 'kroket bij Burgerbar Smash'.
+    t = re.sub(r"\bbij\s+[^\s.,!?;:]+(?:\s+[^\s.,!?;:]+){0,3}", " bij . ", t)
+    tokens = _COMBI_TOKEN_RE.findall(t)
+    found = []  # (afstand, paar)
+    hits = [(i, _token_groups(tok)) for i, tok in enumerate(tokens)]
+    hits = [(i, gs) for i, gs in hits if gs]
+    # Eén woord met twee snacks, ook in hashtags.
+    for tok_groups in [gs for _, gs in hits] + [_token_groups(h) for h in hashtags]:
+        for x in range(len(tok_groups)):
+            for y in range(x + 1, len(tok_groups)):
+                if _uncommon(tok_groups[x], tok_groups[y]):
+                    found.append((0, _pair_name(tok_groups[x], tok_groups[y])))
+    for n, (i, gi) in enumerate(hits):
+        for j, gj in hits[n + 1:]:
+            d = j - i
+            if d > 5:
+                break
+            between = tokens[i + 1:j]
+            if any(b in _SENTENCE_END for b in between) or "of" in between:
+                continue
+            separate = (i > 0 and tokens[i - 1] in _ARTICLES) and tokens[j - 1] in _ARTICLES
+            if separate:
+                continue
+            joined = any(b in _JOINERS for b in between)
+            if not joined and d <= 2 and between and all(b not in lexicon.DUTCH_WORDS and b not in _LIST_WORDS
+                                                          for b in between):
+                joined = True  # 'pizza calzone kapsalon'
+            if not joined and d == 1:
+                joined = True  # 'croissant döner', 'pistache kroket'
+            if not joined and all(b in _LIST_WORDS for b in between):
+                # Een opsomming telt alleen binnen één gerecht: 'pita met döner, kaassoufflé en ...'
+                before = tokens[max(0, i - 3):i]
+                if any(b in _SENTENCE_END for b in before):
+                    before = before[max(k for k, b in enumerate(before) if b in _SENTENCE_END) + 1:]
+                sentence = " ".join(tokens[i:j + 8])
+                joined = any(b in _JOINERS for b in before) or any(c in sentence for c in _COMBI_CUES)
+            if not joined:
+                continue
+            for a in gi:
+                for b in gj:
+                    if _uncommon(a, b):
+                        found.append((d, _pair_name(a, b)))
+    return min(found)[1] if found else None
+
+
 def find_flags(text: str, hashtags: list[str], relevance: float) -> list[str]:
     """Labels voor kandidaten: 'nieuw_op_kaart', 'combinatie:a + b' en 'twist:loaded kipcorn'."""
     flags = []
@@ -209,12 +442,9 @@ def find_flags(text: str, hashtags: list[str], relevance: float) -> list[str]:
         twist = find_twist(text, hashtags)
         if twist:
             flags.append(f"twist:{twist}")
-    groups = item_groups(text, hashtags)
-    for i, a in enumerate(groups):
-        for b in groups[i + 1:]:
-            if frozenset((a, b)) not in lexicon.COMMON_PAIRS:
-                flags.append(f"combinatie:{a} + {b}")
-                return flags
+    combo = find_combination(text, hashtags)
+    if combo:
+        flags.append(f"combinatie:{combo}")
     return flags
 
 
@@ -289,7 +519,7 @@ def classify_rules(post: dict) -> dict:
         nl = 1.0
 
     places: list[str] = []
-    if post.get("location"):
+    if post.get("location") and location_is_business(post["location"]):
         places.append(post["location"].strip())
     author = post.get("author") or ""
     if author and looks_like_business(author, post.get("author_name") or ""):
