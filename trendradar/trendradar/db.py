@@ -217,6 +217,21 @@ CREATE TABLE IF NOT EXISTS routes (
     added_at    TEXT NOT NULL
 );
 
+-- Coördinaten van plaatsen (OpenStreetMap), één keer opgezocht. lat NULL = niet gevonden.
+CREATE TABLE IF NOT EXISTS geo (
+    place       TEXT PRIMARY KEY,
+    lat         REAL,
+    lon         REAL,
+    looked_up   TEXT NOT NULL
+);
+
+-- Routes die de tool bedacht en die je afwees: niet nog eens voorstellen.
+CREATE TABLE IF NOT EXISTS route_feedback (
+    stops_key   TEXT PRIMARY KEY,   -- gesorteerde zaaksleutels, met | ertussen
+    value       INTEGER NOT NULL,   -- -1 = niet voor mij
+    at          TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL

@@ -161,16 +161,34 @@
       <div class="card-head">
         <h2>Tips &amp; routes</h2>
         <div class="toolbar">
+          <button class="btn small primary" id="t-add-open" type="button">＋ Tip toevoegen</button>
           <label class="btn small"><input type="file" accept=".xlsx" class="import-file" hidden>Excel importeren</label>
           <a class="btn ghost small" href="/api/export/tips.csv">Tips als CSV</a>
         </div>
       </div>
       <p class="hint">Je tips en routes op één plek. Importeer je Excel-bestand (tabbladen met <em>Naam</em> worden tips, tabbladen met <em>Route</em> en <em>Stop 1</em> worden routes). Opnieuw importeren kan altijd: je status en notities blijven bewaard. 🔥 betekent dat er nu over de zaak gepost wordt; ✓ dat je hem al eens hebt gepost.</p>
+      <form id="form-tip" class="tip-form" hidden>
+        <input name="name" placeholder="Naam zaak *" required aria-label="Naam zaak">
+        <input name="place" placeholder="Plaats" aria-label="Plaats">
+        <input name="specialty" placeholder="Specialiteit, bijv. broodje kaassoufflé met döner" aria-label="Specialiteit" class="wide">
+        <input name="list" placeholder="Lijst, bijv. Burgers" list="t-lists" aria-label="Lijst">
+        <datalist id="t-lists"></datalist>
+        <input name="note" placeholder="Notitie, bijv. twee keer getipt" aria-label="Notitie" class="wide">
+        <div class="actions"><button class="btn small primary" type="submit">Opslaan</button>
+          <button class="btn small ghost" type="button" id="t-add-close">Annuleren</button>
+          <span class="hint">Tip: schrijf op wat er bijzonder aan is (eigen creatie, vaker getipt, alleen op vrijdag). Dat gebruikt de Viral-potentie.</span></div>
+      </form>
       <div class="kpis" id="t-kpis"></div>
+    </article>
+    <article class="card" id="t-suggest-card" hidden>
+      <h2>🔎 Ontdekt in de radar <span class="muted">deze week, nog niet in je tips</span></h2>
+      <p class="hint">Zaken waar meerdere makers over posten. Met één klik zet je ze in je tips; dan doen ze mee in de Viral-potentie en de routes.</p>
+      <ul class="list" id="t-suggest"></ul>
     </article>
     <div class="seg" role="group" aria-label="Weergave" id="t-view">
       <button data-v="tips" class="on">Tips</button>
       <button data-v="routes">Routes</button>
+      <button data-v="voorstellen">✨ Bedacht door de tool</button>
     </div>
     <article class="card" id="t-tips-card">
       <div class="toolbar">
@@ -183,15 +201,12 @@
       <div class="table-wrap"><table class="data" id="tbl-tips">
         <thead><tr><th>Zaak</th><th>Specialiteit</th><th class="hide-s">Lijst</th><th>Status</th><th class="hide-s">Notitie</th><th></th></tr></thead>
         <tbody></tbody></table></div>
-      <details class="add-tip">
-        <summary>+ Tip toevoegen</summary>
-        <form id="form-tip" class="toolbar">
-          <input name="name" placeholder="Naam zaak" required>
-          <input name="place" placeholder="Plaats">
-          <input name="specialty" placeholder="Specialiteit, bijv. broodje kaassoufflé">
-          <button class="btn small" type="submit">Toevoegen</button>
-        </form>
-      </details>
+    </article>
+    <article class="card" id="t-proposals-card" hidden>
+      <h2>✨ Routes bedacht door de tool</h2>
+      <p class="hint" id="t-proposals-info"></p>
+      <div id="t-geo"></div>
+      <div class="routes" id="t-proposals"></div>
     </article>
     <article class="card" id="t-routes-card" hidden>
       <div class="toolbar">

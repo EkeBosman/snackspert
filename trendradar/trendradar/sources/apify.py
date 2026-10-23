@@ -101,6 +101,37 @@ class ApifyError(RuntimeError):
     pass
 
 
+class ApifyLimitError(ApifyError):
+    """Het tegoed of de limiet van je Apify-account is op: verder proberen heeft geen zin."""
+
+
+def _is_limit_error(status: int, text: str) -> bool:
+    low = text.lower()
+    return status == 402 or ("usage" in low and any(w in low for w in ("limit", "exceed", "upgrade", "plan")))
+
+
+def account_usage() -> dict | None:
+    """Wat je Apify-account deze maand gebruikt heeft en wat de limiet is (in dollars).
+
+    Dat is iets anders dan het budget in de tool: het gratis Apify-plan heeft
+    $5 per maand, ook als je in de tool €60 instelt. None als Apify het niet geeft.
+    """
+    try:
+        # Kort en zonder tweede poging: lukt het niet, dan gaat de ronde gewoon door.
+        r = requests.get(f"{API}/users/me/limits", headers=_auth(), timeout=15)
+    except requests.RequestException:
+        return None
+    if not r.ok:
+        return None
+    d = (r.json() or {}).get("data") or {}
+    used = (d.get("current") or {}).get("monthlyUsageUsd")
+    limit = (d.get("limits") or {}).get("maxMonthlyUsageUsd")
+    if used is None or limit is None:
+        return None
+    return {"used_usd": round(float(used), 2), "limit_usd": round(float(limit), 2),
+            "cycle_end": (d.get("monthlyUsageCycle") or {}).get("endAt")}
+
+
 def available() -> bool:
     return bool(config.secret("APIFY_TOKEN"))
 
@@ -173,6 +204,8 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
         body = {k: v for k, v in body.items() if k not in OPTIONAL_KEYS}
         resp = _start(f"{API}/acts/{actor}/runs", params=params, headers=headers, json=body, timeout=90)
     if resp.status_code >= 400:
+        if _is_limit_error(resp.status_code, resp.text):
+            raise ApifyLimitError(f"{actor}: {resp.status_code} {resp.text[:300]}")
         raise ApifyError(f"{actor}: {resp.status_code} {resp.text[:300]}")
     run = resp.json()["data"]
 
@@ -209,15 +242,6 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
     estimated = len(items) * price_per_1000 / 1000
     return items, max(reported, estimated)
 
-
-def account_usage() -> dict | None:
-    """Wat Apify zelf zegt over het verbruik deze maand (ter controle)."""
-    try:
-        r = requests.get(f"{API}/users/me/usage/monthly", headers=_auth(), timeout=30)
-        r.raise_for_status()
-        return r.json().get("data")
-    except requests.RequestException:
-        return None
 
 
 # --- omzetten naar één postformaat -----------------------------------------

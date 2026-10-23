@@ -375,7 +375,7 @@
       `<tr class="click" data-topic="zaak|${esc(p.name)}"><td><span class="topic-name">${esc(p.display)}</span> ${pdots(p.platforms)}${p.aliases && p.aliases.length ? `<div class="meta muted">ook: ${esc(p.aliases.join(", "))}</div>` : ""}</td>
        <td class="hide-s">${esc(p.city || "")}</td><td class="num">${p.posts}</td><td class="num">${growth(p)}</td>
        <td>${zaakBadges(p, "reviewkandidaat")}</td>
-       <td>${starBtn("zaak", p.name, p.display, null, p.city)}</td></tr>`).join("")
+       <td><span class="post-actions">${tipBtn(p.display, p.city, p.tip)}${starBtn("zaak", p.name, p.display, null, p.city)}</span></td></tr>`).join("")
       : `<tr><td colspan="6" class="muted">Nog geen zaken herkend in deze periode.</td></tr>`;
 
     $("#list-cities").innerHTML = d.cities.slice(0, 12).map(c =>
@@ -459,6 +459,9 @@
       ["max_nieuwe_bronnen_per_run", "Max. nieuwe bronnen per ronde", "number", 1],
       ["max_actieve_bronnen_per_platform", "Max. actieve bronnen per platform", "number", 1],
     ]],
+    ["Routes", [
+      ["thuisbasis", "Thuisbasis (vanaf hier rekent de tool routes)", "text"],
+    ]],
     ["AI-indeling (Claude)", [
       ["ai_aan", "AI gebruiken als er een sleutel is", "checkbox"],
       ["ai_maandbudget_eur", "Maandbudget AI, €", "number", 1],
@@ -485,6 +488,7 @@
       return `<div class="meter ${p >= 100 ? "over" : p >= 80 ? "warn" : ""}"><span style="width:${p}%"></span></div>`;
     };
     const euro = v => "€ " + Number(v || 0).toFixed(2).replace(".", ",");
+    $("#budget-kpis").classList.toggle("kpis-5", !!b.apify_account);
     $("#budget-kpis").innerHTML = `
       <div class="kpi"><div class="label">Data (Apify) deze maand</div><div class="value">${euro(b.data_uitgegeven_eur)}</div>
         <div class="delta">van ${euro(b.data_budget_eur)}</div>${meter(b.data_uitgegeven_eur, b.data_budget_eur)}</div>
@@ -492,6 +496,14 @@
         <div class="delta">van ${euro(b.ai_budget_eur)}</div>${meter(b.ai_uitgegeven_eur, b.ai_budget_eur)}</div>
       <div class="kpi"><div class="label">Kosten per nuttige post</div><div class="value">${b.per_nuttige_post_eur != null ? euro2(b.per_nuttige_post_eur) : "–"}</div>
         <div class="delta">${fmt(b.nuttige_posts)} nieuwe relevante NL-posts deze maand · prognose ${euro(b.prognose_eur)}</div></div>
+      ${b.apify_account ? (() => {
+        const a = b.apify_account, low = a.limit_usd - a.used_usd < 0.05;
+        const toolUsd = b.data_budget_eur / 0.92;
+        return `<div class="kpi"><div class="label">Apify-account deze maand</div><div class="value ${low ? "down" : ""}">$ ${a.used_usd.toFixed(2).replace(".", ",")}</div>
+          <div class="delta">van $ ${a.limit_usd.toFixed(2).replace(".", ",")} tegoed${a.cycle_end ? ` · nieuw tegoed ${new Date(a.cycle_end).toLocaleDateString("nl-NL", { day: "numeric", month: "long" })}` : ""}
+          ${a.limit_usd + 0.5 < toolUsd ? `<br><b>Let op:</b> je Apify-tegoed is lager dan het budget in de tool. Verhoog het tegoed bij Apify (Billing), of verlaag het maandbudget hieronder.` : ""}</div>
+          ${meter(a.used_usd, a.limit_usd)}</div>`;
+      })() : ""}
       <div class="kpi"><div class="label">Budget volgende ronde</div><div class="value">${euro(b.per_ronde_eur)}</div>
         <div class="delta">${b.rondes_over} rondes over deze maand · ${Object.entries(b.plan).map(([p, v]) => `${PLATFORM[p].name} ±${v.results}`).join(", ")} posts</div></div>`;
 
@@ -501,6 +513,7 @@
       const v = get(k);
       if (type === "checkbox") return `<label class="check"><input type="checkbox" name="${k}" ${v ? "checked" : ""}> ${esc(label)}</label>`;
       if (type === "select") return `<label>${esc(label)}<select name="${k}">${opt.map(o => `<option ${o === v ? "selected" : ""}>${o}</option>`).join("")}</select></label>`;
+      if (type === "text") return `<label>${esc(label)}<input type="text" name="${k}" value="${esc(v || "")}"></label>`;
       if (type === "textarea") return `<label class="full">${esc(label)}<textarea name="${k}">${esc((v || []).join("\n"))}</textarea></label>`;
       return `<label>${esc(label)}<input type="number" name="${k}" value="${v}" step="${opt}" min="0"></label>`;
     }).join("")}</fieldset>`).join("") +
@@ -714,6 +727,10 @@
     toast(next === 1 ? "♥ De tool zoekt meer zoals dit" : next === -1 ? "👎 De tool laat dit soort posts zakken" : "Beoordeling weggehaald");
   }
 
+  // Een zaak uit de radar met één klik in je tips zetten.
+  const tipBtn = (name, place, tip) => tip ? "" :
+    `<button class="tipbtn" data-zaak-tip="${esc(name)}" data-place="${esc(place || "")}" title="In mijn tips zetten" aria-label="In mijn tips zetten">📍</button>`;
+
   function zaakBadges(p, fallback) {
     const out = [p.reviewed ? `<span class="badge ok">✓ gereviewd</span>` : ""];
     if (p.posted) out.push(p.posted.url ? `<a class="badge ok" href="${esc(p.posted.url)}" target="_blank" rel="noopener" title="Je eigen post">✓ gepost ${esc(p.posted.date || "")}</a>`
@@ -762,8 +779,54 @@
       ["🔥 In de radar", fmt(t.spots.filter(x => x.radar).length), "genoemd in posts, 30 dagen"]];
     $("#t-kpis").innerHTML = kpis.map(([l, v, d]) =>
       `<div class="kpi"><div class="label">${l}</div><div class="value">${v}</div><div class="delta">${esc(d)}</div></div>`).join("");
+    $("#t-lists").innerHTML = t.lists.map(l => `<option value="${esc(l)}">`).join("");
     renderTips();
-    if (state.tipsView === "routes") loadRoutes();
+    showTipsView();
+    loadSuggestions();
+  }
+
+  function showTipsView() {
+    const v = state.tipsView;
+    $$("#t-view button").forEach(x => x.classList.toggle("on", x.dataset.v === v));
+    $("#t-tips-card").hidden = v !== "tips";
+    $("#t-routes-card").hidden = v !== "routes";
+    $("#t-proposals-card").hidden = v !== "voorstellen";
+    if (v === "routes") loadRoutes();
+    if (v === "voorstellen") loadProposals();
+  }
+
+  async function loadSuggestions() {
+    const s = await api("/api/tips/suggesties");
+    state.suggestions = s;
+    $("#t-suggest-card").hidden = !s.length;
+    $("#t-suggest").innerHTML = s.map((x, i) =>
+      `<li><div class="row"><span><button class="linkish" data-topic="${esc(x.topic)}">${esc(x.name)}</button>
+         ${x.place ? `<span class="meta">${esc(x.place)}</span>` : ""}</span>
+         <button class="btn small" data-sugg-add="${i}">📍 In mijn tips</button></div>
+       <div class="reasons">${x.reasons.map(r => `<span class="reason small">${esc(r)}</span>`).join("")} ${phaseBadge(x.phase)}</div>
+       ${x.snippet ? `<div class="meta">“${esc(x.snippet)}”</div>` : ""}</li>`).join("");
+  }
+
+  async function loadProposals() {
+    const d = await api("/api/routes/voorstellen");
+    state.proposals = d;
+    const h = d.habits;
+    $("#t-proposals-info").innerHTML = `Vanaf <b>${esc(d.home)}</b> en weer terug (aan te passen bij Budget &amp; instellingen). ` +
+      (h.routes ? `De tool leert van je ${fmt(h.routes)} routes: meestal ${fmt(h.median_km)} km retour, tot ${fmt(h.max_km)} km, met ${h.stops.join(" of ")} stops. ` : "") +
+      `Hij combineert kansrijke tips (Viral-potentie) die dicht bij elkaar liggen. Routes die je afwijst, stelt hij niet opnieuw voor. Afstand en rijtijd zijn een schatting; Google Maps geeft de echte route.`;
+    const p = d.progress || {};
+    $("#t-geo").innerHTML = d.missing ? `<div class="geo-note">📍 Van ${fmt(d.missing)} plaatsen weet de tool nog niet waar ze liggen, dus die tips doen nog niet mee.
+      ${p.running ? `Bezig met opzoeken: ${p.done} van ${p.todo}…` : `Dit gebeurt vanzelf bij elke ophaalronde, of <button class="btn small" id="t-geo-start">nu opzoeken</button> (duurt ±${Math.ceil(d.missing * 1.2 / 60)} min).`}</div>` : "";
+    if (p.running) setTimeout(() => { if (state.tab === "tips" && state.tipsView === "voorstellen") loadProposals(); }, 5000);
+    $("#t-proposals").innerHTML = d.routes.length ? d.routes.map((r, i) => `<div class="route proposal">
+      <h3>${esc(r.name)}</h3>
+      <div class="meta">±${fmt(r.km)} km retour · ±${esc(r.duration)} rijden · gemiddelde potentie <b>${r.potential}</b></div>
+      <ol>${r.stops.map(s => `<li><a href="${esc(s.maps)}" target="_blank" rel="noopener"><b>${esc(s.name)}</b></a> <span class="muted">(${esc(s.place)})</span> <b>${s.potential}</b>
+        ${s.specialty ? ` – ${esc(s.specialty)}` : ""}<span class="stop-reasons">${esc(s.reasons.join(" · "))}</span></li>`).join("")}</ol>
+      <div class="foot"><a class="btn small primary" href="${esc(r.maps)}" target="_blank" rel="noopener">Route in Google Maps ↗</a>
+        <span><button class="btn small" data-prop-save="${i}">Bewaren</button>
+        <button class="btn small ghost" data-prop-reject="${i}" title="Deze route niet meer voorstellen">👎 Niet voor mij</button></span></div>
+    </div>`).join("") : `<p class="muted">${d.melding || "Nog geen voorstellen: er zijn (nog) te weinig kansrijke tips dicht bij elkaar met een bekende plaats."}</p>`;
   }
 
   function renderTips() {
@@ -1013,6 +1076,15 @@
         await setFeedback(fb.dataset.id, Number(fb.dataset.fb));
         return;
       }
+      const zt = e.target.closest("[data-zaak-tip]");
+      if (zt) {
+        e.stopPropagation();
+        await api("/api/tips", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: zt.dataset.zaakTip, place: zt.dataset.place, list: "Uit de radar" }) });
+        toast(`${zt.dataset.zaakTip} staat nu in je tips`);
+        zt.remove();
+        return;
+      }
       const search = e.target.closest("[data-search]");
       if (search) {
         $("#p-q").value = search.dataset.search;
@@ -1066,10 +1138,7 @@
       const b = e.target.closest("[data-v]");
       if (!b) return;
       state.tipsView = b.dataset.v;
-      $$("#t-view button").forEach(x => x.classList.toggle("on", x === b));
-      $("#t-tips-card").hidden = state.tipsView !== "tips";
-      $("#t-routes-card").hidden = state.tipsView !== "routes";
-      if (state.tipsView === "routes") loadRoutes();
+      showTipsView();
     });
     ["#t-q", "#t-list", "#t-region", "#t-status", "#t-radar"].forEach(id => $(id).addEventListener("input", renderTips));
     ["#r-q", "#r-region", "#r-stops"].forEach(id => $(id).addEventListener("input", renderRoutes));
@@ -1109,8 +1178,44 @@
       const data = Object.fromEntries(new FormData(e.target));
       await api("/api/tips", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
       e.target.reset();
-      toast("Tip toegevoegd");
+      e.target.hidden = true;
+      toast(`Tip toegevoegd: ${data.name}`);
       loadTips();
+    });
+    $("#t-add-open").addEventListener("click", () => {
+      $("#form-tip").hidden = false;
+      $("#form-tip [name=name]").focus();
+    });
+    $("#t-add-close").addEventListener("click", () => { $("#form-tip").hidden = true; });
+    $("#t-suggest").addEventListener("click", async e => {
+      const b = e.target.closest("[data-sugg-add]");
+      if (!b) return;
+      const x = state.suggestions[Number(b.dataset.suggAdd)];
+      await api("/api/tips", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: x.name, place: x.place, list: "Uit de radar", note: "Uit de radar: " + x.reasons.join(", ") }) });
+      toast(`${x.name} staat nu in je tips`);
+      loadTips();
+    });
+    $("#t-proposals-card").addEventListener("click", async e => {
+      if (e.target.closest("#t-geo-start")) {
+        await api("/api/locaties", { method: "POST" });
+        toast("Plaatsen opzoeken gestart");
+        setTimeout(loadProposals, 1500);
+        return;
+      }
+      const save = e.target.closest("[data-prop-save]"), rej = e.target.closest("[data-prop-reject]");
+      if (save) {
+        const r = state.proposals.routes[Number(save.dataset.propSave)];
+        await api("/api/routes/bewaar", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r) });
+        state.routes = null;
+        toast("Route bewaard bij Routes");
+        loadProposals();
+      } else if (rej) {
+        const r = state.proposals.routes[Number(rej.dataset.propReject)];
+        await api("/api/routes/afwijzen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: r.key }) });
+        toast("Deze route komt niet meer terug");
+        loadProposals();
+      }
     });
     // viral-potentie
     $("#pot-limit").addEventListener("click", e => {

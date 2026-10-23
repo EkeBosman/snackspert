@@ -351,3 +351,16 @@ td .status-select { min-width: 120px; }
 .how li { display: flex; justify-content: space-between; gap: 10px; padding: 4px 0; border-bottom: 1px solid var(--grid); }
 .how li:last-child { border-bottom: 0; }
 .how b { font-variant-numeric: tabular-nums; }
+
+/* Tip toevoegen, voorstellen */
+.tip-form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+.tip-form .wide { grid-column: span 2; }
+.tip-form .actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.tip-form[hidden] { display: none; }
+.route.proposal { border-style: dashed; }
+.route .stop-reasons { color: var(--muted); font-size: .76rem; display: block; }
+.geo-note { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding: 10px 12px; border-radius: var(--radius);
+  background: color-mix(in srgb, var(--warning) 14%, var(--surface)); font-size: .84rem; margin: 8px 0 4px; }
+@media (max-width: 640px) { .tip-form { grid-template-columns: 1fr; } .tip-form .wide { grid-column: auto; } }
+.tipbtn { font: inherit; background: none; border: 0; cursor: pointer; font-size: .95rem; padding: 2px 3px; line-height: 1; opacity: .75; }
+.tipbtn:hover { opacity: 1; }

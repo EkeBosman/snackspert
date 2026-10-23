@@ -72,6 +72,7 @@ DEFAULTS: dict = {
     "alleen_nieuwe_posts": True,      # datumfilter: niet betalen voor posts die we al hebben
     "herhaalmeting_per_ronde": 15,    # snelste posts per platform opnieuw meten
     "nieuws_aan": True,
+    "thuisbasis": "Amsterdam",        # vanaf hier rekent de tool routes (retour)
     "extra_rss": [],
 }
 

@@ -183,6 +183,22 @@ def step_apify(run: Run, settings: dict, skip: set[int]) -> None:
         sources = [dict(r) for r in conn.execute("SELECT * FROM sources WHERE status='actief'")]
     run.note(f"Budget deze ronde: ${p['per_run_usd']:.2f} "
              f"(nog ${p['left_usd']:.2f} voor {p['runs_left']} rondes deze maand)")
+    # Het budget in de tool is iets anders dan het tegoed op je Apify-account.
+    acct = apify.account_usage()
+    with db.session() as conn:
+        db.set_state(conn, "apify_account", {**acct, "checked": db.iso(db.now())} if acct else None)
+    if acct:
+        left = acct["limit_usd"] - acct["used_usd"]
+        if left < 0.05:
+            run.note(f"Apify-tegoed op: ${acct['used_usd']:.2f} van ${acct['limit_usd']:.2f} gebruikt deze maand. "
+                     "Het budget in de tool verhoogt je Apify-tegoed niet: dat doe je met een betaald plan op "
+                     "apify.com (Billing). Deze ronde haalt de tool niets op via Apify.", "fout")
+            return
+        if left < p["per_run_usd"]:
+            factor = left / p["per_run_usd"]
+            for plan in p["platforms"].values():
+                plan["usd"], plan["results"] = plan["usd"] * factor, int(plan["results"] * factor)
+            run.note(f"Apify-account: nog ${left:.2f} tegoed, deze ronde haalt de tool daarom minder op", "waarschuwing")
     for platform in budget.PLATFORMS:
         plan = p["platforms"][platform]
         price = settings[f"prijs_{platform}_per_1000"]
@@ -217,6 +233,11 @@ def step_apify(run: Run, settings: dict, skip: set[int]) -> None:
                 try:
                     items, cost = apify.run_actor(platform, kind, values, per_value, cap, since,
                                                   price_per_1000=price)
+                except apify.ApifyLimitError:
+                    run.note("Apify weigert: het tegoed of de limiet van je Apify-account is op. Het budget in de "
+                             "tool verhoogt je Apify-tegoed niet: dat doe je met een betaald plan op apify.com "
+                             "(Billing). De rest van deze ronde slaat Apify over.", "fout")
+                    return
                 except (requests.ConnectionError, requests.Timeout) as exc:
                     # Internet of DNS even weg: de bronnen tellen niet als leeg en komen
                     # de volgende ronde gewoon weer aan de beurt. Er is niets betaald.
@@ -520,6 +541,16 @@ def step_discovery(run: Run, settings: dict, demo: bool = False) -> None:
                  + (f" ({names})" if names else ""))
 
 
+def step_geocode(run: Run) -> None:
+    """Zoek plaatsen van tips op (OpenStreetMap, gratis) voor routes die de tool zelf bedenkt."""
+    from . import geo
+
+    res = geo.fill(limit=40)
+    if res.get("found") or res.get("failed"):
+        run.note(f"Plaatsen opgezocht voor routes: {res['found']} gevonden"
+                 + (f", {res['failed']} niet gevonden" if res["failed"] else ""))
+
+
 def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict | None:
     if not _run_lock.acquire(blocking=False):
         return None
@@ -552,6 +583,7 @@ def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict 
                 step_supermarkets(run, settings, force_supermarkets)
                 step_snackspert(run)
                 step_discovery(run, settings)
+                step_geocode(run)
         except Exception as exc:  # noqa: BLE001 - ronde altijd netjes afsluiten
             log.exception("Ophaalronde mislukt")
             run.note(f"Ronde afgebroken: {exc}", "fout")

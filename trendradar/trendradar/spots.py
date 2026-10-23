@@ -12,7 +12,7 @@ import re
 from datetime import timedelta
 from urllib.parse import quote
 
-from . import classify, db, imports, ownposts, taste
+from . import classify, db, imports, ownposts, snackspert, taste
 
 
 def _distinctive(name: str) -> str | None:
@@ -96,3 +96,69 @@ def routes(conn) -> list[dict]:
         out.append(d)
     return out
 
+
+
+def radar_suggestions(conn, include_demo: bool = True, limit: int = 8) -> list[dict]:
+    """Zaken die de radar deze week vond en die nog niet in je tips staan: nieuwe tips?"""
+    from . import trends
+
+    tips = {taste.zaak_key(r["name"]) for r in conn.execute("SELECT name FROM spots")}
+    tip_cores = [(snackspert.core_name(r["name"]).replace(" ", ""), (r["place"] or "").lower())
+                 for r in conn.execute("SELECT name, place FROM spots")]
+    handles = {taste.zaak_key(h) for h in ownposts.posted_handles(conn)}
+    captions = ownposts.caption_index(conn)
+    out = []
+    for t in trends.compute(conn, "7d", limit=400, include_demo=include_demo)["topics"]:
+        if t["type"] != "zaak" or t["phase"] == "over":
+            continue
+        name, city = (t["name"].rsplit(", ", 1) + [""])[:2] if ", " in t["name"] else (t["name"], "")
+        display = name.lstrip("@")
+        key = taste.zaak_key(display)
+        if not key or key in tips or key in handles or (len(key) >= 10 and ownposts.find_posted(key, captions)):
+            continue
+        if t["authors"] < 2 and not t["signals"].get("breakouts"):
+            continue
+        flags, snippet = set(), ""
+        for pid in t["top_posts"][:3]:
+            row = conn.execute("SELECT text, summary, flags, city FROM posts WHERE id = ?", (pid,)).fetchone()
+            if not row:
+                continue
+            flags |= set(json.loads(row["flags"] or "[]"))
+            snippet = snippet or (row["summary"] or row["text"] or "").replace("\n", " ")[:90]
+            city = city or row["city"] or ""
+        reasons = [f"{t['authors']} makers, {t['posts']} posts"]
+        if t["signals"].get("breakouts"):
+            reasons.append("🚀 doorbraak")
+        reasons += [{"nieuw_op_kaart": "🆕 nieuw op de kaart"}.get(f, "") or
+                    (f"🧪 {f.split(':', 1)[1]}" if f.startswith("combinatie:") else
+                     f"🔄 {f.split(':', 1)[1]}" if f.startswith("twist:") else "") for f in sorted(flags)]
+        core = snackspert.core_name(display).replace(" ", "")
+        # Lijkt de naam op een tip, dan alleen dezelfde zaak als de plaats ook klopt
+        # ('t Hoekje in Groningen is een andere zaak dan Het Hoekje in Heerenveen).
+        if any(_same_place(core, c) and (not city or not p or city.lower() in p or p in city.lower())
+               for c, p in tip_cores if c):
+            continue
+        item = {"name": display, "place": city, "topic": f"zaak|{t['name']}", "phase": t["phase"],
+                "reasons": [r for r in reasons if r], "snippet": snippet, "score": t["score"],
+                "_key": snackspert.core_name(display).replace(" ", "")}
+        # '@degoudenhoek_snackbar' en 'Snackbar De Gouden Hoek' zijn dezelfde zaak: één regel,
+        # met liever de echte naam dan de accountnaam.
+        twin = next((o for o in out if _same_place(o["_key"], item["_key"])), None)
+        if twin:
+            if not twin["name"][:1].isupper() and display[:1].isupper():
+                twin.update(name=display, topic=item["topic"])
+            twin["place"] = twin["place"] or city
+            continue
+        out.append(item)
+        if len(out) >= limit:
+            break
+    for o in out:
+        o.pop("_key", None)
+    return out
+
+
+def _same_place(a: str, b: str) -> bool:
+    import difflib
+
+    short, long_ = sorted((a, b), key=len)
+    return (len(short) >= 6 and short in long_) or difflib.SequenceMatcher(None, a, b).ratio() >= 0.86

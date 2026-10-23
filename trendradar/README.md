@@ -271,6 +271,19 @@ Bij elke tip:
 
 Elke route heeft een knop **Route in Google Maps**: Maps opent met alle stops, vanaf waar je bent.
 
+**Zelf een tip toevoegen.** Je kunt op drie manieren een tip toevoegen:
+- Met de knop **＋ Tip toevoegen** bovenaan Tips & routes. Je vult naam, plaats, specialiteit, lijst en notitie in. Schrijf op wat er bijzonder aan is (eigen creatie, vaker getipt, alleen op vrijdag): dat gebruikt de Viral-potentie.
+- Met de knop 📍 bij een zaak in **Zaken & steden**.
+- Bij **🔎 Ontdekt in de radar**. Daar staan zaken waar deze week meerdere makers over posten en die nog niet in je tips staan; met één klik zet je ze erbij.
+
+**✨ Bedacht door de tool.** De tool bedenkt zelf routes. Hij combineert kansrijke tips uit de Viral-potentie die dicht bij elkaar liggen (binnen ±35 km), vanaf je thuisbasis en weer terug. Wat hij daarvoor leert:
+- **Van je eigen routes:** hoe ver je gewoonlijk rijdt en met hoeveel stops (bij jou: meestal ±270 km retour, 3 of 4 stops).
+- **Van je statussen:** bezochte, gereviewde en afgewezen tips doen niet mee.
+- **Van je ♥, 👎 en bewaarde items:** die tellen mee in de potentie.
+- **Van je keuzes:** met **Bewaren** komt een route bij je routes. Met **👎 Niet voor mij** stelt hij die route nooit meer voor.
+
+Om te weten waar je tips liggen, zoekt de tool elke plaats één keer op bij OpenStreetMap (gratis). Dat gebeurt vanzelf bij elke ophaalronde, of meteen met de knop **nu opzoeken**. Afstand en rijtijd zijn een schatting: hemelsbreed × 1,3, met gemiddeld 75 km/u. Google Maps geeft de echte route. Je thuisbasis (standaard Amsterdam) stel je in bij **Budget & instellingen**.
+
 Je tips komen ook terug op andere plekken:
 - **Vandaag** (📍 Je tips in de radar);
 - **Amsterdam** (Jouw Amsterdam-tips);
@@ -293,6 +306,17 @@ Standaard worden per ronde maximaal 6 ontdekte bronnen direct geactiveerd. De re
 - **Ongeldig:** accounts die twee keer niets teruggeven.
 
 Bronnen die je **zelf** toevoegt, worden nooit automatisch gepauzeerd. Wat de tool ontdekt, hoe streng hij is en hoeveel bronnen er maximaal actief zijn, stel je in onder **Budget & instellingen**.
+
+### Apify-tegoed: het budget in de tool is iets anders dan je Apify-plan
+
+Het maandbudget in de tool is een **plafond**: zoveel mag de tool hooguit uitgeven. Het geld zelf zit op je **Apify-account**:
+- Het gratis Apify-plan heeft maar $5 per maand. Daarmee kom je hooguit een paar rondes ver.
+- Voor het budget in de tool (bijvoorbeeld €60) heb je dus een **betaald Apify-plan** nodig. Dat kies je op apify.com onder *Billing*.
+
+De tool vraagt bij elke ronde aan Apify hoeveel tegoed er nog is. Bij **Budget & instellingen** zie je dat als *Apify-account deze maand*.
+- **Tegoed op:** de tool slaat Apify over, met een duidelijke melding in het logboek.
+- **Bijna op:** de tool haalt minder op, zodat runs niet halverwege worden afgebroken.
+- **Lager dan het budget in de tool:** dat staat er dan bij.
 
 ### Als het internet even wegvalt
 
@@ -346,6 +370,8 @@ trendradar/
 │   ├── ownposts.py        # analyse van je eigen posts
 │   ├── spots.py           # tips en routes, gekoppeld aan de radar
 │   ├── potential.py       # viral-potentie van je tips
+│   ├── routeplan.py       # routes die de tool zelf bedenkt
+│   ├── geo.py             # waar liggen je tips (OpenStreetMap, één keer opgezocht)
 │   ├── imports.py         # Excel-bestanden inlezen
 │   ├── demo.py            # verzonnen voorbeelddata
 │   ├── web.py             # API voor de interface

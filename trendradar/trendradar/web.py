@@ -9,8 +9,8 @@ from datetime import timedelta
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
-from . import (budget, collector, config, db, imports, lexicon, ownposts, potential, products,
-               signals, snackspert, spots, taste, trends)
+from . import (budget, collector, config, db, geo, imports, lexicon, ownposts, potential, products,
+               routeplan, signals, snackspert, spots, taste, trends)
 from .sources import apify, meta_graph
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
@@ -785,3 +785,45 @@ def api_potentie():
         out = potential.ranking(conn, limit, a["include_demo"])
     out["statuses"] = WATCH_STATUSES
     return jsonify(out)
+
+
+# --- routes die de tool bedenkt, en nieuwe tips uit de radar ------------------------
+
+@app.get("/api/routes/voorstellen")
+def api_route_proposals():
+    a = _args()
+    with db.session() as conn:
+        return jsonify(routeplan.proposals(conn, a["include_demo"]))
+
+
+@app.post("/api/routes/bewaar")
+def api_route_save():
+    d = request.get_json(force=True)
+    if not d.get("stops") or not d.get("name"):
+        return jsonify({"fout": "route zonder stops"}), 400
+    with db.session() as conn:
+        rid = routeplan.save(conn, d)
+    return jsonify({"ok": True, "id": rid})
+
+
+@app.post("/api/routes/afwijzen")
+def api_route_reject():
+    key = (request.get_json(force=True).get("key") or "").strip()
+    if not key:
+        return jsonify({"fout": "geen route"}), 400
+    with db.session() as conn:
+        routeplan.reject(conn, key)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/locaties")
+def api_geocode():
+    started = geo.fill_in_background()
+    return jsonify({"started": started, **geo.progress()})
+
+
+@app.get("/api/tips/suggesties")
+def api_tip_suggestions():
+    a = _args()
+    with db.session() as conn:
+        return jsonify(spots.radar_suggestions(conn, a["include_demo"]))
