@@ -507,11 +507,12 @@
       `<div class="actions"><button class="btn primary" type="submit">Opslaan</button><span class="muted" id="settings-msg"></span></div>`;
 
     const k = state.status?.keys || {};
-    const keyRow = (ok, name, yes, no) => `<li><div class="row"><span><span class="badge ${ok ? "ok" : "bad"}">${ok ? "✓" : "✗"}</span> <strong>${name}</strong></span></div><div class="meta">${ok ? yes : no}</div></li>`;
+    // Optionele koppelingen zijn geen fout als ze ontbreken: grijs streepje in plaats van rood kruis.
+    const keyRow = (ok, name, yes, no, optional = false) => `<li><div class="row"><span><span class="badge ${ok ? "ok" : optional ? "" : "bad"}">${ok ? "✓" : optional ? "–" : "✗"}</span> <strong>${name}</strong>${!ok && optional ? ' <span class="muted">niet gekoppeld, optioneel</span>' : ""}</span></div><div class="meta">${ok ? yes : no}</div></li>`;
     $("#list-keys").innerHTML =
-      keyRow(k.apify, "Apify", "TikTok, Facebook en extra Instagram worden opgehaald.", "Zet <code>APIFY_TOKEN</code> in .env voor TikTok en Facebook.") +
-      keyRow(k.meta, "Meta Graph API", "Instagram-hashtags en zakelijke accounts gratis.", "Optioneel: <code>META_ACCESS_TOKEN</code> + <code>META_IG_USER_ID</code> bespaart Apify-kosten.") +
-      keyRow(k.anthropic, "Claude (AI)", "Herkent producten, zaken en steden in posts.", "Optioneel: <code>ANTHROPIC_API_KEY</code> voor betere herkenning. Zonder werkt de tool op trefwoorden.") +
+      keyRow(k.apify, "Apify", "TikTok, Facebook en Instagram worden opgehaald.", "Zet <code>APIFY_TOKEN</code> in .env voor TikTok, Facebook en Instagram.") +
+      keyRow(k.meta, "Meta Graph API", "Instagram-hashtags en zakelijke accounts gratis.", "Niet nodig: Instagram loopt via Apify. Met <code>META_ACCESS_TOKEN</code> + <code>META_IG_USER_ID</code> zou je een paar euro per maand besparen.", true) +
+      keyRow(k.anthropic, "Claude (AI)", "Herkent producten, zaken en steden in posts die de trefwoorden missen.", "Niet nodig: de tool werkt op trefwoorden. Met <code>ANTHROPIC_API_KEY</code> herkent hij zaken, producten en steden beter, binnen het AI-budget hieronder.", true) +
       keyRow((state.status?.reviewed || 0) > 0, "Snackspert-recensies", `${state.status?.reviewed} zaken bekend.`, "Worden bij de eerste ophaalronde opgehaald van snackspert.nl.");
 
     $("#list-runs").innerHTML = runs.length ? runs.slice(0, 12).map(r => {
@@ -813,6 +814,54 @@
     </div>`).join("") : `<p class="muted">${r.routes.length ? "Geen routes met deze filters." : "Nog geen routes. Importeer je Excel-bestand met tabbladen 'Route' en 'Stop 1'."}</p>`;
   }
 
+  // --- viral-potentie -------------------------------------------------------------
+
+  const POT_LABELS = { creatie: "Eigen creatie", combinatie: "Combinatie van snacks", spektakel: "Opvallend om te zien",
+    twist: "Twist op een bekende snack", getipt: "Vaker getipt door volgers", radar: "Nu al posts over (🔥)",
+    kleine_viral: "Een daarvan gaat hard", huisgemaakt: "Huisgemaakt", claim: "Verhaal of claim",
+    schaarste: "Schaars (alleen op vrijdag…)", herkenbaar: "Herkenbare snack", prijs: "Prijs als haakje",
+    niche: "Niche gerecht", algemeen: "Weinig bijzonders genoemd" };
+
+  async function loadPotentie() {
+    const d = await api(`/api/potentie?limit=${state.potLimit || 10}`);
+    state.pot = d;
+    $("#pot-list").innerHTML = d.top.length ? d.top.map((t, i) => {
+      const chips = t.reasons.slice().sort((a, b) => b.points - a.points).map(r =>
+        `<span class="reason ${r.points < 0 ? "minus" : r.points < 0.9 ? "small" : ""}" title="${r.points > 0 ? "+" : ""}${String(r.points).replace(".", ",")} punten">${esc(r.text)}</span>`).join("");
+      const status = t.id != null
+        ? `<select class="status-select" data-pot-status="${t.id}" aria-label="Status">${d.statuses.map(s => `<option ${s === t.status ? "selected" : ""}>${s}</option>`).join("")}</select>`
+        : `<button class="btn small ghost" data-pot-add="${i}">+ Bewaren als tip</button>`;
+      return `<li class="pot"><div class="pot-rank">${i + 1}</div><div class="pot-body">
+        <div class="pot-head"><span><a class="tip-name" href="${esc(t.maps)}" target="_blank" rel="noopener" title="Open in Google Maps">${esc(t.name)}</a>
+          <span class="where">${esc([t.place, t.region].filter(Boolean).join(" · "))}</span></span>
+          <span class="pot-score" title="Potentie op een schaal van 0 tot 100"><span class="meter"><span style="width:${t.potential}%"></span></span><b>${t.potential}</b></span></div>
+        ${t.specialty ? `<div class="pot-spec">${esc(t.specialty)}</div>` : ""}
+        <div class="reasons">${chips}</div>
+        <div class="pot-foot"><span>Zekerheid: ${esc(t.confidence)}</span>
+          ${t.lists.map(l => `<span class="badge">${esc(l)}</span>`).join("")}
+          ${t.routes.length ? `<span>In route: ${esc(t.routes[0])}${t.routes.length > 1 ? ` (+${t.routes.length - 1})` : ""}</span>` : ""}
+          ${status}</div>
+      </div></li>`;
+    }).join("") : `<li class="meta">Nog geen tips. Importeer je tips en routes bij <b>Tips &amp; routes</b>.</li>`;
+    $("#pot-routes").innerHTML = d.routes.filter(r => r.score > 0).map(r =>
+      `<li><div class="row"><span class="tip-name">${esc(r.name)}</span><a class="btn small primary" href="${esc(r.maps)}" target="_blank" rel="noopener">Maps ↗</a></div>
+       <div class="meta">${r.stops.map(s => `${esc(s.name)}${s.potential != null ? ` <b>${s.potential}</b>` : ""}`).join(" → ")}</div></li>`).join("")
+      || `<li class="meta">Nog geen routes.</li>`;
+    const P = d.points;
+    const own = d.own_posts ? (() => {
+      const rec = d.lifts.recognition, loc = d.lifts.locations;
+      const parts = [];
+      if (rec.Mainstream && rec.Niche) parts.push(`herkenbare snacks ${String((rec.Mainstream.lift / rec.Niche.lift).toFixed(1)).replace(".", ",")}× zo goed als niche`);
+      if (loc["Buiten Amsterdam"] && loc.Amsterdam) parts.push(`buiten Amsterdam ${String(loc["Buiten Amsterdam"].lift).replace(".", ",")}× en Amsterdam ${String(loc.Amsterdam.lift).replace(".", ",")}× je mediaan`);
+      if (d.lifts.snacks.length) parts.push("snacks die bij jou het best scoren: " + d.lifts.snacks.map(s => `${s.snack} ${String(s.lift).replace(".", ",")}×`).join(", "));
+      return `<p class="hint">Uit je ${fmt(d.own_posts)} eigen posts: ${parts.join("; ")}. Dat telt mee als extra punten (tot ±1,5).</p>`;
+    })() : `<p class="hint">Importeer je posts bij <b>Mijn posts</b>, dan telt ook mee wat bij jouw publiek werkt.</p>`;
+    $("#pot-how").innerHTML = `<ul class="how">${Object.entries(POT_LABELS).filter(([k]) => P[k] != null)
+      .sort((a, b) => P[b[0]] - P[a[0]]).map(([k, label]) => `<li><span>${label}</span><b class="${P[k] < 0 ? "down" : ""}">${P[k] > 0 ? "+" : ""}${String(P[k]).replace(".", ",")}</b></li>`).join("")}</ul>
+      ${own}
+      <p class="hint">Je ♥, 👎 en bewaarde items tellen ook mee (tot ±2). Niet meegeteld: ${d.skipped.gepost} al gepost, ${d.skipped.status} gereviewd of afgewezen. ${fmt(d.total)} tips beoordeeld.</p>`;
+  }
+
   // --- mijn posts -----------------------------------------------------------------
 
   const MONTHS = ["jan", "feb", "mrt", "apr", "mei", "jun", "jul", "aug", "sep", "okt", "nov", "dec"];
@@ -906,7 +955,8 @@
   // --- navigatie -------------------------------------------------------------
 
   const LOADERS = { vandaag: loadVandaag, trends: loadTrends, posts: () => loadPosts(), amsterdam: loadAmsterdam,
-    supermarkt: loadSupermarkt, zaken: loadZaken, lijst: loadLijst, tips: loadTips, mijnposts: loadMijnPosts,
+    supermarkt: loadSupermarkt, zaken: loadZaken, lijst: loadLijst, tips: loadTips, potentie: loadPotentie,
+    mijnposts: loadMijnPosts,
     bronnen: loadSources, beheer: loadBeheer };
 
   function switchTab(tab) {
@@ -914,7 +964,7 @@
     remember();
     $$(".tabs button").forEach(b => b.setAttribute("aria-selected", b.dataset.tab === tab));
     $$(".panel").forEach(p => (p.hidden = p.dataset.panel !== tab));
-    $("#filters").hidden = ["bronnen", "beheer", "vandaag", "lijst", "tips", "mijnposts"].includes(tab);
+    $("#filters").hidden = ["bronnen", "beheer", "vandaag", "lijst", "tips", "potentie", "mijnposts"].includes(tab);
     refresh();
   }
 
@@ -1061,6 +1111,31 @@
       e.target.reset();
       toast("Tip toegevoegd");
       loadTips();
+    });
+    // viral-potentie
+    $("#pot-limit").addEventListener("click", e => {
+      const b = e.target.closest("[data-limit]");
+      if (!b) return;
+      state.potLimit = Number(b.dataset.limit);
+      $$("#pot-limit .chip").forEach(x => x.classList.toggle("on", x === b));
+      loadPotentie();
+    });
+    $("#pot-list").addEventListener("change", async e => {
+      const sel = e.target.closest("[data-pot-status]");
+      if (!sel) return;
+      await api(`/api/tips/${sel.dataset.potStatus}`, { method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: sel.value }) });
+      toast(`Status: ${sel.value}`);
+      if (["gereviewd", "afgevallen"].includes(sel.value)) loadPotentie();
+    });
+    $("#pot-list").addEventListener("click", async e => {
+      const add = e.target.closest("[data-pot-add]");
+      if (!add) return;
+      const t = state.pot.top[Number(add.dataset.potAdd)];
+      await api("/api/tips", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: t.name, place: t.place, specialty: t.specialty, list: "Uit routes" }) });
+      toast("Bewaard als tip");
+      loadPotentie();
     });
     // mijn posts
     $("#m-years").addEventListener("click", e => {

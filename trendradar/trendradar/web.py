@@ -9,8 +9,8 @@ from datetime import timedelta
 
 from flask import Flask, Response, jsonify, request, send_from_directory
 
-from . import (budget, collector, config, db, imports, lexicon, ownposts, products, signals,
-               snackspert, spots, taste, trends)
+from . import (budget, collector, config, db, imports, lexicon, ownposts, potential, products,
+               signals, snackspert, spots, taste, trends)
 from .sources import apify, meta_graph
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
@@ -773,3 +773,15 @@ def export_tips():
     for r in rows:
         r["lists"] = ", ".join(r["lists"])
     return _csv(rows, ["name", "place", "region", "specialty", "lists", "status", "note"], "tips.csv")
+
+
+# --- viral-potentie ----------------------------------------------------------
+
+@app.get("/api/potentie")
+def api_potentie():
+    a = _args()
+    limit = max(1, min(50, int(request.args.get("limit", 10))))
+    with db.session() as conn:
+        out = potential.ranking(conn, limit, a["include_demo"])
+    out["statuses"] = WATCH_STATUSES
+    return jsonify(out)

@@ -1,6 +1,7 @@
 """Tests: draai met  python -m pytest  in de map trendradar/."""
 from __future__ import annotations
 
+import json
 import os
 import tempfile
 from datetime import timedelta
@@ -944,3 +945,56 @@ def test_feedback_teaches_and_hides(conn):
     assert "Past bij jou: kroket" in cand["reasons"]
     client.post("/api/feedback", json={"post_id": "tiktok:a", "value": 0})
     assert client.get("/api/feedback").get_json() == {"tiktok:b": -1}
+
+
+# --- viral-potentie ---------------------------------------------------------------
+
+def test_viral_potential_signals():
+    from trendradar import potential
+
+    ctx = {"radar": {}, "snacks": {}, "locations": {}, "channels": {}, "recognition": {}, "user": {}}
+
+    def tip(name, specialty, **kw):
+        return {"id": 1, "name": name, "place": kw.get("place", "Zwolle"), "specialty": specialty, "lists": [],
+                "note": "", "status": "te proberen"}
+
+    koet = potential.score_tip(tip("Snackbar de Poppe", "broodje lammert (hamburger met kaassoufflé)"), ctx)
+    kinds = {r["kind"] for r in koet["reasons"]}
+    assert {"creatie", "combinatie", "herkenbaar"} <= kinds
+    assert "Eigen creatie: broodje lammert" in [r["text"] for r in koet["reasons"]]
+    plain = potential.score_tip(tip("Burgerbar", "lekker vlees, goed broodje, geen gekke dingen"), ctx)
+    assert plain["score"] < koet["score"] and plain["potential"] < 30
+    tank = potential.score_tip(tip("Cafetaria", "Friet Tank (friet in de vorm van een pantservoertuig)"), ctx)
+    assert "spektakel" in {r["kind"] for r in tank["reasons"]}
+    tipped = potential.score_tip(tip("Burgerbar", "smashburger; twee keer getipt"), ctx)
+    assert "getipt" in {r["kind"] for r in tipped["reasons"]}
+    # De naam van de zaak is geen snack: 'Cafetaria de Mariënburgher' levert geen 'creatie' op.
+    named = potential.score_tip(tip("Cafetaria de Mariënburgher", "snack de Bamia (zelf ontwikkeld)"), ctx)
+    assert "Eigen creatie: snack de bamia" in [r["text"] for r in named["reasons"]]
+    # Jouw publiek telt mee.
+    ctx2 = {**ctx, "snacks": {"friet": {"lift": 1.3, "posts": 30}}}
+    assert potential.score_tip(tip("X", "friet speciaal"), ctx2)["score"] > potential.score_tip(tip("X", "friet speciaal"), ctx)["score"]
+
+
+def test_viral_potential_ranking_skips_done_and_adds_route_stops(conn):
+    from trendradar import potential
+    from trendradar.web import app
+
+    now = db.iso(db.now())
+    for name, spec, status in (("Snackbar de Poppe", "broodje lammert (hamburger met kaassoufflé)", "te proberen"),
+                               ("Al Gedaan", "broodje viagraa met döner", "gereviewd"),
+                               ("Gewoon Burgers", "burgers", "te proberen")):
+        conn.execute("INSERT INTO spots(name, place, specialty, status, added_at, updated_at) VALUES (?,?,?,?,?,?)",
+                     (name, "Coevorden", spec, status, now, now))
+    conn.execute("INSERT INTO routes(name, stops, added_at) VALUES (?, ?, ?)",
+                 ("Drenthe", json.dumps(["Snackbar de Poppe (Coevorden) - broodje lammert",
+                                         "Snackbar de Luifel (Barger-Compascuum) - luifel snack"]), now))
+    conn.commit()
+    r = potential.ranking(conn, 10, include_demo=False)
+    names = [t["name"] for t in r["top"]]
+    assert names[0] == "Snackbar de Poppe" and "Al Gedaan" not in names
+    luifel = next(t for t in r["top"] if t["name"] == "Snackbar de Luifel")
+    assert luifel["id"] is None and luifel["lists"] == ["Uit routes"]
+    assert r["skipped"]["status"] == 1
+    assert r["routes"][0]["name"] == "Drenthe" and r["routes"][0]["maps"].startswith("https://www.google.com/maps/dir/")
+    assert app.test_client().get("/api/potentie?limit=5").status_code == 200

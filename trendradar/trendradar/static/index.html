@@ -36,6 +36,7 @@
   <button role="tab" data-tab="zaken">Zaken &amp; steden</button>
   <button role="tab" data-tab="lijst">Mijn lijst <span class="count" id="lijst-count"></span></button>
   <button role="tab" data-tab="tips">Tips &amp; routes</button>
+  <button role="tab" data-tab="potentie">Viral-potentie</button>
   <button role="tab" data-tab="mijnposts">Mijn posts</button>
   <button role="tab" data-tab="bronnen">Bronnen</button>
   <button role="tab" data-tab="beheer">Budget &amp; instellingen</button>
@@ -200,6 +201,34 @@
       </div>
       <div class="routes" id="t-routes"></div>
     </article>
+  </section>
+
+  <!-- VIRAL-POTENTIE -->
+  <section class="panel" data-panel="potentie" hidden>
+    <div class="grid-2">
+      <article class="card">
+        <div class="card-head">
+          <h2>🚀 Meeste kans om viraal te gaan <span class="muted">uit je tips en routes</span></h2>
+          <div class="chips" id="pot-limit">
+            <button class="chip on" data-limit="10">Top 10</button>
+            <button class="chip" data-limit="25">Top 25</button>
+          </div>
+        </div>
+        <p class="hint">Een inschatting per tip, met de redenen erbij. Ze volgt het patroon van eerdere snackhits (een kleine zaak met een eigen creatie of een onverwachte combinatie van bekende snacks) en wat er in je eigen posts werkt. Wat je al gepost, gereviewd of afgewezen hebt, telt niet mee.</p>
+        <ol class="pot-list" id="pot-list"></ol>
+      </article>
+      <div class="stack">
+        <article class="card">
+          <h2>🗺️ Routes met de meeste potentie</h2>
+          <p class="hint">Opgeteld over alle stops: zo combineer je meerdere kansrijke zaken in één dag.</p>
+          <ul class="list" id="pot-routes"></ul>
+        </article>
+        <article class="card">
+          <h2>Hoe de inschatting werkt</h2>
+          <div id="pot-how"></div>
+        </article>
+      </div>
+    </div>
   </section>
 
   <!-- MIJN POSTS -->

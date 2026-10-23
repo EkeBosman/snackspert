@@ -419,3 +419,57 @@ AMSTERDAM_AREAS = (
 AMSTERDAM_TAGS = ("amsterdam", "020", "mokum", "adam", "amsterdamfood", "amsterdameats",
                   "foodspotsamsterdam", "amsterdamfoodie", "amsterdamnoord", "amsterdamoost",
                   "amsterdamwest", "amsterdamzuid", "depijp", "jordaan")
+
+
+# --- Viral-potentie van tips (potential.py) ------------------------------------
+# Gebaseerd op hoe snackhits ontstaan (broodje Koet, broodje kaassoufflé,
+# suikerbroodburger) en op wat in je eigen posts werkt: herkenbare snacks
+# doen het bijna twee keer zo goed als niche.
+
+# Snacks die iedereen in Nederland kent.
+MAINSTREAM_SNACKS = ("frikandel", "kroket", "kaassoufflé", "kaassouffle", "souffle", "bitterbal", "friet", "patat",
+                     "kipcorn", "kapsalon", "döner", "doner", "gehaktbal", "eierbal", "viandel", "sitostick",
+                     "kibbeling", "bamischijf", "bamibal", "nasibal", "berenhap", "berenklauw", "mexicano",
+                     "loempia", "shoarma", "shawarma", "grillworst", "rookworst", "worstenbroodje", "spareribs",
+                     "broodje bal", "frikandelbroodje", "kroketburger", "kipburger", "hamburger")
+# Gerechten die (nog) weinig mensen kennen.
+NICHE_DISHES = ("arepa", "francescinha", "pulpo", "bakkeljauw", "lahmacun", "banh mi", "bao", "gyoza", "ramen",
+                "sushi", "taiwanese", "schiacciata", "baciata", "salsiccia", "napolitaans", "aziatisch",
+                "goat", "lakenvelder")
+# Een eigen naam achter 'broodje', of een samenstelling met deze eindes, is vaak
+# een eigen creatie van de zaak: precies het patroon van het broodje Koet.
+CREATION_SUFFIXES = ("bal", "burger", "salon", "kandel", "snack", "stick", "kroket", "rol", "staaf", "flapper",
+                     "beling", "steak", "hap", "hapje", "straatje")
+# Gewone woorden met zo'n einde: geen eigen creatie.
+COMMON_COMPOUNDS = {"hamburger", "cheeseburger", "kipburger", "smashburger", "chickenburger", "gehaktbal",
+                    "eierbal", "bamibal", "nasibal", "bitterbal", "knoflookbal", "kaasbal", "smulburger",
+                    "smashburgers", "burger", "burgers", "kipburgers", "hamburgers", "gigaburger", "chefburger",
+                    "kroketburger", "visburger", "veggieburger", "kroket", "snack", "snacks", "kapsalon",
+                    "frikandel", "sitostick", "kiostick", "topstick", "loempiarol", "smulrol", "tacorol",
+                    "saucijzenrol", "macaronihapje", "hamerburger", "frikandellen", "bami", "speklap",
+                    "wereldburgers", "kibbeling"}
+NOT_A_NAME = {"bal", "met", "mexicano", "frikandel", "kroket", "kaas", "warm", "gezond", "gezonde", "ei", "hete",
+              "grof", "porky", "de", "van", "met", "pastrami", "braaiworst", "spareribs", "bakkeljauw",
+              "kaasfondue", "frikandel", "kip", "shoarma", "döner", "doner", "bal", "gezond", "zalm", "tonijn"}
+HOMEMADE_WORDS = ("zelfgemaakt", "eigengemaakt", "eigen gemaakt", "huisgemaakt", "eigen pindasaus", "eigen saus",
+                  "eigen sauzen", "zelf ontwikkeld", "eigen creatie", "eigen recept", "huysfrikandel")
+SPECTACLE_WORDS = ("in de vorm van", "tank", "xxl", "giga", "monster", "mega", "over the top", "knettergek", "gekke",
+                   "zieke", "kanon", "goddelijk", "hemel", "hemels", "royaal", "giant", "dikke unit", "vieze")
+CLAIM_WORDS = ("beste", "prijswinnaar", "prijs gewonnen", "prijzenwinnend", "claimt", "michelin", "sterrenniveau",
+               "viral", "jaar oud", "geheim", "origineel", "uniek", "de enige")
+TIPPED_WORDS = ("twee keer getipt", "meerdere keren getipt", "opnieuw getipt", "vaker getipt", "geeft 'm een 10",
+                "geeft hem een 10", "veel getipt")
+SCARCITY_WORDS = ("alleen vrijdag", "alleen zaterdag", "alleen zondag", "alleen tijdens", "alleen in het weekend",
+                  "voordat ze", "tijdelijk", "zaterdagmarkt", "op de markt", "alleen dit")
+PRICE_WORDS = ("€", "goede prijs", "prijs-kwaliteit", "goedkoop", "voor maar")
+GENERIC_WORDS = ("niet de allerbeste", "geen gekke dingen", "dat proef je vanzelf", "geen uitleg nodig",
+                 "mogelijk dezelfde")
+# Soort zaak (aan de naam herkend) -> kanaal zoals in je postoverzicht.
+CHANNEL_HINTS = {
+    "Snackbar": ("snackbar", "cafetaria", "frituur", "friterie", "frietkot", "snackhuis", "snackpoint", "snacks",
+                 "friet", "patat"),
+    "Broodjeszaak": ("broodje", "lunchroom", "deli", "sandwich", "lunch"),
+    "Bakker": ("bakker", "bakkerij", "banket"),
+    "Streetfood": ("foodtruck", "kraam", "markt", "street"),
+    "Restaurant": ("restaurant", "bistro", "brasserie"),
+}

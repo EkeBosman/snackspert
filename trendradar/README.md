@@ -15,6 +15,7 @@ Zonder sleutels start hij in **demomodus**, met verzonnen voorbeelddata. Zo kun 
 | **Supermarkt** | Nieuwe producten bij tien supermarkten (AH, Jumbo, Lidl, Plus, Dirk en meer), met welke bronnen het bevestigen. **Vroege signalen**: producten waar makers al over posten maar die nog niet in de winkeldata staan. Plus de meest besproken producten en het nieuws. |
 | **Zaken & steden** | Eetzaken en foodtrucks die genoemd worden, met een **reviewkandidaat**-label als ze nog niet op snackspert.nl staan. Plus een kaart met steden. |
 | **Tips & routes** | Je tiplijst en routes uit Excel, met status, notities, Google Maps-routes en 🔥 als een tip nu besproken wordt. |
+| **Viral-potentie** | Een inschatting van de 10 (of 25) tips met de meeste kans om viraal te gaan, met de redenen erbij, plus de routes met de meeste potentie. |
 | **Mijn posts** | Analyse van je eigen Instagram-posts uit Excel: per maand, per format, wat werkt, en welke snacks het bij jouw publiek goed doen. |
 | **Mijn lijst** | Alles wat je met ☆ bewaart: posts, zaken, producten en onderwerpen. Geef elk item een status (*te proberen*, *gepland*, *bezocht*, *gereviewd*, *afgevallen*) en een notitie. Je kunt de lijst exporteren als CSV. |
 | **Bronnen** | De gevolgde hashtags, accounts en zoektermen. De tool **voegt zelf bronnen toe**: uit virale posts en uit onderwerpen die meerdere makers noemen. Bronnen die weinig opleveren pauzeert hij. Per bron zie je wat een nuttige post kost. |
@@ -66,9 +67,9 @@ Open het bestand `trendradar/.env` in een teksteditor. Op de Chromebook kan dat 
 
 Wil je een andere of goedkopere actor gebruiken? Dat pas je aan in `trendradar/sources/apify.py`, bovenaan in `ACTORS`.
 
-### 2. Meta Graph API: gratis Instagram (aanrader, bespaart kosten)
+### 2. Meta Graph API: gratis Instagram (optioneel)
 
-Met je Meta Business-account kan de tool Instagram-hashtags en openbare zakelijke en creator-accounts **gratis** ophalen. Wat via Meta lukt, hoeft niet meer via Apify.
+Niet nodig als Instagram via Apify loopt; in de tool staat hij dan als "niet gekoppeld, optioneel". Met je Meta Business-account kan de tool Instagram-hashtags en openbare zakelijke en creator-accounts **gratis** ophalen. Wat via Meta lukt, hoeft niet meer via Apify.
 
 1. Koppel je Instagram-account als **zakelijk of creator-account** aan een Facebook-pagina.
 2. Maak een app op [developers.facebook.com](https://developers.facebook.com): **Mijn apps → App maken → type Business**. Voeg het product **Instagram** toe (*API setup with Facebook login*).
@@ -204,6 +205,44 @@ Van wat je bewaart, ♥ of 👎 geeft, kijkt de tool wat ze gemeen hebben: een w
 
 Op Vandaag zie je bij **⭐ Wat de tool van jou leert** wat de tool heeft opgepikt en op basis waarvan.
 
+## Viral-potentie
+
+Het tabblad **Viral-potentie** maakt een inschatting van welke tips uit Tips & routes de meeste kans hebben om viraal te gaan. Elke tip krijgt punten (0 tot 100), met de redenen erbij. De punten volgen het patroon van eerdere snackhits zoals het broodje Koet, het broodje kaassoufflé en de suikerbroodburger: een kleine zaak met iets eigens.
+
+| Signaal | Punten | Voorbeeld uit je tips |
+|---|---|---|
+| Eigen creatie | +3 | broodje lammert, Steenwijkerbal, Huysfrikandel |
+| Combinatie van bekende snacks | +3 | kapsalon met kaassoufflé, croissant döner |
+| Opvallend om te zien | +2,5 | Friet Tank (friet in de vorm van een pantservoertuig) |
+| Twist op een bekende snack | +2 | loaded fries, gevulde grillworst |
+| Vaker getipt door volgers | +2 | "twee keer getipt" |
+| Nu al posts over (🔥) | +1,5 | de zaak wordt genoemd in de radar |
+| Een daarvan gaat hard | +1,5 | zo'n post haalt 3× zoveel views als normaal |
+| Huisgemaakt | +1 | "zelfgemaakte bitterballen" |
+| Verhaal of claim | +1 | "prijswinnaar beste hamburger", "60 jaar oud" |
+| Schaars | +1 | "alleen vrijdag", "op de zaterdagmarkt" |
+| Herkenbare snack | +1 | frikandel, kroket, kaassoufflé |
+| Prijs als haakje | +0,5 | "broodje bal met mayo (€1,50)" |
+| Niche gerecht | -0,75 | arepa, francescinha |
+| Weinig bijzonders genoemd | -1 | "geen gekke dingen" |
+
+Daarbovenop komt wat bij jouw publiek werkt, uit **Mijn posts** (tot ±1,5 punt):
+- welke snacks het goed doen;
+- of zaken buiten Amsterdam het beter doen;
+- welk soort zaak goed scoort (snackbar, broodjeszaak).
+
+Je ♥, 👎 en bewaarde items tellen ook mee (tot ±2).
+
+Wat niet meetelt:
+- zaken die je **al gepost** hebt;
+- zaken die op *gereviewd* of *afgevallen* staan.
+
+Zet je een tip op een van die statussen, dan schuift de volgende vanzelf de lijst in. Stops uit je routes die nog niet als tip in je lijst staan, doen ook mee; met één klik bewaar je ze als tip.
+
+Rechts zie je de **routes met de meeste potentie**: de som van alle stops, met een knop naar Google Maps.
+
+Het blijft een inschatting op basis van de beschrijving in je tips. Hoe meer je bij een tip opschrijft (wat er bijzonder aan is, of hij vaker getipt is), hoe beter de inschatting.
+
 ## Mijn posts
 
 Klik op **Excel importeren** en kies je totaaloverzicht. De tool leest het tabblad met *Weergaven* en *Caption*. Afgeleide tabbladen als *Samenwerkingen* en *Per maand* herkent hij: posts die daar nog eens in staan, worden niet dubbel geteld. Opnieuw importeren vervangt je posts, dus je kunt elke maand het nieuwe overzicht inladen.
@@ -297,6 +336,7 @@ trendradar/
 │   ├── taste.py           # smaakprofiel: leren van je lijst, ♥/👎 en tips
 │   ├── ownposts.py        # analyse van je eigen posts
 │   ├── spots.py           # tips en routes, gekoppeld aan de radar
+│   ├── potential.py       # viral-potentie van je tips
 │   ├── imports.py         # Excel-bestanden inlezen
 │   ├── demo.py            # verzonnen voorbeelddata
 │   ├── web.py             # API voor de interface
