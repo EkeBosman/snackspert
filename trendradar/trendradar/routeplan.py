@@ -19,7 +19,7 @@ import json
 import re
 from statistics import median
 
-from . import db, geo, imports, potential, spots, taste
+from . import db, geo, imports, potential, spots
 
 CLUSTER_KM = 35          # stops liggen hooguit zo ver van de eerste stop
 DEFAULT_MAX_KM = 450
@@ -27,7 +27,8 @@ MAX_PROPOSALS = 6
 
 
 def _stop_key(name: str, place: str) -> str:
-    return f"{taste.zaak_key(name)}@{geo.clean_place(place).lower()}"
+    zaak, place_key = imports.spot_key(name, place)
+    return f"{zaak}@{place_key}"
 
 
 def route_key(stops: list[dict]) -> str:
@@ -68,10 +69,15 @@ def proposals(conn, include_demo: bool = True, limit: int = MAX_PROPOSALS) -> di
     if not home:
         return {**info, "routes": [], "melding": f"De tool weet nog niet waar {home_name} ligt."}
     ranked = potential.ranking(conn, limit=10000, include_demo=include_demo)["top"]
-    cands = []
+    cands, seen = [], set()
     for t in ranked:
+        key = _stop_key(t["name"], t["place"])
+        # Bezochte tips hoeven niet nog eens in een route; elke zaak maar één keer.
+        if t["status"] == "bezocht" or key in seen:
+            continue
         xy = geo.coords(conn, t["place"])
         if xy and t["score"] > 0:
+            seen.add(key)
             cands.append({**t, "xy": xy})
     rejected = {r["stops_key"] for r in conn.execute("SELECT stops_key FROM route_feedback WHERE value < 0")}
     existing = set()
@@ -120,9 +126,14 @@ def proposals(conn, include_demo: bool = True, limit: int = MAX_PROPOSALS) -> di
     return {**info, "routes": chosen, "candidates": len(cands)}
 
 
-def save(conn, proposal: dict) -> int:
-    stops = [f"{s['name']} ({s['place']})" + (f" - {s['specialty']}" if s.get("specialty") else "")
+def save(conn, proposal: dict) -> int | None:
+    """Bewaar een voorgestelde route. Bestaat dezelfde route al (dubbelklik), dan niet nog eens."""
+    stops = [f"{s['name']} ({geo.clean_place(s['place'])})" + (f" - {s['specialty']}" if s.get("specialty") else "")
              for s in proposal["stops"]]
+    key = route_key([imports.parse_stop(x) for x in stops])
+    for r in conn.execute("SELECT id, stops FROM routes"):
+        if route_key([imports.parse_stop(x) for x in db.row_to_dict(r)["stops"]]) == key:
+            return r["id"]
     cur = conn.execute("INSERT INTO routes(name, region, stops, km, duration, note, origin, added_at) "
                        "VALUES (?, ?, ?, ?, ?, ?, 'bedacht', ?)",
                        (proposal["name"], proposal.get("region", ""), json.dumps(stops, ensure_ascii=False),

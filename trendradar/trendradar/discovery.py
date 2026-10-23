@@ -22,9 +22,20 @@ MIN_REL = 0.5
 MIN_NL = 0.5
 
 
-def _known(conn) -> set[tuple[str, str, str]]:
-    return {(r["platform"], r["kind"], r["value"]) for r in conn.execute(
-        "SELECT platform, kind, value FROM sources")}
+def _known(conn, include_candidates: bool = True) -> set[tuple[str, str, str]]:
+    """Bekende bronnen. Accounts zonder hoofdlettergevoeligheid: 'AlbertHeijn' = 'albertheijn'.
+
+    Zonder include_candidates tellen geparkeerde kandidaten niet als bekend, zodat
+    een kandidaat die later viraal gaat alsnog geactiveerd kan worden.
+    """
+    out = set()
+    for r in conn.execute("SELECT platform, kind, value, status FROM sources"):
+        if not include_candidates and r["status"] == "kandidaat":
+            continue
+        out.add((r["platform"], r["kind"], r["value"]))
+        if r["kind"] == "account":
+            out.add((r["platform"], r["kind"], r["value"].lower()))
+    return out
 
 
 _PLACES = ({norm(c).replace(" ", "") for c in lexicon.CITIES}
@@ -74,13 +85,13 @@ def prune_bad_hashtags(conn) -> list[str]:
     return removed
 
 
-def candidates(conn, days: int = 7) -> list[dict]:
+def candidates(conn, days: int = 7, include_candidates: bool = True) -> list[dict]:
     since = db.iso(db.now() - timedelta(days=days))
     rows = conn.execute(
         "SELECT platform, author, hashtags, mentions, relevance FROM posts "
         "WHERE posted_at >= ? AND relevance >= ? AND nl_score >= ? AND platform != 'nieuws'",
         (since, MIN_REL, MIN_NL)).fetchall()
-    known = _known(conn)
+    known = _known(conn, include_candidates)
 
     tags = defaultdict(lambda: {"authors": set(), "posts": 0, "rel": 0.0})
     authors = defaultdict(lambda: {"posts": 0, "rel": 0.0})
@@ -114,14 +125,14 @@ def candidates(conn, days: int = 7) -> list[dict]:
                         "score": round(min(15, n_auth * avg), 2),
                         "reason": f"in {d['posts']} relevante posts van {n_auth} makers"})
     for (p, a), d in authors.items():
-        if (p, "account", a) in known or d["posts"] < 2:
+        if (p, "account", a.lower()) in known or d["posts"] < 2:
             continue
         avg = d["rel"] / d["posts"]
         out.append({"platform": p, "kind": "account", "value": a,
                     "score": round(min(15, d["posts"] * avg * 1.2), 2),
                     "reason": f"plaatste {d['posts']} relevante posts"})
     for (p, m), d in mentions.items():
-        if (p, "account", m) in known or p == "facebook":
+        if (p, "account", m.lower()) in known or p == "facebook":
             continue
         n_auth = len(d["authors"])
         if n_auth >= 2 and d["posts"] >= 3:
@@ -168,7 +179,7 @@ def breakout_candidates(conn, known: set, days: int = 3) -> list[dict]:
             if (p["platform"], "hashtag", t) not in known:
                 out.append({"platform": p["platform"], "kind": "hashtag", "value": t, "score": score,
                             "reason": f"uit virale post van {who} ({why})"})
-        if p["author"] and sig["small_creator"] and (p["platform"], "account", p["author"]) not in known:
+        if p["author"] and sig["small_creator"] and (p["platform"], "account", p["author"].lower()) not in known:
             out.append({"platform": p["platform"], "kind": "account", "value": p["author"],
                         "score": score - 5, "reason": f"kleine maker ging viraal ({why})"})
     return out
@@ -267,23 +278,39 @@ def run(conn, settings: dict, demo: bool = False) -> list[dict]:
     """Voegt ontdekte bronnen toe. Geeft de toegevoegde terug."""
     prune_bad_hashtags(conn)
     prune_list_sources(conn)
-    found = candidates(conn)
+    found = candidates(conn, include_candidates=False)
     auto = settings.get("auto_toevoegen", True)
     cap = settings.get("max_nieuwe_bronnen_per_run", 6)
     max_active = settings.get("max_actieve_bronnen_per_platform", 60)
+    # De startlijst telt niet mee voor het maximum: anders blijft er op TikTok bijna geen
+    # plek over voor wat de tool zelf ontdekt.
     active = {r["platform"]: r["n"] for r in conn.execute(
-        "SELECT platform, COUNT(*) AS n FROM sources WHERE status = 'actief' GROUP BY platform")}
+        "SELECT platform, COUNT(*) AS n FROM sources WHERE status = 'actief' AND origin != 'start' "
+        "GROUP BY platform")}
+    parked = {(r["platform"], r["kind"], r["value"]): r["id"] for r in conn.execute(
+        "SELECT id, platform, kind, value FROM sources WHERE status = 'kandidaat'")}
     added = []
     now = db.iso(db.now())
     for c in found:
         activate = auto and len([a for a in added if a["status"] == "actief"]) < cap \
             and active.get(c["platform"], 0) < max_active
         status = "actief" if activate else "kandidaat"
-        conn.execute(
-            "INSERT OR IGNORE INTO sources(platform, kind, value, status, origin, reason, "
-            "priority, added_at, demo) VALUES (?, ?, ?, ?, 'ontdekt', ?, ?, ?, ?)",
-            (c["platform"], c["kind"], c["value"], status, c["reason"],
-             1.0 + min(c["score"], 10) / 10, now, int(demo)))
+        key = (c["platform"], c["kind"], c["value"])
+        if key in parked:
+            # Een geparkeerde kandidaat die nu sterk terugkomt (viraal, uit je lijst): alsnog aanzetten.
+            if not (activate and c["score"] >= 20):
+                continue
+            conn.execute("UPDATE sources SET status = 'actief', reason = ?, priority = ?, yield_score = NULL, "
+                         "fetch_count = 0, empty_streak = 0 WHERE id = ?",
+                         (c["reason"], 1.0 + min(c["score"], 10) / 10, parked[key]))
+        else:
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO sources(platform, kind, value, status, origin, reason, "
+                "priority, added_at, demo) VALUES (?, ?, ?, ?, 'ontdekt', ?, ?, ?, ?)",
+                (c["platform"], c["kind"], c["value"], status, c["reason"],
+                 1.0 + min(c["score"], 10) / 10, now, int(demo)))
+            if not cur.rowcount:
+                continue
         if activate:
             active[c["platform"]] = active.get(c["platform"], 0) + 1
         added.append(dict(c, status=status))
@@ -294,7 +321,7 @@ def run(conn, settings: dict, demo: bool = False) -> list[dict]:
 
 def update_source_stats(conn, source_id: int, results: int, relevant: int,
                         new: int | None = None, new_relevant: int | None = None,
-                        cost_usd: float = 0.0, interval_h: float = 6) -> None:
+                        cost_usd: float = 0.0, interval_h: float = 6, filtered: bool = False) -> None:
     """Werk de cijfers van een bron bij na een ophaalronde.
 
     Opbrengst = aandeel *nieuwe* relevante posts per betaald resultaat: een bron
@@ -311,8 +338,12 @@ def update_source_stats(conn, source_id: int, results: int, relevant: int,
     streak = 0 if results else (s["empty_streak"] or 0) + 1
     status, reason = s["status"], s["reason"]
     if s["origin"] != "handmatig":
-        if s["kind"] == "account" and streak >= 2:
+        # Met het datumfilter ('alleen nieuwe posts') betekent niets terug meestal gewoon: niets
+        # nieuws gepost. Een zaak die eens per week post is dan niet ongeldig.
+        if s["kind"] == "account" and streak >= 2 and not filtered:
             status, reason = "ongeldig", "twee rondes zonder resultaat (bestaat niet of is privé?)"
+        elif filtered and streak >= 4 and not (s["useful_total"] or 0) and s["origin"] == "ontdekt":
+            status, reason = "gepauzeerd", "al 4 rondes niets nieuws en nog nooit iets relevants"
         elif (s["fetch_count"] or 0) + 1 >= 3 and yield_ < 0.15 and results:
             status, reason = "gepauzeerd", f"levert weinig nieuws en relevants op ({yield_:.0%})"
     new_ratio = (new / results) if (new is not None and results) else (1.0 if results else 0.0)

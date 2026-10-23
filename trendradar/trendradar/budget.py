@@ -33,11 +33,14 @@ def spent_usd(conn, kind: str, now: datetime | None = None) -> float:
     return float(row["s"])
 
 
-def record(conn, kind: str, usd: float, platform: str | None = None, detail: str = "") -> None:
-    if usd <= 0:
-        return
-    conn.execute("INSERT INTO spend(at, kind, platform, usd, detail) VALUES (?, ?, ?, ?, ?)",
-                 (db.iso(db.now()), kind, platform, usd, detail))
+def record(conn, kind: str, usd: float, platform: str | None = None, detail: str = "",
+           correction: bool = False) -> int | None:
+    """Leg kosten vast. Een correctie mag negatief zijn (eerder te hoog ingeschat)."""
+    if usd == 0 or (usd < 0 and not correction):
+        return None
+    cur = conn.execute("INSERT INTO spend(at, kind, platform, usd, detail) VALUES (?, ?, ?, ?, ?)",
+                       (db.iso(db.now()), kind, platform, usd, detail))
+    return cur.lastrowid
 
 
 def runs_left(settings: dict, now: datetime) -> int:
@@ -52,7 +55,11 @@ def plan(conn, settings: dict, now: datetime | None = None) -> dict:
     spent = spent_usd(conn, "apify", now)
     left = max(0.0, budget_usd - spent)
     n_runs = runs_left(settings, now)
-    per_run = left / n_runs
+    # Hooguit twee keer een normale ronde: stond de laptop vaak uit, dan stapelt het restbudget
+    # zich anders op in de laatste rondes van de maand (tot tientallen dollars in één ronde).
+    days = calendar.monthrange(now.year, now.month)[1]
+    normal = budget_usd / max(1.0, days * 24 / max(1, settings["interval_uren"]))
+    per_run = min(left / n_runs, 2 * normal)
     weights = settings["verdeling"]
     total_w = sum(weights.get(p, 0) for p in PLATFORMS) or 1
     per_platform = {}
@@ -109,6 +116,8 @@ def allocate(sources: list[dict], results: int, min_per: int, max_per: int,
     Bronnen die veel relevants opleveren en lang niet zijn opgehaald gaan voor.
     Past niet alles in één ronde, dan komen de overige de volgende keer aan bod.
     """
+    min_per = max(1, int(min_per or 1))
+    max_per = max(min_per, int(max_per or min_per))
     if results < min_per or not sources:
         return []
     now = now or db.now()

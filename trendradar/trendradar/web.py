@@ -6,8 +6,10 @@ import io
 import json
 import threading
 from datetime import timedelta
+from urllib.parse import urlsplit
 
 from flask import Flask, Response, jsonify, request, send_from_directory
+from werkzeug.exceptions import HTTPException
 
 from . import (budget, collector, config, db, geo, imports, lexicon, ownposts, potential, products,
                routeplan, signals, snackspert, spots, taste, trends)
@@ -18,14 +20,99 @@ app.config["MAX_CONTENT_LENGTH"] = 25 * 1024 * 1024  # Excel-bestanden tot 25 MB
 
 TOPIC_COLUMNS = {"hashtag": "hashtags", "categorie": "categories", "merk": "brands",
                  "zaak": "places", "zin": "phrases", "woord": "phrases"}
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
+
+
+class BadInput(ValueError):
+    """Een ongeldige waarde in een verzoek: een nette melding (400) in plaats van een serverfout."""
+
+
+@app.before_request
+def _only_this_tool():
+    """Alleen de tool zelf mag iets veranderen.
+
+    Een website die je bezoekt kan je browser stiekem een verzoek naar localhost laten
+    sturen, bijvoorbeeld 'start een betaalde ronde' of 'zet het budget op 1000'. Zulke
+    verzoeken van een andere website, of via een vreemde domeinnaam, weigert de tool.
+    """
+    if urlsplit("//" + request.host).hostname not in LOCAL_HOSTS:
+        port = request.environ.get("SERVER_PORT", "8050")
+        return jsonify({"fout": f"onbekend adres; open de tool via http://localhost:{port}"}), 403
+    if request.method in ("GET", "HEAD", "OPTIONS"):
+        return None
+    origin = request.headers.get("Origin")
+    if origin is not None:
+        foreign = urlsplit(origin).netloc != request.host
+    else:
+        foreign = request.headers.get("Sec-Fetch-Site") not in (None, "same-origin", "none")
+    if foreign:
+        return jsonify({"fout": "verzoek van een andere website geweigerd"}), 403
+    return None
+
+
+@app.errorhandler(BadInput)
+def _bad_input(exc):
+    return jsonify({"fout": str(exc)}), 400
+
+
+_HTTP_FOUT = {400: "ongeldig verzoek", 403: "niet toegestaan", 404: "niet gevonden",
+              405: "niet toegestaan", 413: "bestand te groot (maximaal 25 MB)"}
+
+
+@app.errorhandler(HTTPException)
+def _http_error(exc):
+    if not request.path.startswith("/api/"):
+        return exc
+    return jsonify({"fout": _HTTP_FOUT.get(exc.code, exc.name)}), exc.code
+
+
+@app.errorhandler(Exception)
+def _server_error(exc):
+    if isinstance(exc, HTTPException):
+        return _http_error(exc)
+    app.logger.exception("Fout bij %s %s", request.method, request.path)
+    return jsonify({"fout": "er ging iets mis in de tool (details staan in het terminalvenster)"}), 500
+
+
+def _num(name: str, default, cast=float, lo=None, hi=None):
+    """Getal uit de adresregel, binnen grenzen. Onzin geeft een 400, geen serverfout."""
+    raw = request.args.get(name)
+    if raw in (None, ""):
+        return default
+    try:
+        value = cast(raw)
+    except (TypeError, ValueError):
+        raise BadInput(f"ongeldige waarde voor {name}") from None
+    if lo is not None:
+        value = max(lo, value)
+    return min(hi, value) if hi is not None else value
+
+
+def _window(default: str) -> str:
+    window = request.args.get("window", default)
+    if window not in trends.WINDOWS:
+        raise BadInput("onbekende periode")
+    return window
+
+
+def _body() -> dict:
+    data = request.get_json(force=True, silent=True)
+    if not isinstance(data, dict):
+        raise BadInput("verwacht een JSON-object")
+    return data
+
+
+def _text(d: dict, key: str, limit: int) -> str:
+    value = d.get(key)
+    return "" if value is None else str(value).strip()[:limit]
 
 
 def _args():
     a = request.args
     return {
         "platform": a.get("platform") or None,
-        "min_rel": float(a.get("min_rel", 0.35)),
-        "min_nl": float(a.get("min_nl", 0.4)),
+        "min_rel": _num("min_rel", 0.35),
+        "min_nl": _num("min_nl", 0.4),
         "include_demo": a.get("demo", "1") != "0",
         "city": a.get("city") or None,
     }
@@ -73,9 +160,7 @@ def status():
 @app.get("/api/trends")
 def api_trends():
     a = _args()
-    window = request.args.get("window", "24u")
-    if window not in trends.WINDOWS:
-        return jsonify({"fout": "onbekende periode"}), 400
+    window = _window("24u")
     with db.session() as conn:
         result = trends.compute(conn, window, a["platform"], 60, a["min_rel"], a["min_nl"],
                                 a["include_demo"], a["city"])
@@ -128,20 +213,25 @@ def _topic_where(kind: str, name: str) -> tuple[str, list]:
 def api_posts():
     a = _args()
     q = request.args
-    where = ["relevance >= ?", "nl_score >= ?"]
-    args: list = [a["min_rel"], a["min_nl"]]
-    if a["platform"]:
-        where.append("platform = ?")
-        args.append(a["platform"])
+    ids = [x.strip() for x in (q.get("ids") or "").split(",") if x.strip()][:200]
+    if ids:
+        # Precies deze posts (bijvoorbeeld waarmee een tip in de radar kwam), zonder periode of strengheid.
+        where, args = [f"id IN ({','.join('?' * len(ids))})"], list(ids)
+    else:
+        where = ["relevance >= ?", "nl_score >= ?"]
+        args = [a["min_rel"], a["min_nl"]]
+        if a["platform"]:
+            where.append("platform = ?")
+            args.append(a["platform"])
+        if a["city"]:
+            where.append("city = ?")
+            args.append(a["city"])
+        window = q.get("window")
+        if window in trends.WINDOWS:
+            where.append("posted_at >= ?")
+            args.append(db.iso(db.now() - timedelta(hours=trends.WINDOWS[window]["hours"])))
     if not a["include_demo"]:
         where.append("demo = 0")
-    if a["city"]:
-        where.append("city = ?")
-        args.append(a["city"])
-    window = q.get("window")
-    if window in trends.WINDOWS:
-        where.append("posted_at >= ?")
-        args.append(db.iso(db.now() - timedelta(hours=trends.WINDOWS[window]["hours"])))
     if q.get("category"):
         where.append("categories LIKE ?")
         args.append("%" + json.dumps(q["category"], ensure_ascii=False) + "%")
@@ -161,8 +251,8 @@ def api_posts():
         "relevantie": "relevance DESC, posted_at DESC",
         "snelheid": "views / MAX(1.0, (julianday(fetched_at) - julianday(posted_at)) * 24) DESC",
     }.get(q.get("sort", "nieuw"), "posted_at DESC")
-    limit = min(200, int(q.get("limit", 60)))
-    offset = int(q.get("offset", 0))
+    limit = _num("limit", 60, int, 1, 200)
+    offset = _num("offset", 0, int, 0)
     with db.session() as conn:
         total = conn.execute(f"SELECT COUNT(*) AS n FROM posts WHERE {' AND '.join(where)}",
                              args).fetchone()["n"]
@@ -229,7 +319,7 @@ def api_topic():
 @app.get("/api/supermarkt")
 def api_supermarkt():
     a = _args()
-    days = int(request.args.get("days", 30))
+    days = _num("days", 30, int, 1, 365)
     with db.session() as conn:
         result = products.overview(conn, a["include_demo"], days,
                                    only_relevant=request.args.get("alles") != "1")
@@ -244,7 +334,7 @@ def api_supermarkt():
 @app.get("/api/zaken")
 def api_zaken():
     a = _args()
-    window = request.args.get("window", "7d")
+    window = _window("7d")
     with db.session() as conn:
         result = trends.compute(conn, window, a["platform"], 1000, a["min_rel"], a["min_nl"],
                                 a["include_demo"], a["city"])
@@ -332,10 +422,10 @@ def api_sources():
 
 @app.post("/api/sources")
 def add_source():
-    data = request.get_json(force=True)
+    data = _body()
     platform = data.get("platform")
     kind = data.get("kind")
-    value = (data.get("value") or "").strip().lstrip("#@").strip()
+    value = _text(data, "value", 200).lstrip("#@").strip()
     if platform not in ("instagram", "tiktok", "facebook") or kind not in ("hashtag", "account", "zoekterm") \
             or not value:
         return jsonify({"fout": "kies platform, soort en een waarde"}), 400
@@ -352,16 +442,21 @@ def add_source():
 
 @app.patch("/api/sources/<int:sid>")
 def update_source(sid: int):
-    data = request.get_json(force=True)
+    data = _body()
     sets, args = [], []
     if data.get("status") in ("actief", "gepauzeerd", "afgewezen", "kandidaat"):
         sets.append("status = ?")
         args.append(data["status"])
         if data["status"] == "actief":
-            sets.append("empty_streak = 0")
+            # Opnieuw beginnen: met de oude, lage opbrengst zou hij na één ronde weer op pauze gaan.
+            sets.append("empty_streak = 0, yield_score = NULL, fetch_count = 0, next_due = NULL")
     if "priority" in data:
+        try:
+            priority = float(data["priority"])
+        except (TypeError, ValueError):
+            raise BadInput("ongeldige prioriteit") from None
         sets.append("priority = ?")
-        args.append(max(0.1, min(3.0, float(data["priority"]))))
+        args.append(max(0.1, min(3.0, priority)))
     if not sets:
         return jsonify({"fout": "niets te wijzigen"}), 400
     with db.session() as conn:
@@ -386,7 +481,7 @@ def get_settings():
 
 @app.post("/api/settings")
 def save_settings():
-    data = request.get_json(force=True)
+    data = _body()
     clean = {}
     for key, default in config.DEFAULTS.items():
         if key not in data:
@@ -401,16 +496,25 @@ def save_settings():
                     raise ValueError
             elif isinstance(default, dict):
                 value = {k: float(v) for k, v in value.items()}
+                if any(x < 0 for x in value.values()):
+                    raise ValueError
             elif isinstance(default, list):
                 value = [str(v).strip() for v in value if str(v).strip()]
             else:
                 value = str(value)
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, AttributeError):
             return jsonify({"fout": f"ongeldige waarde voor {key}"}), 400
         clean[key] = value
     if "interval_uren" in clean and clean["interval_uren"] < 1:
         return jsonify({"fout": "interval minimaal 1 uur"}), 400
+    if "min_per_bron" in clean and clean["min_per_bron"] < 1:
+        return jsonify({"fout": "minimaal 1 post per bron"}), 400
+    if "max_per_bron" in clean and clean["max_per_bron"] < clean.get("min_per_bron", 1):
+        return jsonify({"fout": "het maximum per bron moet minstens het minimum zijn"}), 400
     with db.session() as conn:
+        current = db.get_settings(conn)
+        # Een deel van de verdeling opslaan laat de andere platforms staan.
+        clean = {k: {**current[k], **v} if isinstance(v, dict) else v for k, v in clean.items()}
         db.set_settings(conn, clean)
         return jsonify(db.get_settings(conn))
 
@@ -449,14 +553,25 @@ def clear_demo():
 
 # --- export ----------------------------------------------------------------
 
+_FORMULA_START = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _cell(value):
+    if isinstance(value, list):
+        value = ", ".join(map(str, value))
+    # Een post die met '=' of '@' begint, zou Excel als formule uitvoeren.
+    if isinstance(value, str) and value.startswith(_FORMULA_START):
+        return "'" + value
+    return value
+
+
 def _csv(rows: list[dict], columns: list[str], filename: str) -> Response:
     buf = io.StringIO()
     buf.write("﻿")  # zodat Excel/Sheets de accenten goed leest
     writer = csv.DictWriter(buf, fieldnames=columns, delimiter=";", extrasaction="ignore")
     writer.writeheader()
     for r in rows:
-        writer.writerow({k: (", ".join(map(str, r[k])) if isinstance(r.get(k), list) else r.get(k))
-                         for k in columns})
+        writer.writerow({k: _cell(r.get(k)) for k in columns})
     return Response(buf.getvalue(), mimetype="text/csv",
                     headers={"Content-Disposition": f"attachment; filename={filename}"})
 
@@ -464,7 +579,7 @@ def _csv(rows: list[dict], columns: list[str], filename: str) -> Response:
 @app.get("/api/export/trends.csv")
 def export_trends():
     a = _args()
-    window = request.args.get("window", "24u")
+    window = _window("24u")
     with db.session() as conn:
         result = trends.compute(conn, window, a["platform"], 500, a["min_rel"], a["min_nl"],
                                 a["include_demo"])
@@ -592,8 +707,8 @@ def api_lijst():
 
 @app.post("/api/lijst")
 def add_lijst():
-    d = request.get_json(force=True)
-    kind, ref, title = d.get("kind"), (d.get("ref") or "").strip(), (d.get("title") or "").strip()
+    d = _body()
+    kind, ref, title = d.get("kind"), _text(d, "ref", 300), _text(d, "title", 300)
     if kind not in ("post", "zaak", "product", "onderwerp") or not ref or not title:
         return jsonify({"fout": "soort, verwijzing en titel zijn nodig"}), 400
     now = db.iso(db.now())
@@ -601,13 +716,14 @@ def add_lijst():
         conn.execute(
             "INSERT INTO watchlist(kind, ref, title, url, city, note, added_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(kind, ref) DO UPDATE SET updated_at = excluded.updated_at",
-            (kind, ref, title[:300], d.get("url"), d.get("city"), (d.get("note") or "")[:2000], now, now))
+            (kind, ref, title, _text(d, "url", 1000) or None, _text(d, "city", 100) or None,
+             _text(d, "note", 2000), now, now))
     return jsonify({"ok": True})
 
 
 @app.patch("/api/lijst/<int:wid>")
 def update_lijst(wid: int):
-    d = request.get_json(force=True)
+    d = _body()
     sets, args = [], []
     if d.get("status") in WATCH_STATUSES:
         sets.append("status = ?")
@@ -649,8 +765,8 @@ def api_feedback():
 
 @app.post("/api/feedback")
 def set_feedback():
-    d = request.get_json(force=True)
-    post_id, value = (d.get("post_id") or "").strip(), d.get("value")
+    d = _body()
+    post_id, value = _text(d, "post_id", 200), d.get("value")
     if not post_id or value not in (-1, 0, 1):
         return jsonify({"fout": "post en waarde (1, -1 of 0) zijn nodig"}), 400
     with db.session() as conn:
@@ -708,25 +824,25 @@ def api_tips():
 
 @app.post("/api/tips")
 def add_tip():
-    d = request.get_json(force=True)
-    name = (d.get("name") or "").strip()
+    d = _body()
+    name = _text(d, "name", 200)
     if not name:
         return jsonify({"fout": "een naam is nodig"}), 400
     now = db.iso(db.now())
-    lst = (d.get("list") or "Eigen tips").strip()
+    lst = _text(d, "list", 60) or "Eigen tips"
     with db.session() as conn:
         conn.execute(
             "INSERT INTO spots(name, place, specialty, region, lists, note, origin, added_at, updated_at) "
             "VALUES (?, ?, ?, ?, ?, ?, 'handmatig', ?, ?) ON CONFLICT(name, place) DO UPDATE SET "
             "specialty = excluded.specialty, updated_at = excluded.updated_at",
-            (name[:200], (d.get("place") or "").strip()[:100], (d.get("specialty") or "").strip()[:500],
-             (d.get("region") or "").strip()[:60], json.dumps([lst[:60]]), (d.get("note") or "")[:2000], now, now))
+            (name, _text(d, "place", 100), _text(d, "specialty", 500), _text(d, "region", 60),
+             json.dumps([lst]), _text(d, "note", 2000), now, now))
     return jsonify({"ok": True})
 
 
 @app.patch("/api/tips/<int:sid>")
 def update_tip(sid: int):
-    d = request.get_json(force=True)
+    d = _body()
     sets, args = [], []
     if d.get("status") in WATCH_STATUSES:
         sets.append("status = ?")
@@ -758,7 +874,7 @@ def api_routes():
 
 @app.patch("/api/routes/<int:rid>")
 def update_route(rid: int):
-    d = request.get_json(force=True)
+    d = _body()
     if d.get("status") not in WATCH_STATUSES:
         return jsonify({"fout": "onbekende status"}), 400
     with db.session() as conn:
@@ -780,7 +896,7 @@ def export_tips():
 @app.get("/api/potentie")
 def api_potentie():
     a = _args()
-    limit = max(1, min(50, int(request.args.get("limit", 10))))
+    limit = _num("limit", 10, int, 1, 50)
     with db.session() as conn:
         out = potential.ranking(conn, limit, a["include_demo"])
     out["statuses"] = WATCH_STATUSES
@@ -798,8 +914,8 @@ def api_route_proposals():
 
 @app.post("/api/routes/bewaar")
 def api_route_save():
-    d = request.get_json(force=True)
-    if not d.get("stops") or not d.get("name"):
+    d = _body()
+    if not isinstance(d.get("stops"), list) or not d["stops"] or not d.get("name"):
         return jsonify({"fout": "route zonder stops"}), 400
     with db.session() as conn:
         rid = routeplan.save(conn, d)
@@ -808,7 +924,7 @@ def api_route_save():
 
 @app.post("/api/routes/afwijzen")
 def api_route_reject():
-    key = (request.get_json(force=True).get("key") or "").strip()
+    key = _text(_body(), "key", 500)
     if not key:
         return jsonify({"fout": "geen route"}), 400
     with db.session() as conn:

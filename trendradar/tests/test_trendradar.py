@@ -156,12 +156,19 @@ def test_parse_google_news_feed():
 # --- budget --------------------------------------------------------------------
 
 def test_budget_plan_spreads_over_remaining_runs(conn):
+    from datetime import datetime, timezone
+
     settings = dict(config.DEFAULTS, maandbudget_eur=46.0, eur_per_usd=0.92)
-    p = budget.plan(conn, settings)
+    start = datetime(2026, 10, 1, 0, 1, tzinfo=timezone.utc)
+    p = budget.plan(conn, settings, start)
     assert p["budget_usd"] == 50.0
     total_results = sum(v["results"] for v in p["platforms"].values())
     assert total_results > 0
     assert p["per_run_usd"] * p["runs_left"] == pytest.approx(50.0, rel=0.01)
+    # Stond de laptop de hele maand uit, dan krijgt de laatste dag niet het hele restbudget:
+    # hooguit twee keer een normale ronde.
+    late = budget.plan(conn, settings, datetime(2026, 10, 31, 12, 0, tzinfo=timezone.utc))
+    assert late["per_run_usd"] == pytest.approx(2 * p["per_run_usd"], rel=0.02)
     budget.record(conn, "apify", 60.0, "tiktok")
     p = budget.plan(conn, settings)
     assert p["left_usd"] == 0 and all(v["results"] == 0 for v in p["platforms"].values())
@@ -213,7 +220,7 @@ def test_single_author_spam_is_not_a_trend(conn):
 
 
 def test_discovery_adds_hashtag_and_pauses_bad_source(conn):
-    store_posts(conn, [post(f"d{i}", f"Birria tacos bij de foodtruck, lekker! #birriatacos #foodtruck",
+    store_posts(conn, [post(f"d{i}", "Birria tacos bij de foodtruck, lekker! #birriatacos #foodtruck",
                             hours_ago=3 + i) for i in range(4)], None)
     settings = dict(config.DEFAULTS)
     added = discovery.run(conn, settings)
@@ -985,7 +992,8 @@ def test_viral_potential_signals():
     assert "getipt" in {r["kind"] for r in tipped["reasons"]}
     # De naam van de zaak is geen snack: 'Cafetaria de Mariënburgher' levert geen 'creatie' op.
     named = potential.score_tip(tip("Cafetaria de Mariënburgher", "snack de Bamia (zelf ontwikkeld)"), ctx)
-    assert "Eigen creatie: snack de bamia" in [r["text"] for r in named["reasons"]]
+    assert any(r["kind"] == "creatie" and "bamia" in r["text"] for r in named["reasons"])
+    assert not any(r["kind"] == "creatie" and "mariënburgher" in r["text"] for r in named["reasons"])
     # Jouw publiek telt mee.
     ctx2 = {**ctx, "snacks": {"friet": {"lift": 1.3, "posts": 30}}}
     assert potential.score_tip(tip("X", "friet speciaal"), ctx2)["score"] > potential.score_tip(tip("X", "friet speciaal"), ctx)["score"]
@@ -1056,8 +1064,18 @@ def test_apify_retries_only_when_safe(monkeypatch):
             return "ok"
         return f
 
-    monkeypatch.setattr(ap.requests, "post", flaky(rq.ConnectionError("DNS weg")))
+    from urllib3.exceptions import MaxRetryError, NewConnectionError, ProtocolError
+
+    dns = rq.ConnectionError(MaxRetryError(None, "/runs", NewConnectionError(None, "Failed to resolve")))
+    monkeypatch.setattr(ap.requests, "post", flaky(dns))
     assert ap._start("https://x") == "ok" and len(calls) == 2
+    calls.clear()
+    # Verbinding viel weg terwijl Apify het verzoek misschien al had: niet nog eens starten.
+    dropped = rq.ConnectionError(ProtocolError("Connection aborted.", ConnectionResetError()))
+    monkeypatch.setattr(ap.requests, "post", flaky(dropped))
+    with pytest.raises(rq.ConnectionError):
+        ap._start("https://x")
+    assert len(calls) == 1
     calls.clear()
     monkeypatch.setattr(ap.requests, "post", flaky(rq.ReadTimeout("run loopt misschien al")))
     with pytest.raises(rq.ReadTimeout):
@@ -1127,7 +1145,8 @@ def test_apify_account_limit_stops_the_round(conn, monkeypatch):
     monkeypatch.setenv("APIFY_TOKEN", "tok")
     monkeypatch.setattr(ap.requests, "get", lambda *a, **k: Resp())
     monkeypatch.setattr(ap, "account_usage", REAL_ACCOUNT_USAGE)
-    assert ap.account_usage() == {"used_usd": 5.02, "limit_usd": 5.0, "cycle_end": "2026-11-01T00:00:00.000Z"}
+    assert ap.account_usage() == {"used_usd": 5.02, "limit_usd": 5.0, "cycle_start": None,
+                                  "cycle_end": "2026-11-01T00:00:00.000Z"}
     started = []
     monkeypatch.setattr(ap, "run_actor", lambda *a, **k: started.append(1) or ([], 0.0))
     conn.execute("INSERT INTO sources(platform, kind, value, status, origin, added_at) "
@@ -1205,3 +1224,374 @@ def test_radar_suggestions_are_new_places(conn):
     conn.execute("INSERT INTO spots(name, place, added_at, updated_at) VALUES ('Frituur de Koe', 'Zwolle', ?, ?)",
                  (now, now))
     assert not any(s["name"] == "frituurdekoe" for s in spots.radar_suggestions(conn, include_demo=False))
+
+
+# --- review: herkenning, import en analyse --------------------------------------------
+
+@pytest.mark.parametrize("text,expected", [
+    ("Lekker gegeten #foodamsterdam", "Amsterdam"),        # niet Rotterdam door 'rdam'
+    ("Oliebollen! #oliebollen2026", None),                 # 026 is hier een jaartal, niet Arnhem
+    ("Friet in een houten bakje", None),
+    ("Broodje met jonge gouda", None),
+    ("Dit kan leiden tot een snackverslaving", None),
+    ("Softijs #ijshoorn", None),
+    ("Kroket gehaald in Zuidoost-Brabant", None),
+    ("Nieuw in Gouda: kaassoufflé", "Gouda"),
+    ("Friet #eten010", "Rotterdam"),
+    ("Soufflé tosti in De Pijp", "Amsterdam"),
+])
+def test_city_detection(text, expected):
+    assert classify.find_city(" " + text.lower() + " ", classify.extract_hashtags(text), None) == expected
+
+
+def test_location_that_is_only_a_place_is_no_business():
+    assert not classify.location_is_business("Amsterdam, Netherlands")
+    assert not classify.location_is_business("Kalverstraat 12, 1012 NX Amsterdam, Nederland")
+    assert not classify.location_is_business("Nederland")
+    assert classify.location_is_business("Snackbar De Poppe")
+    c = classify.classify_rules({"text": "Nieuwe sneakers en een frietje", "platform": "instagram",
+                                 "location": "Amsterdam, Netherlands"})
+    assert c["places"] == [] and c["city"] == "Amsterdam"
+
+
+@pytest.mark.parametrize("text,expected", [
+    ("Pita met döner, kaassoufflé en knoflooksaus", "kaassoufflé + döner"),
+    ("Kaassoufflé en döner, wat een combi", "kaassoufflé + döner"),
+    ("Suikerbroodburger in Sneek!", "burger + suikerbrood"),
+    ("croissant döner", "döner + croissant"),
+    ("Patatje met, een frikandel en een kipcorn", None),   # een bestelling, geen gerecht
+    ("Friet met een milkshake", None),
+    ("Kipcorn gehaald @kebabhouse_ankara", None),          # snack in een accountnaam
+    ("Broodje kroket bij Burgerbar Smash", None),          # snack in de naam van de zaak
+    ("Wij zoeken iemand die frikandellen bakken en een pizza maken kan", None),
+])
+def test_combination_needs_one_dish(text, expected):
+    assert classify.find_combination(" " + text.lower() + " ", classify.extract_hashtags(text)) == expected
+
+
+def test_language_edge_cases():
+    def nl(text):
+        return classify.classify_rules({"text": text, "platform": "instagram"})["nl_score"]
+    assert nl("Tried the famous Dutch bitterballen in Amsterdam, so good!") < 0.4
+    assert nl("Kapsalon met extra kaas, wie durft? Wie wil?") >= 0.4   # 'wie' is ook Nederlands
+    assert nl("Frikandellen 🔥🔥") >= 0.4                              # meervoud telt
+    assert classify.new_compounds(["frikandellen", "burgerlover", "burgerking", "frikandelijs"]) == ["frikandelijs"]
+    assert "twist:mini bitterbal" not in classify.find_flags(" mini bitterballen bij de snackbar ", [], 1.0)
+
+
+def test_creation_versus_variant():
+    from trendradar import potential
+
+    assert potential._creation("broodje lammert (hamburger met kaassoufflé)") == ("creatie", "broodje lammert")
+    assert potential._creation("Steenwijkerbal") == ("creatie", "steenwijkerbal")
+    assert potential._creation("rundvleeskroket") == ("variant", "rundvleeskroket")
+    assert potential._creation("boerenfrikandel") == ("variant", "boerenfrikandel")
+    for ordinary in ("broodje carpaccio", "broodje haring", "lekkere snack", "warme snack", "filet americain"):
+        assert potential._creation(ordinary) is None, ordinary
+    ctx = {"radar": {}, "snacks": {}, "locations": {}, "channels": {}, "recognition": {}, "user": {}}
+    tip = {"id": 1, "name": "X", "place": "Zwolle", "lists": [], "status": "te proberen", "note": "",
+           "specialty": "geen gekke dingen"}
+    kinds = {r["kind"] for r in potential.score_tip(tip, ctx)["reasons"]}
+    assert "spektakel" not in kinds and "algemeen" in kinds
+    closed = potential.score_tip({**tip, "specialty": "burgers", "note": "tijdelijk gesloten"}, ctx)
+    assert "gesloten" in {r["kind"] for r in closed["reasons"]} and closed["potential"] == 0
+
+
+def test_import_is_robust(conn):
+    import io as _io
+
+    import openpyxl
+
+    from trendradar import imports, ownposts
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Export"
+    ws.append(["Overzicht Instagram", "bijgewerkt", "2026-10-01"])          # titelregel
+    ws.append(["Date", "Caption", "Link", "Views", "Followers"])           # Engelse kolommen
+    ws.append(["17-03-2026", "Sommige snacks zijn gewoon top", "https://x/1", "12,5K", "1.234"])
+    ws.append(["2026-04-02", "Broodje kroket", "https://x/2", "3.4K", 10])
+    ws.append(["", "Totaal", "", "15900", ""])                             # totaalregel
+    tips = wb.create_sheet("Buiten Amsterdam")
+    tips.append(["#", "Naam", "Plaats", "Specialiteit"])                    # naam niet in de eerste kolom
+    tips.append([1, "Paul van Gurp", "Colmschate", "burger"])
+    tips.append([2, "Paul van Gurp", "Colmschate (Deventer)", "Colmschate burger, prijswinnaar"])
+    routes = wb.create_sheet("Routes")
+    routes.append(["Route", "Stop 1", "Stop 2"])
+    routes.append(["Oost", "Paul van Gurp (Colmschate) - burger", "Zaak B (Deventer)"])
+    buf = _io.BytesIO()
+    wb.save(buf)
+    parsed = imports.read_workbook(buf.getvalue())
+    assert [(p["month"], p["views"], p["followers"]) for p in parsed["posts"]] == [("2026-03", 12500, 1234),
+                                                                                   ("2026-04", 3400, 10)]
+    assert all(s["place"] != "Amsterdam" for s in parsed["spots"])
+    imports.save(conn, parsed)
+    spots = conn.execute("SELECT name, specialty FROM spots").fetchall()
+    assert len(spots) == 1 and "prijswinnaar" in spots[0]["specialty"]     # dubbele tip samengevoegd
+    conn.execute("UPDATE routes SET status = 'bezocht'")
+    imports.save(conn, parsed)                                              # opnieuw importeren
+    assert conn.execute("SELECT status FROM routes").fetchone()[0] == "bezocht"
+    assert ownposts.overview(conn)["kpis"]["posts"] == 2
+    # Een oude import met een maand als 'maart 2026' laat de pagina niet crashen.
+    conn.execute("UPDATE own_posts SET month = 'maart 2026'")
+    assert ownposts.overview(conn)["kpis"]["posts"] == 2
+
+
+def test_insights_are_escaped(conn):
+    from trendradar import ownposts
+
+    conn.execute("INSERT INTO own_posts(id, month, caption, views, format, followers_count, imported_at) "
+                 "VALUES ('a', '2026-03', 'De grote <img src=x onerror=alert(1)> uit de supermarkt test', 100, "
+                 "'Supermarkttest', 1, 'x')")
+    insights = " ".join(ownposts.overview(conn)["insights"])
+    assert "<img" not in insights and "&lt;img" in insights
+
+
+def test_route_save_once_and_nested_place(conn):
+    from trendradar import imports, routeplan
+
+    proposal = {"name": "Test", "km": 100, "duration": "1u", "stops": [
+        {"name": "Paul van Gurp", "place": "Colmschate (Deventer)", "specialty": "burger"},
+        {"name": "Zaak B", "place": "Deventer", "specialty": ""}]}
+    first = routeplan.save(conn, proposal)
+    assert routeplan.save(conn, proposal) == first                          # dubbelklik: geen tweede route
+    stops = json.loads(conn.execute("SELECT stops FROM routes").fetchone()[0])
+    assert imports.parse_stop(stops[0]) == {"name": "Paul van Gurp", "place": "Colmschate, Deventer",
+                                            "specialty": "burger"}
+
+
+def test_product_guess_needs_a_store_or_brand():
+    from trendradar import products
+
+    assert products.guess_from_text("de nieuwe Smashburger van de week geprobeerd bij Snackbar X",
+                                    classify._is_food_word) == []
+    found = products.guess_from_text("De nieuwe Doritos Loaded Cheese bij de Jumbo", classify._is_food_word)
+    assert found and found[0]["naam"] == "Doritos Loaded Cheese" and found[0]["winkel"] == "Jumbo"
+
+
+# --- review: geld en ophaalrondes --------------------------------------------------------
+
+def _apify_offline(monkeypatch):
+    from trendradar.sources import apify as ap
+
+    monkeypatch.setattr(ap, "available", lambda: True)
+    monkeypatch.setattr(ap, "normalize", lambda platform, item: item)
+    monkeypatch.setattr(ap, "account_usage", lambda: None)
+    return ap
+
+
+def test_interrupted_run_is_counted_and_recovered(conn, monkeypatch):
+    from trendradar import collector
+
+    ap = _apify_offline(monkeypatch)
+    conn.execute("INSERT INTO sources(platform, kind, value, status, origin, added_at) "
+                 "VALUES ('tiktok', 'zoekterm', 'broodje kaassoufflé', 'actief', 'start', 'x')")
+    conn.commit()
+
+    def broken(*a, **k):
+        raise ap.ApifyRunFailed("verbinding weg tijdens de run", "run-1", 0.50, "ds-1")
+    monkeypatch.setattr(ap, "run_actor", broken)
+    run = collector.Run("test")
+    collector.step_apify(run, dict(config.DEFAULTS), set())
+    assert budget.spent_usd(conn, "apify") == pytest.approx(0.50)          # voorlopig geteld
+    assert db.get_state(conn, "apify_pending")[0]["run_id"] == "run-1"
+    # Volgende ronde: de run is klaar, kostte $0.12 en leverde een post op.
+    monkeypatch.setattr(ap, "run_info", lambda rid: {"status": "SUCCEEDED", "usage_usd": 0.12, "dataset": "ds-1"})
+    monkeypatch.setattr(ap, "dataset_items", lambda ds, limit=1000: [
+        post("rec1", "Broodje kaassoufflé, eindelijk geprobeerd!", platform="tiktok")])
+    monkeypatch.setattr(ap, "run_actor", lambda *a, **k: ([], 0.0))
+    collector.step_reconcile_apify(collector.Run("test"), dict(config.DEFAULTS))
+    assert budget.spent_usd(conn, "apify") == pytest.approx(0.12)
+    assert conn.execute("SELECT COUNT(*) FROM posts WHERE id = 'tiktok:rec1'").fetchone()[0] == 1
+    assert db.get_state(conn, "apify_pending") == []
+
+
+def test_spend_is_kept_when_storing_fails_and_unmatched_posts_are_stored(conn, monkeypatch):
+    from trendradar import collector
+
+    ap = _apify_offline(monkeypatch)
+    for tag in ("kroket", "frikandel"):
+        conn.execute("INSERT INTO sources(platform, kind, value, status, origin, added_at) "
+                     "VALUES ('instagram', 'hashtag', ?, 'actief', 'start', 'x')", (tag,))
+    conn.commit()
+    items = [post(f"u{i}", "Lekker gegeten bij de snackbar", hashtags=[]) for i in range(4)]
+    monkeypatch.setattr(ap, "run_actor", lambda *a, **k: (items, 0.40))
+    collector.step_apify(collector.Run("test"), dict(config.DEFAULTS), set())
+    assert budget.spent_usd(conn, "apify") == pytest.approx(0.40)
+    # Posts zonder herkenbare hashtag zijn toch opgeslagen, verdeeld over beide bronnen.
+    assert conn.execute("SELECT COUNT(*) FROM posts").fetchone()[0] == 4
+    assert {r[0] for r in conn.execute("SELECT DISTINCT source_id FROM posts")} == {1, 2}
+
+    def boom(*a, **k):
+        raise RuntimeError("kapotte post")
+    monkeypatch.setattr(collector, "store_posts", boom)
+    conn.execute("UPDATE sources SET next_due = NULL")
+    conn.commit()
+    collector.step_apify(collector.Run("test"), dict(config.DEFAULTS), set())
+    assert budget.spent_usd(conn, "apify") == pytest.approx(0.80)            # betaald is betaald
+
+
+def test_offline_round_is_retried_soon(conn, monkeypatch):
+    import requests as rq
+
+    from trendradar import collector
+
+    ap = _apify_offline(monkeypatch)
+    conn.execute("INSERT INTO sources(platform, kind, value, status, origin, added_at) "
+                 "VALUES ('tiktok', 'zoekterm', 'kapsalon', 'actief', 'start', 'x')")
+    conn.commit()
+
+    def down(*a, **k):
+        raise rq.ConnectionError("geen internet")
+    monkeypatch.setattr(ap, "run_actor", down)
+    run = collector.Run("test")
+    collector.step_apify(run, dict(config.DEFAULTS), set())
+    run.finish()
+    assert conn.execute("SELECT status FROM runs WHERE id = ?", (run.id,)).fetchone()[0] == "fout"
+    settings = dict(config.DEFAULTS)
+    assert not collector.due(conn, settings)
+    conn.execute("UPDATE runs SET started_at = ?", (db.iso(db.now() - timedelta(minutes=31)),))
+    assert collector.due(conn, settings)
+
+
+def test_quiet_account_is_not_marked_invalid(conn):
+    conn.execute("INSERT INTO sources(platform, kind, value, status, origin, added_at, useful_total) "
+                 "VALUES ('instagram', 'account', 'snackbardepoppe', 'actief', 'ontdekt', 'x', 3)")
+    sid = conn.execute("SELECT id FROM sources").fetchone()[0]
+    for _ in range(5):
+        discovery.update_source_stats(conn, sid, 0, 0, 0, 0, 0.0, 6, filtered=True)
+    assert conn.execute("SELECT status FROM sources WHERE id = ?", (sid,)).fetchone()[0] == "actief"
+    for _ in range(2):
+        discovery.update_source_stats(conn, sid, 0, 0, 0, 0, 0.0, 6, filtered=False)
+    assert conn.execute("SELECT status FROM sources WHERE id = ?", (sid,)).fetchone()[0] == "ongeldig"
+
+
+def test_parked_candidate_is_promoted_when_it_goes_viral(conn, monkeypatch):
+    now = db.iso(db.now())
+    conn.execute("INSERT INTO sources(platform, kind, value, status, origin, added_at) "
+                 "VALUES ('tiktok', 'account', 'kleinemaker', 'kandidaat', 'ontdekt', ?)", (now,))
+    monkeypatch.setattr(discovery, "candidates", lambda c, **k: [
+        {"platform": "tiktok", "kind": "account", "value": "kleinemaker", "score": 40,
+         "reason": "kleine maker ging viraal"}])
+    added = discovery.run(conn, dict(config.DEFAULTS))
+    assert added and conn.execute("SELECT status FROM sources WHERE value = 'kleinemaker'").fetchone()[0] == "actief"
+
+
+def test_account_case_does_not_create_duplicates(conn):
+    from trendradar import seeds
+
+    now = db.iso(db.now())
+    conn.execute("INSERT INTO sources(platform, kind, value, status, origin, reason, added_at) "
+                 "VALUES ('facebook', 'account', 'AlbertHeijn', 'ongeldig', 'start', "
+                 "'twee rondes zonder resultaat (bestaat niet of is privé?)', ?)", (now,))
+    conn.execute("INSERT INTO sources(platform, kind, value, status, origin, added_at) "
+                 "VALUES ('facebook', 'account', 'albertheijn', 'actief', 'ontdekt', ?)", (now,))
+    assert ("facebook", "account", "albertheijn") in discovery._known(conn)
+    db.set_state(conn, "seeds_version", 2)
+    seeds.upgrade(conn, now)
+    rows = conn.execute("SELECT value, status FROM sources WHERE platform = 'facebook' "
+                        "AND lower(value) = 'albertheijn'").fetchall()
+    assert [(r["value"], r["status"]) for r in rows] == [("AlbertHeijn", "actief")]
+
+
+def test_remeasure_stops_when_budget_is_used(conn, monkeypatch):
+    from trendradar import collector
+
+    ap = _apify_offline(monkeypatch)
+    called = []
+    monkeypatch.setattr(ap, "run_actor", lambda *a, **k: called.append(1) or ([], 0.0))
+    store_posts(conn, [post("fast", "Kroket die viraal gaat", platform="tiktok", views=90000, url="https://t/1",
+                            hours_ago=10)], None)
+    budget.record(conn, "apify", 500.0, "tiktok")
+    conn.execute("UPDATE posts SET fetched_at = ?", (db.iso(db.now() - timedelta(hours=8)),))
+    conn.commit()
+    collector.step_remeasure(collector.Run("test"), dict(config.DEFAULTS))
+    assert not called
+
+
+def test_settings_and_manual_activation(conn):
+    from trendradar.web import app
+
+    client = app.test_client()
+    assert client.post("/api/settings", json={"min_per_bron": 0}).status_code == 400
+    assert budget.allocate([{"id": 1, "yield_score": 0.5, "priority": 1, "last_fetched": None}], 30, 0, 0)
+    conn.execute("INSERT INTO sources(platform, kind, value, status, origin, added_at, yield_score, fetch_count) "
+                 "VALUES ('tiktok', 'zoekterm', 'kroket', 'gepauzeerd', 'ontdekt', 'x', 0.05, 7)")
+    conn.commit()
+    sid = conn.execute("SELECT id FROM sources").fetchone()[0]
+    assert client.patch(f"/api/sources/{sid}", json={"status": "actief"}).status_code == 200
+    row = conn.execute("SELECT status, yield_score, fetch_count FROM sources WHERE id = ?", (sid,)).fetchone()
+    assert (row["status"], row["yield_score"], row["fetch_count"]) == ("actief", None, 0)
+
+
+def test_spend_is_reconciled_with_apify_account(conn, monkeypatch):
+    from trendradar import collector
+
+    ap = _apify_offline(monkeypatch)
+    usage = iter([{"used_usd": 10.0, "limit_usd": 39.0, "cycle_end": "2026-11-15"},
+                  {"used_usd": 12.5, "limit_usd": 39.0, "cycle_end": "2026-11-15"}])
+    monkeypatch.setattr(ap, "account_usage", lambda: next(usage))
+    collector._reconcile_account(collector.Run("test"))                       # eerste meetpunt
+    budget.record(conn, "apify", 1.0, "tiktok", "ronde")                      # de tool telde $1
+    conn.commit()
+    collector._reconcile_account(collector.Run("test"))                       # Apify rekende $2.50
+    assert budget.spent_usd(conn, "apify") == pytest.approx(2.5)
+
+
+def test_other_websites_cannot_change_anything(conn):
+    from trendradar.web import app
+
+    client = app.test_client()
+    body = {"post_id": "tiktok:x", "value": 1}
+    assert client.post("/api/feedback", json=body).status_code == 200                 # geen Origin: curl, tests
+    assert client.post("/api/feedback", json=body, headers={"Origin": "http://localhost"}).status_code == 200
+    for headers in ({"Origin": "https://evil.example"}, {"Origin": "null"}, {"Sec-Fetch-Site": "cross-site"}):
+        r = client.post("/api/run", headers=headers)
+        assert r.status_code == 403 and "andere website" in r.get_json()["fout"], headers
+    # Een vreemde domeinnaam die naar deze computer wijst (DNS-rebinding): ook lezen mag niet.
+    assert client.get("/api/status", headers={"Host": "evil.example:8050"}).status_code == 403
+    assert client.get("/api/status", headers={"Host": "127.0.0.1:8050"}).status_code == 200
+
+
+def test_bad_input_gives_a_message_not_a_crash(conn):
+    from trendradar.web import app
+
+    client = app.test_client()
+    for url in ("/api/posts?limit=veel", "/api/trends?min_rel=x", "/api/zaken?window=1j",
+                "/api/supermarkt?days=abc", "/api/potentie?limit=tien", "/api/export/trends.csv?window=1j"):
+        r = client.get(url)
+        assert r.status_code == 400 and r.get_json()["fout"], url
+    for path in ("/api/lijst", "/api/tips", "/api/feedback", "/api/sources", "/api/settings"):
+        r = client.post(path, data="[1, 2]", content_type="application/json")
+        assert r.status_code == 400 and r.get_json()["fout"], path
+    assert client.post("/api/settings", json={"verdeling": [1]}).status_code == 400
+    assert client.get("/api/bestaat-niet").get_json() == {"fout": "niet gevonden"}
+    store_posts(conn, [post(i, f"Kroket nummer {i} in Zwolle", platform="tiktok") for i in range(3)], None)
+    conn.commit()
+    assert len(client.get("/api/posts?limit=-1").get_json()["posts"]) == 1           # niet 'alles'
+
+
+def test_posts_by_id_and_partial_settings(conn):
+    from trendradar.web import app
+
+    client = app.test_client()
+    store_posts(conn, [post(i, f"Kroket nummer {i} in Zwolle", platform="tiktok", hours_ago=24 * 20)
+                       for i in range(4)], None)
+    conn.commit()
+    d = client.get("/api/posts?window=24u&ids=tiktok:1,tiktok:3").get_json()
+    assert sorted(p["id"] for p in d["posts"]) == ["tiktok:1", "tiktok:3"] and d["total"] == 2
+    assert client.post("/api/settings", json={"verdeling": {"tiktok": 0.5}}).status_code == 200
+    assert client.get("/api/settings").get_json()["verdeling"] == {"instagram": 0.30, "tiktok": 0.5,
+                                                                    "facebook": 0.25}
+    assert client.post("/api/settings", json={"verdeling": {"tiktok": -1}}).status_code == 400
+
+
+def test_csv_export_does_not_run_formulas(conn):
+    from trendradar.web import app
+
+    client = app.test_client()
+    client.post("/api/lijst", json={"kind": "zaak", "ref": "x", "title": "=HYPERLINK(\"http://evil\")"})
+    client.post("/api/lijst", json={"kind": "zaak", "ref": "y", "title": "@SUM(A1)", "note": "-2+3"})
+    text = client.get("/api/export/lijst.csv").get_data(as_text=True)
+    assert "'=HYPERLINK" in text and "'@SUM" in text and "'-2+3" in text
+    assert "\n=HYPERLINK" not in text and ";=HYPERLINK" not in text

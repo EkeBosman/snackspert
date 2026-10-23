@@ -94,7 +94,7 @@ def all_sources() -> list[tuple[str, str, str]]:
 # Verhoog als de startlijst uitbreidt: bestaande installaties krijgen de nieuwe
 # bronnen dan één keer erbij. Bronnen die al bestaan (ook gepauzeerde of
 # afgewezen) blijven zoals ze zijn.
-SEEDS_VERSION = 2
+SEEDS_VERSION = 3
 
 
 def upgrade(conn, now_iso: str) -> int:
@@ -105,6 +105,14 @@ def upgrade(conn, now_iso: str) -> int:
     # TikTok-hashtags geven vooral bekende video's: minder budget dan zoekopdrachten.
     conn.execute("UPDATE sources SET priority = 0.5 WHERE platform = 'tiktok' AND kind = 'hashtag' "
                  "AND origin = 'start'")
+    # Een ontdekte kopie van een startaccount ('albertheijn' naast 'AlbertHeijn') weghalen: die
+    # pakte de posts af, waarna het startaccount ten onrechte 'ongeldig' werd.
+    conn.execute("DELETE FROM sources WHERE origin = 'ontdekt' AND kind = 'account' AND EXISTS ("
+                 "SELECT 1 FROM sources s2 WHERE s2.origin = 'start' AND s2.kind = 'account' "
+                 "AND s2.platform = sources.platform AND lower(s2.value) = lower(sources.value) "
+                 "AND s2.id != sources.id)")
+    conn.execute("UPDATE sources SET status = 'actief', empty_streak = 0, reason = 'startlijst' "
+                 "WHERE origin = 'start' AND status = 'ongeldig' AND reason LIKE 'twee rondes zonder resultaat%'")
     db.set_state(conn, "seeds_version", SEEDS_VERSION)
     return added
 

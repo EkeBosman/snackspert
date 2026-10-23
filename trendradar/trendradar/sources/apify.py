@@ -105,6 +105,18 @@ class ApifyLimitError(ApifyError):
     """Het tegoed of de limiet van je Apify-account is op: verder proberen heeft geen zin."""
 
 
+class ApifyRunFailed(ApifyError):
+    """Een run is gestart (en kost dus geld), maar daarna ging er iets mis.
+
+    De tool telt dan voorlopig het maximum en haalt de echte kosten en de al
+    betaalde resultaten de volgende ronde op (zie collector.step_reconcile_apify).
+    """
+
+    def __init__(self, message: str, run_id: str, max_usd: float, dataset_id: str | None = None):
+        super().__init__(message)
+        self.run_id, self.max_usd, self.dataset_id = run_id, max_usd, dataset_id
+
+
 def _is_limit_error(status: int, text: str) -> bool:
     low = text.lower()
     return status == 402 or ("usage" in low and any(w in low for w in ("limit", "exceed", "upgrade", "plan")))
@@ -128,8 +140,9 @@ def account_usage() -> dict | None:
     limit = (d.get("limits") or {}).get("maxMonthlyUsageUsd")
     if used is None or limit is None:
         return None
+    cycle = d.get("monthlyUsageCycle") or {}
     return {"used_usd": round(float(used), 2), "limit_usd": round(float(limit), 2),
-            "cycle_end": (d.get("monthlyUsageCycle") or {}).get("endAt")}
+            "cycle_start": cycle.get("startAt"), "cycle_end": cycle.get("endAt")}
 
 
 def available() -> bool:
@@ -167,18 +180,29 @@ def _get(url: str, **kw):
         return requests.get(url, **kw)
 
 
-def _start(url: str, **kw):
-    """Run starten, met één nieuwe poging als de verbinding niet eens tot stand kwam.
+def _never_sent(exc: Exception) -> bool:
+    """Kwam de verbinding met Apify niet eens tot stand (DNS, geen internet)?
 
-    Alleen bij een verbindingsfout (DNS, geen internet): dan is er zeker niets
-    gestart. Bij een time-out tijdens het wachten op antwoord kan de run wél al
-    lopen; opnieuw starten zou dan dubbel kosten, dus dat doen we niet.
+    Alleen dan is zeker dat Apify het verzoek niet ontving. Een verbinding die
+    wegvalt terwijl Apify al bezig is, geeft óók een ConnectionError; opnieuw
+    starten zou dan een tweede, betaalde run zijn.
     """
+    from urllib3.exceptions import NewConnectionError  # ook DNS-fouten (NameResolutionError)
+
+    if isinstance(exc, requests.ConnectTimeout):
+        return True
+    reason = getattr(exc.args[0], "reason", None) if exc.args else None
+    return isinstance(reason, NewConnectionError) or isinstance(exc.args[0] if exc.args else None,
+                                                                 NewConnectionError)
+
+
+def _start(url: str, **kw):
+    """Run starten, met één nieuwe poging als de verbinding niet eens tot stand kwam."""
     try:
         return requests.post(url, **kw)
-    except requests.ReadTimeout:
-        raise
-    except requests.ConnectionError:
+    except requests.ConnectionError as exc:
+        if not _never_sent(exc):
+            raise
         time.sleep(RETRY_WAIT_S)
         return requests.post(url, **kw)
 
@@ -208,7 +232,19 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
             raise ApifyLimitError(f"{actor}: {resp.status_code} {resp.text[:300]}")
         raise ApifyError(f"{actor}: {resp.status_code} {resp.text[:300]}")
     run = resp.json()["data"]
+    cap = max(MIN_CHARGE_USD, max_usd)
+    try:
+        return _finish_run(actor, run, headers, max_items, price_per_1000, timeout_s)
+    except Exception as exc:  # noqa: BLE001 - de run loopt en kost geld: nooit stil laten verdwijnen
+        try:
+            requests.post(f"{API}/actor-runs/{run['id']}/abort", headers=headers, timeout=15)
+        except requests.RequestException:
+            pass
+        raise ApifyRunFailed(f"{actor}: run {run['id']} onderbroken ({exc})", run["id"], cap,
+                             run.get("defaultDatasetId")) from exc
 
+
+def _finish_run(actor, run, headers, max_items, price_per_1000, timeout_s) -> tuple[list[dict], float]:
     deadline = time.time() + timeout_s
     while run.get("status") in ("READY", "RUNNING") and time.time() < deadline:
         time.sleep(10)
@@ -217,7 +253,10 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
         run = r.json()["data"]
 
     if run.get("status") in ("READY", "RUNNING"):
-        requests.post(f"{API}/actor-runs/{run['id']}/abort", headers=headers, timeout=30)
+        try:
+            requests.post(f"{API}/actor-runs/{run['id']}/abort", headers=headers, timeout=30)
+        except requests.RequestException:
+            pass
         log.warning("%s duurde te lang en is afgebroken", actor)
 
     items: list[dict] = []
@@ -241,6 +280,36 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
     # dan te laag ingeschat, anders loopt het budget ongemerkt uit.
     estimated = len(items) * price_per_1000 / 1000
     return items, max(reported, estimated)
+
+
+FINAL = ("SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT")
+
+
+def run_info(run_id: str) -> dict | None:
+    """Status, kosten en dataset van een eerdere run (voor het rechtzetten na een onderbreking)."""
+    try:
+        r = requests.get(f"{API}/actor-runs/{run_id}", headers=_auth(), timeout=30)
+    except requests.RequestException:
+        return None
+    if not r.ok:
+        return None
+    d = r.json().get("data") or {}
+    return {"status": d.get("status"), "usage_usd": float(d.get("usageTotalUsd") or 0.0),
+            "dataset": d.get("defaultDatasetId")}
+
+
+def dataset_items(dataset_id: str, limit: int = 1000) -> list[dict]:
+    r = _get(f"{API}/datasets/{dataset_id}/items", headers=_auth(),
+             params={"clean": "true", "format": "json", "limit": limit}, timeout=120)
+    r.raise_for_status()
+    return r.json()
+
+
+def abort(run_id: str) -> None:
+    try:
+        requests.post(f"{API}/actor-runs/{run_id}/abort", headers=_auth(), timeout=15)
+    except requests.RequestException:
+        pass
 
 
 
