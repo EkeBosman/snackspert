@@ -166,3 +166,74 @@ def guess_from_text(text: str, is_food) -> list[dict]:
             out.append({"naam": name, "merk": "", "winkel": store, "nieuw": True})
     unique = {p["naam"].lower(): p for p in out}
     return list(unique.values())[:3]
+
+
+# --- testlijst: welke nieuwe producten zijn een supermarkttest waard? ----------
+
+_WORD = lambda w, text: re.search(rf"(?<![\w]){re.escape(w)}", text) is not None  # noqa: E731
+
+
+def test_ideas(conn, include_demo: bool = True, limit: int = 5, days: int = 14) -> list[dict]:
+    """De top nieuwe producten om te testen.
+
+    Supermarkttests zijn je sterkste volgersformat. Hoe herkenbaarder de snack, hoe
+    gekker de draai eraan, hoe meer makers er al over posten en hoe beter die snack
+    het bij jouw publiek doet, hoe hoger. Wat je al getest hebt, valt af.
+    """
+    from . import classify, ownposts
+
+    ov = overview(conn, include_demo, days=days)
+    tested = [k for k in (key(t["product"]) for t in ownposts._supermarket_tests(ownposts._rows(conn))) if k]
+    lifts = ownposts.lifts(conn)
+    brands = [b for b in lexicon.BRANDS if len(b) > 2]
+    fresh = db.now() - timedelta(days=3)
+    ideas: list[dict] = []
+    for p in ov["products"]:
+        k = key(p["name"])
+        if not k or any(same(k, t) for t in tested):
+            continue
+        twin = next((i for i in ideas if same(k, i["_key"])), None)
+        if twin:  # hetzelfde product in een andere winkel
+            if p["store"] not in twin["stores"]:
+                twin["stores"].append(p["store"])
+            continue
+        text = " " + norm(p["name"]) + " "
+        reasons, score = [], 0.0
+        snack = next((m for m in lexicon.MAINSTREAM_SNACKS if _WORD(norm(m), text)), None)
+        if snack:
+            score += 2
+            reasons.append(f"Herkenbare snack: {snack}")
+        groups = classify.item_groups(text, [])
+        if len(groups) >= 2:
+            score += 2
+            reasons.append("Combinatie: " + " + ".join(groups[:2]))
+        twist = next((w for w in lexicon.TWIST_WORDS if _WORD(w, text)), None)
+        if twist:
+            score += 1
+            reasons.append(f"Twist: {twist}")
+        brand = next((b for b in brands if _WORD(norm(b), text)), None)
+        if brand:
+            score += 0.5
+            reasons.append(f"Bekend merk: {brand}")
+        best = max(((g, lifts[g]) for g in groups if g in lifts), key=lambda x: x[1]["lift"], default=None)
+        if best and best[1]["lift"] >= 1.1:
+            score += min(1.5, (best[1]["lift"] - 1) * 3)
+            reasons.append(f"Jouw publiek: {best[0]} {str(best[1]['lift']).replace('.', ',')}×")
+        if p["social_makers"]:
+            score += min(3.0, float(p["social_makers"]))
+            reasons.append(f"{p['social_makers']} makers posten erover")
+        if p["news"]:
+            score += 1
+            reasons.append("In het nieuws")
+        if db.parse_iso(p["first_seen"]) >= fresh:
+            score += 0.5
+            reasons.append("Net in het schap")
+        if score < 2:
+            continue
+        ideas.append({"id": p["id"], "name": p["name"], "stores": [p["store"]], "price": p["price"],
+                      "url": p["url"], "first_seen": p["first_seen"], "score": round(score, 1),
+                      "reasons": reasons, "demo": p.get("demo"), "_key": k})
+    ideas.sort(key=lambda i: i["score"], reverse=True)
+    for i in ideas:
+        i.pop("_key")
+    return ideas[:limit]

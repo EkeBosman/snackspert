@@ -1,13 +1,15 @@
 """Eén ophaalronde: bronnen ophalen, posts indelen, opslaan, nieuwe bronnen zoeken."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 from datetime import timedelta
 
 import requests
 
-from . import budget, classify, config, db, discovery, lexicon, seeds, signals, snackspert
+from . import (budget, classify, config, db, discovery, lexicon, nieuwezaken, onderhoud, ownposts, seeds, signals,
+               snackspert, trefkans)
 from .sources import apify, meta_graph, news, supermarket
 
 log = logging.getLogger(__name__)
@@ -634,6 +636,7 @@ def step_supermarkets(run: Run, settings: dict, force: bool = False) -> None:
                 "last_seen, is_new, relevant) VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
             conn.execute("UPDATE products SET last_seen = ? WHERE store = ? AND demo = 0", (now, store))
             db.set_state(conn, f"nulmeting_cjb_{store}", True)
+            stil = _stale_since(conn, store, products)
             if baseline_done:
                 n_new = len(fresh) - relisted
                 status[store] = {"ok": True, "t": now, "producten": len(products),
@@ -641,6 +644,10 @@ def step_supermarkets(run: Run, settings: dict, force: bool = False) -> None:
                                             f"({new_relevant} snack-relevant)"
                                             + (f", {relisted} opnieuw online gezet" if relisted else "")}
                 summary.append(f"{store} {n_new} ({new_relevant})")
+                if stil:
+                    # De bron levert voor deze winkel al lang exact hetzelfde assortiment: niet 'werkt'.
+                    status[store].update(ok=False, stil=stil,
+                                         melding=f"bron staat stil sinds {stil[:10]}: geen nieuwe gegevens van deze winkel")
             else:
                 status[store] = {"ok": True, "t": now, "producten": len(products),
                                  "melding": f"{len(products)} producten vastgelegd (nulmeting)"}
@@ -649,6 +656,25 @@ def step_supermarkets(run: Run, settings: dict, force: bool = False) -> None:
         fixed = unmark_relisted(conn)
     run.note("Supermarkten (nieuw, waarvan snack-relevant): " + ", ".join(summary)
              + (f". {fixed} eerder als nieuw gemelde producten bleken al bekend" if fixed else ""))
+
+
+STALE_DAYS = 4
+
+
+def _stale_since(conn, store: str, products: list[dict]) -> str | None:
+    """Sinds wanneer is het assortiment van deze winkel precies hetzelfde? None als het recent veranderde.
+
+    checkjebon werkt elke dag het bestand bij, maar voor sommige winkels (AH, Jumbo, Lidl, Plus)
+    bleef de inhoud maandenlang gelijk. Dan lijkt alles te werken, terwijl er nooit iets nieuws komt.
+    """
+    sig = hashlib.sha1("\n".join(sorted(f"{p['id']}|{p['price']}" for p in products)).encode()).hexdigest()
+    key = f"supermarkt_inhoud_{store}"
+    seen = db.get_state(conn, key)
+    if not seen or seen.get("sig") != sig:
+        db.set_state(conn, key, {"sig": sig, "since": db.iso(db.now())})
+        return None
+    since = seen["since"]
+    return since if db.now() - db.parse_iso(since) >= timedelta(days=STALE_DAYS) else None
 
 
 def _product_key(name: str, size: str | None) -> tuple[str, str]:
@@ -741,6 +767,14 @@ def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict 
                 step_snackspert(run)
                 step_discovery(run, settings)
                 step_geocode(run)
+                step_own_posts(run, settings)
+                step_maps(run, settings)
+            step_maintenance(run, settings)
+            try:
+                with db.session() as conn:
+                    trefkans.log_round(conn, include_demo=demo_mode)
+            except Exception:  # noqa: BLE001 - bijhouden mag de ronde nooit breken
+                log.exception("Trefkans bijhouden mislukt")
         except Exception as exc:  # noqa: BLE001 - ronde altijd netjes afsluiten
             log.exception("Ophaalronde mislukt")
             run.note(f"Ronde afgebroken: {exc}", "fout")
@@ -748,6 +782,99 @@ def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict 
         return {"id": run.id, "results": run.results, "new": run.new_posts}
     finally:
         _run_lock.release()
+
+
+def step_own_posts(run: Run, settings: dict) -> None:
+    """Eens per week je eigen Instagram-posts ophalen (± 2 cent per week, de eerste keer ± 15 cent)."""
+    handle = (settings.get("eigen_instagram") or "").strip().lstrip("@").strip("/")
+    if not handle or not apify.available():
+        return
+    with db.session() as conn:
+        last = db.get_state(conn, "eigen_posts_laatst")
+        if last and db.now() - db.parse_iso(last["at"]) < timedelta(days=max(1, settings.get("eigen_posts_dagen", 7))):
+            return
+        if budget.plan(conn, settings)["left_usd"] <= 0:
+            return
+    # Twee weken terug: dan worden ook de cijfers van je recente posts bijgewerkt.
+    since = (db.now() - timedelta(days=14)).strftime("%Y-%m-%d") if last else None
+    limit = 30 if last else 60
+    price = settings["prijs_instagram_per_1000"]
+    try:
+        found, cost = apify.run_actor("instagram", "account", [handle], limit, limit * price / 1000 * 1.5,
+                                      since=since, price_per_1000=price)
+    except apify.ApifyRunFailed as exc:
+        _remember_failed_run(run, exc, "instagram", "account", [handle])
+        return
+    except Exception as exc:  # noqa: BLE001
+        run.note(f"Eigen posts ophalen mislukt: {exc}", "waarschuwing")
+        return
+    with db.session() as conn:
+        budget.record(conn, "apify", cost, "instagram", f"eigen posts @{handle}")
+    posts = [p for p in _normalize_all(run, "instagram", found) if (p.get("author") or "").lower() == handle.lower()]
+    with db.session() as conn:
+        res = ownposts.merge_fetched(conn, posts)
+        db.set_state(conn, "eigen_posts_laatst", {"at": db.iso(db.now()), **res})
+    run.cost += cost
+    run.note(f"Eigen posts @{handle}: {res['new']} nieuw, {res['updated']} bijgewerkt, ${cost:.3f}")
+
+
+def step_maps(run: Run, settings: dict) -> None:
+    """Eens per week nieuwe zaken zoeken op Google Maps (± 1 dollar per week)."""
+    if not settings.get("maps_aan", True) or not apify.available():
+        return
+    with db.session() as conn:
+        last = db.get_state(conn, "maps_laatst")
+        if last and db.now() - db.parse_iso(last["at"]) < timedelta(days=7) - timedelta(hours=1):
+            return
+        if budget.plan(conn, settings)["left_usd"] <= 0:
+            return
+        searches = nieuwezaken.next_searches(conn, settings)
+    if not searches:
+        return
+    per = max(5, int(settings.get("maps_per_zoekopdracht", 30)))
+    price = settings.get("prijs_maps_per_1000", 4.0)
+    values = [s for s, _ in searches]
+    try:
+        items, cost = apify.run_actor("maps", "zoekterm", values, per, len(values) * per * price / 1000 * 1.3,
+                                      price_per_1000=price)
+    except apify.ApifyRunFailed as exc:
+        with db.session() as conn:
+            budget.record(conn, "apify", exc.max_usd, None, "Google Maps (onderbroken)")
+        run.note(f"Google Maps: {exc}", "waarschuwing")
+        return
+    except Exception as exc:  # noqa: BLE001
+        run.note(f"Google Maps: {exc}", "waarschuwing")
+        return
+    with db.session() as conn:
+        budget.record(conn, "apify", cost, None, f"Google Maps: {', '.join(sorted({c for _, c in searches}))}")
+    # De actor geeft per resultaat de zoekopdracht terug; anders tellen we alles onder de eerste.
+    by_search: dict[str, list] = {}
+    for it in items:
+        by_search.setdefault(it.get("searchString") or values[0], []).append(it)
+    with db.session() as conn:
+        new = sum(nieuwezaken.store(conn, s, its) for s, its in by_search.items())
+        cities = list(dict.fromkeys(c for _, c in searches))
+        n_cities = len([c for c in settings.get("maps_steden") or [] if c.strip()]) or 1
+        db.set_state(conn, "maps_volgende", (db.get_state(conn, "maps_volgende", 0) + len(cities)) % n_cities)
+        db.set_state(conn, "maps_laatst", {"at": db.iso(db.now()), "cities": cities, "found": len(items), "new": new})
+    run.cost += cost
+    run.note(f"Google Maps ({', '.join(cities)}): {len(items)} zaken bekeken, {new} nieuw, ${cost:.2f}")
+
+
+def step_maintenance(run: Run, settings: dict) -> None:
+    """Eens per week oude posts opruimen en een back-up maken."""
+    with db.session() as conn:
+        if onderhoud.cleanup_due(conn):
+            gone = onderhoud.cleanup(conn, settings)
+            if gone.get("posts"):
+                run.note(f"Opgeruimd: {gone['posts']} posts ouder dan {settings.get('bewaar_maanden')} maanden")
+        due = onderhoud.backup_due(conn, settings)
+    if due:
+        try:
+            info = onderhoud.make_backup(settings)
+            run.note(f"Back-up gemaakt ({info['mb']} MB) in {'Google Drive' if info['drive'] else info['path']}")
+        except Exception as exc:  # noqa: BLE001 - een volle schijf mag de ronde niet laten mislukken
+            run.note(f"Back-up mislukt: {exc}", "waarschuwing")
 
 
 def demo_active(conn) -> bool:

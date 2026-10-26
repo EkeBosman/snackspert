@@ -11,8 +11,8 @@ from urllib.parse import urlsplit
 from flask import Flask, Response, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
-from . import (budget, collector, config, db, geo, imports, lexicon, ownposts, potential, products,
-               routeplan, signals, snackspert, spots, taste, trends)
+from . import (budget, collector, config, db, geo, imports, lexicon, onderhoud, ownposts, potential, products,
+               nieuwezaken, routeplan, signals, snackspert, spots, taste, trefkans, trends)
 from .sources import apify, meta_graph
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
@@ -324,6 +324,7 @@ def api_supermarkt():
         result = products.overview(conn, a["include_demo"], days,
                                    only_relevant=request.args.get("alles") != "1")
         result["status"] = db.get_state(conn, "supermarkt_status", {})
+        result["test_ideas"] = products.test_ideas(conn, a["include_demo"], limit=10)
         base = signals.baselines(conn, include_demo=a["include_demo"])
     for m in result["mentioned"]:
         if m["example"]:
@@ -526,6 +527,25 @@ def api_budget():
         return jsonify(budget.overview(conn, settings))
 
 
+@app.get("/api/onderhoud")
+def api_onderhoud():
+    with db.session() as conn:
+        settings = db.get_settings(conn)
+        out = onderhoud.status(conn, settings)
+        out["cleanup"] = db.get_state(conn, "opruimen_laatst")
+    return jsonify(out)
+
+
+@app.post("/api/backup")
+def api_backup():
+    with db.session() as conn:
+        settings = db.get_settings(conn)
+    try:
+        return jsonify(onderhoud.make_backup(settings))
+    except OSError as exc:
+        return jsonify({"fout": f"back-up mislukt: {exc}"}), 500
+
+
 @app.get("/api/runs")
 def api_runs():
     with db.session() as conn:
@@ -656,7 +676,7 @@ def api_vandaag():
         hits = spots.radar_hits(conn, days=7, include_demo=a["include_demo"])
         tips_in_radar = []
         for r in conn.execute("SELECT * FROM spots"):
-            if r["id"] in hits and r["status"] not in ("gereviewd", "afgevallen"):
+            if r["id"] in hits and r["status"] not in spots.DONE:
                 tips_in_radar.append({**db.row_to_dict(r), "radar": hits[r["id"]]})
         tips_in_radar.sort(key=lambda t: t["radar"]["posts"], reverse=True)
         tips_in_radar = tips_in_radar[:6]
@@ -673,6 +693,7 @@ def api_vandaag():
             "learned_from": {**prof.sources, "eigen_posts": conn.execute("SELECT COUNT(*) FROM own_posts").fetchone()[0]},
             "audience": [{"snack": k, **v} for k, v in list(ownposts.lifts(conn).items())[:5] if v["lift"] >= 1.1],
             "tips_in_radar": tips_in_radar,
+            "test_ideas": products.test_ideas(conn, a["include_demo"], limit=5),
         })
 
 
@@ -698,11 +719,19 @@ WATCH_STATUSES = ("te proberen", "gepland", "bezocht", "gereviewd", "afgevallen"
 
 @app.get("/api/lijst")
 def api_lijst():
+    marks = ",".join("?" * len(spots.PLANNED))
     with db.session() as conn:
         rows = [dict(r) for r in conn.execute(
             "SELECT * FROM watchlist ORDER BY CASE status WHEN 'te proberen' THEN 0 WHEN 'gepland' THEN 1 "
             "WHEN 'bezocht' THEN 2 WHEN 'gereviewd' THEN 3 ELSE 4 END, updated_at DESC")]
-    return jsonify({"items": rows, "statuses": WATCH_STATUSES})
+        # Tips en routes die je op 'te proberen' of 'gepland' zette: je eigen plan.
+        tips = [db.row_to_dict(r) for r in conn.execute(
+            f"SELECT * FROM spots WHERE status IN ({marks}) ORDER BY status DESC, updated_at DESC", spots.PLANNED)]
+        routes = [d for d in spots.routes(conn) if d["status"] in spots.PLANNED]
+    for t in tips:
+        t["maps"] = spots.maps_search(t["name"], t["place"])
+    return jsonify({"items": rows, "statuses": WATCH_STATUSES, "tips": tips, "routes": routes,
+                    "tip_statuses": spots.STATUSES})
 
 
 @app.post("/api/lijst")
@@ -811,6 +840,22 @@ def api_mijnposts():
         return jsonify(ownposts.overview(conn, year))
 
 
+@app.get("/api/trefkans")
+def api_trefkans():
+    with db.session() as conn:
+        return jsonify(trefkans.report(conn))
+
+
+@app.post("/api/hookcheck")
+def api_hookcheck():
+    d = _body()
+    caption = _text(d, "caption", 3000)
+    if not caption:
+        return jsonify({"fout": "plak eerst een caption"}), 400
+    with db.session() as conn:
+        return jsonify(ownposts.hook_check(conn, caption, _text(d, "format", 60) or None))
+
+
 # --- tips & routes -----------------------------------------------------------------
 
 @app.get("/api/tips")
@@ -818,7 +863,7 @@ def api_tips():
     a = _args()
     with db.session() as conn:
         out = spots.listing(conn, a["include_demo"])
-    out["statuses"] = WATCH_STATUSES
+    out["statuses"] = spots.STATUSES
     return jsonify(out)
 
 
@@ -832,8 +877,8 @@ def add_tip():
     lst = _text(d, "list", 60) or "Eigen tips"
     with db.session() as conn:
         conn.execute(
-            "INSERT INTO spots(name, place, specialty, region, lists, note, origin, added_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, 'handmatig', ?, ?) ON CONFLICT(name, place) DO UPDATE SET "
+            "INSERT INTO spots(name, place, specialty, region, lists, note, status, origin, added_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, 'nieuw', 'handmatig', ?, ?) ON CONFLICT(name, place) DO UPDATE SET "
             "specialty = excluded.specialty, updated_at = excluded.updated_at",
             (name, _text(d, "place", 100), _text(d, "specialty", 500), _text(d, "region", 60),
              json.dumps([lst]), _text(d, "note", 2000), now, now))
@@ -844,7 +889,7 @@ def add_tip():
 def update_tip(sid: int):
     d = _body()
     sets, args = [], []
-    if d.get("status") in WATCH_STATUSES:
+    if d.get("status") in spots.STATUSES:
         sets.append("status = ?")
         args.append(d["status"])
     if "note" in d:
@@ -869,13 +914,13 @@ def delete_tip(sid: int):
 @app.get("/api/routes")
 def api_routes():
     with db.session() as conn:
-        return jsonify({"routes": spots.routes(conn), "statuses": WATCH_STATUSES})
+        return jsonify({"routes": spots.routes(conn), "statuses": spots.STATUSES})
 
 
 @app.patch("/api/routes/<int:rid>")
 def update_route(rid: int):
     d = _body()
-    if d.get("status") not in WATCH_STATUSES:
+    if d.get("status") not in spots.STATUSES:
         return jsonify({"fout": "onbekende status"}), 400
     with db.session() as conn:
         conn.execute("UPDATE routes SET status = ? WHERE id = ?", (d["status"], rid))
@@ -899,7 +944,7 @@ def api_potentie():
     limit = _num("limit", 10, int, 1, 50)
     with db.session() as conn:
         out = potential.ranking(conn, limit, a["include_demo"])
-    out["statuses"] = WATCH_STATUSES
+    out["statuses"] = spots.STATUSES
     return jsonify(out)
 
 
@@ -936,6 +981,12 @@ def api_route_reject():
 def api_geocode():
     started = geo.fill_in_background()
     return jsonify({"started": started, **geo.progress()})
+
+
+@app.get("/api/nieuwezaken")
+def api_new_places():
+    with db.session() as conn:
+        return jsonify({"places": nieuwezaken.new_places(conn), **nieuwezaken.summary(conn)})
 
 
 @app.get("/api/tips/suggesties")

@@ -20,7 +20,7 @@ import math
 from collections import defaultdict
 from datetime import timedelta
 
-from . import db, lexicon, ownposts, seeds, signals, taste
+from . import db, lexicon, ownposts, seeds, signals, taste, trefkans
 from .classify import norm
 
 WINDOWS = {
@@ -107,6 +107,7 @@ def candidates(conn, hours: int = 72, city: str | None = None, include_demo: boo
     seen = {r["ref"] for r in conn.execute("SELECT ref FROM watchlist WHERE kind = 'post'")} | taste.rated(conn)
     # Je eigen posts: welke snacks doen het goed bij jouw publiek, en wie heb je al gepost?
     lifts = ownposts.lifts(conn)
+    learned = trefkans.learned_lifts(conn)
     posted = {taste.zaak_key(h): v for h, v in ownposts.posted_handles(conn).items()}
     captions = ownposts.caption_index(conn)
     scored = []
@@ -150,6 +151,13 @@ def candidates(conn, hours: int = 72, city: str | None = None, include_demo: boo
             score += bonus
         if score <= 0:
             continue
+        # Trefkans: signalen die bij jouw eerdere posts goed (of slecht) uitpakten.
+        for sig in {s for r in reasons if (s := trefkans.signal_of(r))}:
+            lift = learned.get(sig)
+            if lift and abs(lift - 1) >= 0.1:
+                score += max(-1.0, min(1.0, (lift - 1) * 1.5))
+                if lift > 1:
+                    reasons.append(f"Werkte bij jou: {sig} {str(lift).replace('.', ',')}×")
         best = max((lifts[f[6:]] | {"snack": f[6:]} for f in feats if f.startswith("snack:") and f[6:] in lifts),
                    key=lambda x: x["lift"], default=None)
         if best and best["lift"] >= 1.15:

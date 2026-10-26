@@ -60,7 +60,7 @@ def plan(conn, settings: dict, now: datetime | None = None) -> dict:
     days = calendar.monthrange(now.year, now.month)[1]
     normal = budget_usd / max(1.0, days * 24 / max(1, settings["interval_uren"]))
     per_run = min(left / n_runs, 2 * normal)
-    weights = settings["verdeling"]
+    weights = smart_split(conn, settings)
     total_w = sum(weights.get(p, 0) for p in PLATFORMS) or 1
     per_platform = {}
     for p in PLATFORMS:
@@ -75,6 +75,39 @@ def plan(conn, settings: dict, now: datetime | None = None) -> dict:
         "per_run_usd": round(per_run, 4),
         "platforms": per_platform,
     }
+
+
+MIN_COST_USD = 2.0   # pas na een paar dollar per platform is 'per dollar' betrouwbaar
+
+
+def efficiency(conn) -> dict[str, dict]:
+    """Per platform: nuttige posts (nieuw, relevant, Nederlands) per uitgegeven dollar."""
+    out = {}
+    for r in conn.execute("SELECT platform, SUM(cost_usd) AS usd, SUM(useful_total) AS useful FROM sources "
+                          "WHERE platform IN ('instagram', 'tiktok', 'facebook') GROUP BY platform"):
+        usd = r["usd"] or 0.0
+        out[r["platform"]] = {"usd": round(usd, 2), "useful": r["useful"] or 0,
+                              "per_usd": round((r["useful"] or 0) / usd, 2) if usd >= MIN_COST_USD else None}
+    return out
+
+
+def smart_split(conn, settings: dict) -> dict[str, float]:
+    """De ingestelde verdeling, bijgestuurd naar wat elk platform per dollar oplevert.
+
+    Een platform dat twee keer zo veel nuttige posts per dollar oplevert als gemiddeld
+    krijgt tot twee keer zijn aandeel; een slecht platform houdt minstens de helft,
+    zodat het nog meetelt (en kan herstellen).
+    """
+    base = settings["verdeling"]
+    if not settings.get("verdeling_automatisch", True):
+        return dict(base)
+    eff = {p: e["per_usd"] for p, e in efficiency(conn).items() if e["per_usd"] is not None and base.get(p, 0) > 0}
+    if len(eff) < 2:
+        return dict(base)
+    mean = sum(eff.values()) / len(eff)
+    if mean <= 0:
+        return dict(base)
+    return {p: round(w * (min(2.0, max(0.5, eff[p] / mean)) if p in eff else 1.0), 4) for p, w in base.items()}
 
 
 def overview(conn, settings: dict) -> dict:
@@ -104,9 +137,17 @@ def overview(conn, settings: dict) -> dict:
         "rondes_over": p["runs_left"],
         "per_ronde_eur": round(p["per_run_usd"] * rate, 2),
         "plan": p["platforms"],
+        "verdeling": _shares(smart_split(conn, settings)),
+        "verdeling_ingesteld": _shares(settings["verdeling"]),
+        "rendement": efficiency(conn),
         # Wat Apify zelf meldt over je account (bijgewerkt bij elke ophaalronde).
         "apify_account": db.get_state(conn, "apify_account"),
     }
+
+
+def _shares(weights: dict[str, float]) -> dict[str, int]:
+    total = sum(weights.get(p, 0) for p in PLATFORMS) or 1
+    return {p: round(100 * weights.get(p, 0) / total) for p in PLATFORMS}
 
 
 def allocate(sources: list[dict], results: int, min_per: int, max_per: int,

@@ -59,6 +59,7 @@ DEFAULTS: dict = {
     # Hoe het Apify-budget per run over de platforms wordt verdeeld.
     # Instagram krijgt minder omdat de gratis Meta-API een deel afdekt.
     "verdeling": {"instagram": 0.30, "tiktok": 0.45, "facebook": 0.25},
+    "verdeling_automatisch": True,    # bijsturen naar nuttige posts per dollar (zie budget.smart_split)
     "min_per_bron": 10,
     "max_per_bron": 40,
     "auto_toevoegen": True,
@@ -74,6 +75,19 @@ DEFAULTS: dict = {
     "nieuws_aan": True,
     "thuisbasis": "Amsterdam",        # vanaf hier rekent de tool routes (retour)
     "extra_rss": [],
+    "backup_map": "",                 # leeg: Google Drive-map 'Snackspert Trendradar', anders data/backups
+    "backup_dagen": 7,
+    "bewaar_maanden": 6,
+    "eigen_instagram": "",            # je eigen account: wekelijks je nieuwe posts en cijfers ophalen
+    "eigen_posts_dagen": 7,
+    # Nieuwe zaken via Google Maps: elke week een paar steden, op rij af.
+    "maps_aan": True,
+    "maps_zoektermen": ["snackbar", "foodtruck", "streetfood", "frituur"],
+    "maps_steden": ["Amsterdam", "Rotterdam", "Utrecht", "Den Haag", "Eindhoven", "Groningen", "Arnhem",
+                    "Nijmegen", "Tilburg", "Breda", "Zwolle", "Haarlem", "Leiden", "Almere"],
+    "maps_steden_per_week": 2,
+    "maps_per_zoekopdracht": 30,
+    "prijs_maps_per_1000": 4.00,              # oudere posts opruimen (bewaarde en beoordeelde blijven); 0 = nooit
 }
 
 

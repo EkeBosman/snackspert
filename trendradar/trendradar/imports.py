@@ -298,7 +298,7 @@ def spot_key(name: str, place: str) -> tuple[str, str]:
     return taste.zaak_key(name), _place_key(place)
 
 
-_STATUS_ORDER = ["te proberen", "gepland", "bezocht", "gereviewd", "afgevallen"]
+_STATUS_ORDER = ["nieuw", "te proberen", "gepland", "bezocht", "gereviewd", "afgevallen"]
 
 
 def merge_duplicate_spots(conn) -> int:
@@ -331,8 +331,14 @@ def save(conn, parsed: dict) -> dict:
     now = db.iso(db.now())
     result = {"posts": 0, "spots": 0, "spots_new": 0, "routes": 0}
     if parsed["posts"]:
-        # Het Excel-overzicht is leidend: alles vervangen voorkomt dubbele posts.
-        conn.execute("DELETE FROM own_posts")
+        # Het Excel-overzicht is leidend: alles vervangen voorkomt dubbele posts. Automatisch
+        # opgehaalde posts die (nog) niet in het bestand staan, blijven wel staan.
+        from . import ownposts
+        in_file = {ownposts.shortcode(p.get("url")) for p in parsed["posts"]} - {None}
+        conn.execute("DELETE FROM own_posts WHERE COALESCE(note, '') != 'automatisch'")
+        for r in conn.execute("SELECT id, url FROM own_posts").fetchall():
+            if ownposts.shortcode(r["url"]) in in_file:
+                conn.execute("DELETE FROM own_posts WHERE id = ?", (r["id"],))
         fields = ["id", "date", "month", "type", "caption", "url", "views", "reach", "likes", "comments",
                   "shares", "saves", "followers", "format", "channel", "location", "recognition",
                   "classified", "followers_count", "note"]
@@ -358,8 +364,8 @@ def save(conn, parsed: dict) -> dict:
                              (json.dumps(lists), spec, s["region"] or old["region"], now, old["id"]))
                 old.update(lists=json.dumps(lists), specialty=spec)
             else:
-                cur = conn.execute("INSERT INTO spots(name, place, specialty, region, lists, added_at, updated_at) "
-                                   "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(name, place) DO NOTHING",
+                cur = conn.execute("INSERT INTO spots(name, place, specialty, region, lists, status, added_at, "
+                                   "updated_at) VALUES (?, ?, ?, ?, ?, 'nieuw', ?, ?) ON CONFLICT(name, place) DO NOTHING",
                                    (s["name"], s["place"], s["specialty"], s["region"], json.dumps([s["list"]]),
                                     now, now))
                 if cur.rowcount:
@@ -379,8 +385,8 @@ def save(conn, parsed: dict) -> dict:
                 conn.execute("UPDATE routes SET region = ?, stops = ?, km = ?, duration = ?, note = ? WHERE id = ?",
                              (r["region"], stops, r["km"], r["duration"], r["note"], old[r["name"]]))
             else:
-                conn.execute("INSERT INTO routes(name, region, stops, km, duration, note, added_at) "
-                             "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                conn.execute("INSERT INTO routes(name, region, stops, km, duration, note, status, added_at) "
+                             "VALUES (?, ?, ?, ?, ?, ?, 'nieuw', ?)",
                              (r["name"], r["region"], stops, r["km"], r["duration"], r["note"], now))
             seen.add(r["name"])
         gone = [rid for name, rid in old.items() if name not in seen]

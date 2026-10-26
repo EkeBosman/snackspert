@@ -84,8 +84,15 @@ def _fb_input(values, limit, since=None):
     return out
 
 
+def _maps_input(values, limit, since=None):
+    # Google Maps: 'snackbar Utrecht'. Gesloten zaken overslaan; de detailpagina niet (scheelt geld).
+    return {"searchStringsArray": values, "maxCrawledPlacesPerSearch": limit, "language": "nl",
+            "countryCode": "nl", "skipClosedPlaces": True, "scrapePlaceDetailPage": False}
+
+
 # (platform, soort) -> (actor-id, invoerbouwer)
 ACTORS = {
+    ("maps", "zoekterm"): ("compass~crawler-google-places", _maps_input),
     ("instagram", "hashtag"): ("apify~instagram-hashtag-scraper", _ig_hashtag_input),
     ("instagram", "account"): ("apify~instagram-scraper", _ig_profile_input),
     ("instagram", "post"): ("apify~instagram-scraper", _ig_post_input),
@@ -165,7 +172,8 @@ MIN_CHARGE_USD = 0.50
 
 # Velden die het resultaat verbeteren maar niet nodig zijn om te werken.
 OPTIONAL_KEYS = {"searchSection", "proxyCountryCode", "profileSorting", "excludePinnedPosts",
-                 "oldestPostDateUnified", "onlyPostsNewerThan"}
+                 "oldestPostDateUnified", "onlyPostsNewerThan", "language", "countryCode",
+                 "skipClosedPlaces", "scrapePlaceDetailPage"}
 
 
 RETRY_WAIT_S = 20

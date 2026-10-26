@@ -196,7 +196,7 @@ CREATE TABLE IF NOT EXISTS spots (
     specialty   TEXT DEFAULT '',
     region      TEXT DEFAULT '',
     lists       TEXT DEFAULT '[]',
-    status      TEXT NOT NULL DEFAULT 'te proberen',
+    status      TEXT NOT NULL DEFAULT 'nieuw',  -- nieuw | te proberen | gepland | bezocht | gereviewd | afgevallen
     note        TEXT DEFAULT '',
     origin      TEXT NOT NULL DEFAULT 'import',   -- import | handmatig
     added_at    TEXT NOT NULL,
@@ -212,9 +212,37 @@ CREATE TABLE IF NOT EXISTS routes (
     km          TEXT DEFAULT '',
     duration    TEXT DEFAULT '',
     note        TEXT DEFAULT '',
-    status      TEXT NOT NULL DEFAULT 'te proberen',
+    status      TEXT NOT NULL DEFAULT 'nieuw',
     origin      TEXT NOT NULL DEFAULT 'import',
     added_at    TEXT NOT NULL
+);
+
+-- Zaken op Google Maps (nieuwe zaken vinden). is_new = niet gezien bij de nulmeting van die zoekopdracht.
+CREATE TABLE IF NOT EXISTS places (
+    place_id    TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    category    TEXT,
+    address     TEXT,
+    city        TEXT,
+    lat         REAL,
+    lon         REAL,
+    rating      REAL,
+    reviews     INTEGER,
+    url         TEXT,
+    search      TEXT,
+    first_seen  TEXT NOT NULL,
+    last_seen   TEXT NOT NULL,
+    is_new      INTEGER NOT NULL DEFAULT 0
+);
+
+-- Wat de tool aanraadde (trefkans): later te koppelen aan je eigen posts.
+CREATE TABLE IF NOT EXISTS suggestions (
+    key         TEXT PRIMARY KEY,           -- zaak:<sleutel> | zin:<combinatie> | product:<naam>
+    kind        TEXT NOT NULL,              -- kandidaat | potentie | testlijst
+    label       TEXT NOT NULL,
+    terms       TEXT NOT NULL DEFAULT '[]', -- zoektermen die in je caption moeten staan
+    signals     TEXT NOT NULL DEFAULT '[]', -- combinatie, doorbraak, eigen creatie, ...
+    first_at    TEXT NOT NULL
 );
 
 -- Coördinaten van plaatsen (OpenStreetMap), één keer opgezocht. lat NULL = niet gevonden.
@@ -313,6 +341,12 @@ def init() -> None:
             cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
             if column not in cols:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+        # Tips en routes kregen eerst automatisch 'te proberen'. Nu is dat een bewuste keuze
+        # (dan staan ze in Mijn lijst); alles wat alleen geïmporteerd was, heet 'nieuw'.
+        if not get_state(conn, "tip_status_nieuw", False):
+            for table in ("spots", "routes"):
+                conn.execute(f"UPDATE {table} SET status = 'nieuw' WHERE status = 'te proberen'")
+            set_state(conn, "tip_status_nieuw", True)
 
 
 # --- instellingen ---------------------------------------------------------

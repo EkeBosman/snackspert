@@ -170,7 +170,9 @@ def profile(conn) -> Profile:
     prof.user = {f: w for f, w in weights.items() if w}
     n_spots = 0
     for s in conn.execute("SELECT name, place, specialty, status FROM spots"):
-        sign = -SPOT_WEIGHT if s["status"] == "afgevallen" else SPOT_WEIGHT
+        # Een tip die je bewust op 'te proberen' zet, zegt meer dan een tip uit een import.
+        sign = {"afgevallen": -SPOT_WEIGHT, "te proberen": 2 * SPOT_WEIGHT,
+                "gepland": 2 * SPOT_WEIGHT}.get(s["status"], SPOT_WEIGHT)
         key = f"zaak:{zaak_key(s['name'])}"
         weights[key] += sign
         prof.names.setdefault(key, s["name"])
