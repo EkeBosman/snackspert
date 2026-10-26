@@ -343,6 +343,11 @@ def init() -> None:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
         # Tips en routes kregen eerst automatisch 'te proberen'. Nu is dat een bewuste keuze
         # (dan staan ze in Mijn lijst); alles wat alleen geïmporteerd was, heet 'nieuw'.
+        # Supermarkt-scraper: de eerste instellingen bleken te traag (12 woorden × 90 per woord).
+        if not get_state(conn, "supermarkt_v2", False):
+            conn.execute("DELETE FROM settings WHERE key IN ('supermarkt_zoektermen', 'supermarkt_per_winkel', "
+                         "'supermarkt_apify_dagen')")
+            set_state(conn, "supermarkt_v2", True)
         if not get_state(conn, "tip_status_nieuw", False):
             for table in ("spots", "routes"):
                 conn.execute(f"UPDATE {table} SET status = 'nieuw' WHERE status = 'te proberen'")

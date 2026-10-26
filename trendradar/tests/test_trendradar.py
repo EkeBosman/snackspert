@@ -1770,6 +1770,7 @@ def test_supermarkets_via_apify(conn, monkeypatch):
     collector.step_supermarkets(collector.Run("t"), settings, force=True)
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
     assert calls[0][:2] == ("supermarkt", "zoekterm") and calls[0][3]["supermarkets"] == ["ah"]
+    assert calls[0][3]["maxResults"] == 12 * len(settings["supermarkt_zoektermen"])  # totaal, niet per woord
     status = db.get_state(conn, "supermarkt_status")
     assert status["Albert Heijn"]["bron"] == "apify" and "nulmeting" in status["Albert Heijn"]["melding"]
     assert status["Spar"]["bron"] == "cjb"
@@ -1779,3 +1780,25 @@ def test_supermarkets_via_apify(conn, monkeypatch):
     assert new == {"AH Loaded Kipcorn Bites": 3.29}                                    # Jumbo-resultaat niet bij AH
     assert budget.spent_usd(conn, "apify") == pytest.approx(0.6)
     assert supermarket.parse_apify({"productName": "X", "price": {"now": 1.5}}, "Plus", "plus")["price"] == 1.5
+
+
+def test_supermarkets_via_apify_run_in_background(conn, monkeypatch):
+    import threading
+    from trendradar import collector
+
+    _apify_offline(monkeypatch)
+    done = threading.Event()
+    monkeypatch.setattr(collector, "step_supermarkets_apify", lambda run, settings, force=False: done.wait(5))
+    settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"]}
+    assert collector.start_supermarkets_apify(settings, True)
+    assert not collector.start_supermarkets_apify(settings, True)        # niet twee tegelijk
+    assert not collector.is_running()                                     # de gewone ronde wacht er niet op
+    done.set()
+    for _ in range(50):
+        if collector._shop_lock.acquire(blocking=False):
+            collector._shop_lock.release()
+            break
+        threading.Event().wait(0.05)
+    row = conn.execute("SELECT trigger FROM runs ORDER BY id DESC LIMIT 1").fetchone()
+    assert row["trigger"] == "supermarkt"
+    assert collector.due(conn, settings)                                  # telt niet als gewone ronde

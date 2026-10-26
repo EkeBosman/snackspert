@@ -129,7 +129,8 @@ def status():
         settings = db.get_settings(conn)
         last = collector.last_run(conn)
         last_done = conn.execute(
-            "SELECT started_at FROM runs WHERE status != 'bezig' ORDER BY started_at DESC, id DESC LIMIT 1").fetchone()
+            "SELECT started_at FROM runs WHERE status != 'bezig' AND trigger != 'supermarkt' "
+            "ORDER BY started_at DESC, id DESC LIMIT 1").fetchone()
         next_at = None
         if last_done:
             next_at = db.iso(db.parse_iso(last_done["started_at"])

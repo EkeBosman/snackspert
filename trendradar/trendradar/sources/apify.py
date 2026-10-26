@@ -250,10 +250,12 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
     try:
         return _finish_run(actor, run, headers, max_items, price_per_1000, timeout_s)
     except Exception as exc:  # noqa: BLE001 - de run loopt en kost geld: nooit stil laten verdwijnen
-        try:
-            requests.post(f"{API}/actor-runs/{run['id']}/abort", headers=headers, timeout=15)
-        except requests.RequestException:
-            pass
+        for _ in range(3):  # stoppen, anders loopt hij door terwijl de tool al verder is
+            try:
+                if requests.post(f"{API}/actor-runs/{run['id']}/abort", headers=headers, timeout=20).ok:
+                    break
+            except requests.RequestException:
+                time.sleep(5)
         raise ApifyRunFailed(f"{actor}: run {run['id']} onderbroken ({exc})", run["id"], cap,
                              run.get("defaultDatasetId")) from exc
 

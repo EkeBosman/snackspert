@@ -541,10 +541,10 @@
       ["backup_dagen", "Back-up elke … dagen", "number", 1],
       ["backup_map", "Back-upmap (leeg = Google Drive-map 'Snackspert Trendradar')", "text"],
     ]],
-    ["Supermarkten via Apify (AH, Jumbo, Plus, Lidl, Aldi, Dirk, Vomar · ± 3 dollar per keer)", [
+    ["Supermarkten via Apify (AH, Jumbo, Plus, Lidl, Aldi, Dirk, Vomar · ± 3,50 dollar per keer, op de achtergrond)", [
       ["supermarkt_apify_aan", "Deze winkels zelf doorzoeken via Apify", "checkbox"],
       ["supermarkt_apify_dagen", "Elke … dagen", "number", 0.5],
-      ["supermarkt_per_winkel", "Producten per winkel per keer", "number", 10],
+      ["supermarkt_per_zoekwoord", "Producten per zoekwoord per winkel", "number", 1],
       ["supermarkt_apify_winkels", "Winkelcodes (één per regel)", "textarea"],
       ["supermarkt_zoektermen", "Zoekwoorden (één per regel)", "textarea"],
     ]],
