@@ -331,8 +331,14 @@ def save(conn, parsed: dict) -> dict:
     now = db.iso(db.now())
     result = {"posts": 0, "spots": 0, "spots_new": 0, "routes": 0}
     if parsed["posts"]:
-        # Het Excel-overzicht is leidend: alles vervangen voorkomt dubbele posts.
-        conn.execute("DELETE FROM own_posts")
+        # Het Excel-overzicht is leidend: alles vervangen voorkomt dubbele posts. Automatisch
+        # opgehaalde posts die (nog) niet in het bestand staan, blijven wel staan.
+        from . import ownposts
+        in_file = {ownposts.shortcode(p.get("url")) for p in parsed["posts"]} - {None}
+        conn.execute("DELETE FROM own_posts WHERE COALESCE(note, '') != 'automatisch'")
+        for r in conn.execute("SELECT id, url FROM own_posts").fetchall():
+            if ownposts.shortcode(r["url"]) in in_file:
+                conn.execute("DELETE FROM own_posts WHERE id = ?", (r["id"],))
         fields = ["id", "date", "month", "type", "caption", "url", "views", "reach", "likes", "comments",
                   "shares", "saves", "followers", "format", "channel", "location", "recognition",
                   "classified", "followers_count", "note"]

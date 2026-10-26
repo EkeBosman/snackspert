@@ -77,7 +77,17 @@ DEFAULTS: dict = {
     "extra_rss": [],
     "backup_map": "",                 # leeg: Google Drive-map 'Snackspert Trendradar', anders data/backups
     "backup_dagen": 7,
-    "bewaar_maanden": 6,              # oudere posts opruimen (bewaarde en beoordeelde blijven); 0 = nooit
+    "bewaar_maanden": 6,
+    "eigen_instagram": "",            # je eigen account: wekelijks je nieuwe posts en cijfers ophalen
+    "eigen_posts_dagen": 7,
+    # Nieuwe zaken via Google Maps: elke week een paar steden, op rij af.
+    "maps_aan": True,
+    "maps_zoektermen": ["snackbar", "foodtruck", "streetfood", "frituur"],
+    "maps_steden": ["Amsterdam", "Rotterdam", "Utrecht", "Den Haag", "Eindhoven", "Groningen", "Arnhem",
+                    "Nijmegen", "Tilburg", "Breda", "Zwolle", "Haarlem", "Leiden", "Almere"],
+    "maps_steden_per_week": 2,
+    "maps_per_zoekopdracht": 30,
+    "prijs_maps_per_1000": 4.00,              # oudere posts opruimen (bewaarde en beoordeelde blijven); 0 = nooit
 }
 
 

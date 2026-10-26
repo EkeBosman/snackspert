@@ -1656,3 +1656,91 @@ def test_budget_shifts_to_the_platform_that_delivers(conn):
     assert split["instagram"] >= settings["verdeling"]["instagram"] / 2
     assert budget.smart_split(conn, {**settings, "verdeling_automatisch": False}) == settings["verdeling"]
     assert sum(budget.overview(conn, settings)["verdeling"].values()) in (99, 100, 101)
+
+
+def test_trefkans_links_suggestions_to_own_posts(conn):
+    from trendradar import trefkans
+
+    old = db.iso(db.now() - timedelta(days=40))
+    trefkans.log(conn, "kandidaat", "zin:kroket + kaassoufflé", "kroket + kaassoufflé",
+                 trefkans._terms_words("kroket kaassoufflé"), ["Combinatie: kroket + kaassoufflé", "Doorbraak"])
+    trefkans.log(conn, "potentie", "zaak:snackbardepoppe", "Snackbar de Poppe",
+                 trefkans._terms_zaak("Snackbar de Poppe"), ["Eigen creatie: broodje lammert"])
+    trefkans.log(conn, "potentie", "zaak:nooitgepost", "Nooit Gepost Bar", trefkans._terms_zaak("Nooit Gepost Bar"), [])
+    conn.execute("UPDATE suggestions SET first_at = ?", (old,))
+    day = (db.now() - timedelta(days=10)).strftime("%Y-%m-%d")
+    for i, (cap, views) in enumerate([("Kroket met kaassoufflé erin!", 400000), ("Bij @snackbardepoppe gegeten", 300000),
+                                      ("Gewone friet", 100000), ("Nog een friet", 100000)]):
+        conn.execute("INSERT INTO own_posts(id, date, month, caption, views, followers_count, imported_at) "
+                     "VALUES (?, ?, ?, ?, ?, 1, 'x')", (f"p{i}", day, day[:7], cap, views))
+    r = trefkans.report(conn)
+    assert r["suggested"] == 3 and r["posted"] == 2
+    sig = {s["signal"]: s for s in r["signals"]}
+    assert sig["combinatie"]["hits"] == 1 and sig["combinatie"]["lift"] == 2.0
+    assert "eigen creatie" in sig
+    assert trefkans.signal_of("12× views") == "veel views"
+
+
+def test_own_posts_fetched_and_kept_on_import(conn, monkeypatch):
+    from trendradar import collector, imports, ownposts
+
+    conn.execute("INSERT INTO own_posts(id, date, month, caption, url, views, followers, followers_count, imported_at) "
+                 "VALUES ('a', '2026-10-01', '2026-10', 'oud', 'https://www.instagram.com/reel/AAA111/', 1000, 50, 1, 'x')")
+    conn.commit()
+    real_normalize = apify.normalize
+    ap = _apify_offline(monkeypatch)
+    monkeypatch.setattr(ap, "normalize", real_normalize)  # hier juist de echte omzetting
+    items = [{"id": "1", "shortCode": "AAA111", "url": "https://www.instagram.com/p/AAA111/", "caption": "oud",
+              "ownerUsername": "snackspert", "timestamp": "2026-10-01T10:00:00.000Z", "videoPlayCount": 5000,
+              "likesCount": 300, "commentsCount": 20},
+             {"id": "2", "shortCode": "BBB222", "url": "https://www.instagram.com/p/BBB222/", "caption": "Nieuwe kroket!",
+              "ownerUsername": "snackspert", "timestamp": "2026-10-20T10:00:00.000Z", "videoPlayCount": 8000,
+              "likesCount": 400, "commentsCount": 30},
+             {"id": "3", "shortCode": "CCC333", "url": "https://www.instagram.com/p/CCC333/", "caption": "collab",
+              "ownerUsername": "iemandanders", "timestamp": "2026-10-21T10:00:00.000Z"}]
+    monkeypatch.setattr(ap, "run_actor", lambda *a, **k: (items, 0.05))
+    settings = {**config.DEFAULTS, "eigen_instagram": "@snackspert"}
+    collector.step_own_posts(collector.Run("test"), settings)
+    rows = {r["url"]: dict(r) for r in conn.execute("SELECT * FROM own_posts")}
+    assert rows["https://www.instagram.com/reel/AAA111/"]["views"] == 5000          # bijgewerkt
+    assert rows["https://www.instagram.com/reel/AAA111/"]["followers"] == 50        # export-cijfer blijft
+    assert rows["https://www.instagram.com/p/BBB222/"]["note"] == "automatisch"
+    assert len(rows) == 2                                                           # niet de post van een ander
+    collector.step_own_posts(collector.Run("test"), settings)                       # pas over een week weer
+    # Een nieuwe Excel-import zonder de automatische post laat die staan.
+    imports.save(conn, {"posts": [{"id": "x", "url": "https://www.instagram.com/reel/AAA111/", "caption": "oud",
+                                   "views": 6000, "month": "2026-10", "followers_count": 1}],
+                        "spots": [], "routes": []})
+    assert {r["url"] for r in conn.execute("SELECT url FROM own_posts")} == {
+        "https://www.instagram.com/reel/AAA111/", "https://www.instagram.com/p/BBB222/"}
+    assert ownposts.shortcode("https://www.instagram.com/snackspert/reel/XyZ-1/") == "XyZ-1"
+
+
+def test_new_places_from_google_maps(conn, monkeypatch):
+    from trendradar import collector, nieuwezaken
+
+    ap = _apify_offline(monkeypatch)
+    old = [{"placeId": f"old{i}", "title": f"Snackbar Oud {i}", "city": "Utrecht", "reviewsCount": 300,
+            "totalScore": 4.1, "searchString": "snackbar Utrecht"} for i in range(3)]
+    batches = iter([(old, 0.4), (old + [
+        {"placeId": "n1", "title": "Frietkot De Nieuwe", "city": "Utrecht", "reviewsCount": 12, "totalScore": 4.8,
+         "categoryName": "Snackbar", "searchString": "snackbar Utrecht"},
+        {"placeId": "n2", "title": "Snackbar Gesloten", "city": "Utrecht", "reviewsCount": 3, "permanentlyClosed": True,
+         "searchString": "snackbar Utrecht"},
+        {"placeId": "n3", "title": "Al Lang Bekend", "city": "Utrecht", "reviewsCount": 900,
+         "searchString": "snackbar Utrecht"}], 0.4)])
+    calls = []
+    monkeypatch.setattr(ap, "run_actor", lambda *a, **k: calls.append(a) or next(batches))
+    settings = {**config.DEFAULTS, "maps_steden": ["Utrecht"], "maps_zoektermen": ["snackbar"]}
+    collector.step_maps(collector.Run("test"), settings)
+    assert calls[0][:2] == ("maps", "zoekterm") and calls[0][2] == ["snackbar Utrecht"]
+    assert nieuwezaken.new_places(conn) == []                                   # nulmeting
+    db.set_state(conn, "maps_laatst", {"at": db.iso(db.now() - timedelta(days=8)), "cities": [], "found": 0, "new": 0})
+    conn.commit()
+    collector.step_maps(collector.Run("test"), settings)
+    names = [p["name"] for p in nieuwezaken.new_places(conn)]
+    assert names == ["Frietkot De Nieuwe"]                                      # niet gesloten, niet al lang bekend
+    assert nieuwezaken.new_places(conn)[0]["hot"]
+    conn.execute("INSERT INTO spots(name, place, added_at, updated_at) VALUES ('Frietkot De Nieuwe', 'Utrecht', 'x', 'x')")
+    assert nieuwezaken.new_places(conn) == []                                   # al in je tips
+    assert budget.spent_usd(conn, "apify") == pytest.approx(0.8)

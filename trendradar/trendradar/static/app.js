@@ -387,6 +387,8 @@
     $("#store-status").innerHTML = st.length ? st.map(([store, s]) =>
       `<span class="chip static"><span class="badge ${s.ok ? "ok" : s.stil ? "warn" : "bad"}">${s.ok ? "✓ werkt" : s.stil ? "⚠ staat stil" : "✗ storing"}</span>${esc(store)}: ${esc(s.melding)} · ${ago(s.t)}</span>`).join("")
       : `<span class="chip static">Het assortiment van AH, Jumbo, Lidl, Plus en andere winkels wordt twee keer per dag vergeleken (eerste keer bij de eerstvolgende ronde).</span>`;
+    $("#list-tests").innerHTML = testIdeas(d.test_ideas,
+      "Nog geen kandidaten. Zodra er nieuwe snackproducten in het schap komen, zet de tool de beste hier.");
     const CONF = { winkel: "🏪 winkel", social: "📱 social", nieuws: "📰 nieuws" };
     $("#list-early").innerHTML = d.early.length ? d.early.map(m =>
       `<li><div class="row"><button class="linkish" data-topic="product|${esc(m.name)}">${esc(m.name)}</button>
@@ -523,6 +525,16 @@
     ["Kosten besparen", [
       ["alleen_nieuwe_posts", "Alleen posts sinds de vorige keer opvragen (datumfilter)", "checkbox"],
       ["herhaalmeting_per_ronde", "Snelle posts opnieuw meten (per platform per ronde)", "number", 1],
+    ]],
+    ["Nieuwe zaken via Google Maps (Apify, ± 1 dollar per week)", [
+      ["maps_aan", "Elke week zoeken naar nieuwe zaken", "checkbox"],
+      ["maps_steden_per_week", "Steden per week", "number", 1],
+      ["maps_steden", "Steden, op rij af (één per regel)", "textarea"],
+      ["maps_zoektermen", "Zoektermen (één per regel)", "textarea"],
+    ]],
+    ["Mijn posts automatisch bijwerken (Apify, ± 2 cent per week)", [
+      ["eigen_instagram", "Je Instagram-account (zonder @, leeg = uit)", "text"],
+      ["eigen_posts_dagen", "Elke … dagen", "number", 1],
     ]],
     ["Onderhoud", [
       ["bewaar_maanden", "Posts bewaren (maanden, 0 = altijd)", "number", 1],
@@ -748,7 +760,18 @@
        ${starBtn("product", p.id, `${p.name} (${p.store})`, p.url)}</div>
        <div class="meta">${esc(p.store)}${p.price != null ? " · € " + Number(p.price).toFixed(2).replace(".", ",") : ""}${p.social_makers ? ` · <span class="up">${p.social_makers} makers posten erover</span>` : ""}</div></li>`).join("")
       : `<li class="meta">Geen nieuwe snackproducten in de afgelopen 2 dagen.</li>`;
+    $("#v-tests-card").hidden = !d.test_ideas.length;
+    $("#v-tests").innerHTML = testIdeas(d.test_ideas, "");
     $("#v-amsterdam").innerHTML = miniCandidates(d.amsterdam, "Geen Amsterdamse kandidaten op dit moment.");
+  }
+
+  function testIdeas(items, empty) {
+    return items.length ? items.map(p =>
+      `<li><div class="row"><span>${p.url ? `<a href="${safeHref(p.url)}" target="_blank" rel="noopener"><b>${esc(p.name)}</b></a>` : `<b>${esc(p.name)}</b>`}</span>
+        <span>${starBtn("product", p.id, `${p.name} (${p.stores.join(", ")})`, p.url)}</span></div>
+       <div class="meta">${esc(p.stores.join(", "))}${p.price != null ? " · € " + Number(p.price).toFixed(2).replace(".", ",") : ""} · in het schap sinds ${dateNl(p.first_seen)}${p.demo ? ' <span class="badge warn">demo</span>' : ""}</div>
+       <div class="reasons">${p.reasons.map(r => `<span class="reason small">${esc(r)}</span>`).join("")}</div></li>`).join("")
+      : `<li class="meta">${empty}</li>`;
   }
 
   // --- amsterdam -------------------------------------------------------------
@@ -895,6 +918,22 @@
     renderTips();
     showTipsView();
     loadSuggestions();
+    loadNewPlaces();
+  }
+
+  async function loadNewPlaces() {
+    const d = await api("/api/nieuwezaken");
+    state.newPlaces = d.places;
+    const last = d.last;
+    $("#t-maps-info").innerHTML = last
+      ? `Laatst gezocht ${ago(last.at)} in ${esc(last.cities.join(" en "))}: ${fmt(last.found)} zaken bekeken, ${fmt(last.new)} nieuw. Elke week zoekt de tool in de volgende steden (instelbaar bij Budget &amp; instellingen). De eerste keer per stad legt hij vast wat er al is; pas daarna verschijnen nieuwe zaken.`
+      : "Elke week zoekt de tool op Google Maps naar nieuwe snackbars, foodtrucks en streetfood, steeds in twee andere steden (± 1 dollar per week). De eerste keer per stad legt hij vast wat er al is; vanaf de volgende keer zie je hier wat er nieuw bij komt.";
+    $("#t-maps").innerHTML = d.places.length ? d.places.map((p, i) =>
+      `<li><div class="row"><span>${p.url ? `<a href="${safeHref(p.url)}" target="_blank" rel="noopener"><b>${esc(p.name)}</b></a>` : `<b>${esc(p.name)}</b>`}
+         <span class="meta">${esc([p.category, p.city].filter(Boolean).join(" · "))}</span>${p.hot ? ' <span class="badge new">⭐ al goed beoordeeld</span>' : ""}</span>
+         <button class="btn small" data-maps-add="${i}">📍 In mijn tips</button></div>
+       <div class="meta">${p.rating ? `${String(p.rating).replace(".", ",")} ★ · ` : ""}${p.reviews} reviews · gevonden ${ago(p.first_seen)}${p.address ? " · " + esc(p.address) : ""}</div></li>`).join("")
+      : `<li class="meta">Nog geen nieuwe zaken gevonden.</li>`;
   }
 
   function showTipsView() {
@@ -1165,10 +1204,57 @@
        <td class="num ${x.lift >= 1.1 ? "up" : x.lift < 0.9 ? "down" : ""}">${String(x.lift).replace(".", ",")}×</td></tr>`).join("")
       : `<tr><td colspan="4" class="muted">Nog geen snack met 6 of meer posts in deze periode.</td></tr>`;
     renderMpTop();
+    renderTiming(d.timing);
+    loadTrefkans();
+    const hf = $("#hook-format"), cur = hf.value;
+    hf.innerHTML = `<option value="">Alle formats</option>` + (d.formats || []).map(f => `<option>${esc(f)}</option>`).join("");
+    hf.value = (d.formats || []).includes(cur) ? cur : "";
     $("#tbl-m-tests tbody").innerHTML = d.supermarket_tests.length ? d.supermarket_tests.map((t, i) =>
       `<tr><td class="num">${i + 1}</td><td>${t.url ? `<a href="${safeHref(t.url)}" target="_blank" rel="noopener">${esc(t.product)}</a>` : esc(t.product)} <span class="meta">${esc(t.month || "")}</span></td>
        <td class="num">${fmt(t.views)}</td><td class="num">${t.followers != null ? fmt(t.followers) : "–"}</td></tr>`).join("")
       : `<tr><td colspan="4" class="muted">Geen supermarkttests in deze periode.</td></tr>`;
+  }
+
+  const idxCell = v => v == null ? `<td class="num">–</td>` : `<td class="num ${v >= 110 ? "up" : v < 90 ? "down" : ""}">${v}</td>`;
+
+  async function loadTrefkans() {
+    const r = await api("/api/trefkans");
+    $("#tk-info").innerHTML = r.suggested
+      ? `Sinds ${dateNl(r.since)} raadde de tool ${fmt(r.suggested)} zaken, snacks en producten aan; ${fmt(r.posted)} daarvan heb je gepost`
+        + (r.hit_median ? ` (mediaan ${fmt(r.hit_median)} views, je normale mediaan is ${fmt(r.median_views)}).` : ".")
+        + ` Vanaf 3 geposte tips met hetzelfde signaal telt de tool dat signaal op Vandaag zwaarder of lichter mee. Importeer je posts regelmatig, dan leert hij sneller.`
+      : "De tool houdt vanaf nu bij wat hij je aanraadt. Importeer later je posts, dan zie je hier welke tips je postte en hoe die liepen.";
+    $("#tbl-tk-signals tbody").innerHTML = r.signals.length ? r.signals.map(s => `<tr class="${s.hits < 3 ? "small-n" : ""}" title="${s.hits < 3 ? "Minder dan 3: telt nog niet mee" : ""}">
+      <td>${esc(s.signal)}</td><td class="num">${s.hits}</td>
+      <td class="num ${s.lift >= 1.1 ? "up" : s.lift < 0.9 ? "down" : ""}">${s.lift != null ? String(s.lift).replace(".", ",") + "×" : "–"}</td></tr>`).join("")
+      : `<tr><td colspan="3" class="muted">Nog geen geposte tips.</td></tr>`;
+    $("#tk-hits").innerHTML = r.hits.map(h => `<li><div class="row"><span>${h.url ? `<a href="${safeHref(h.url)}" target="_blank" rel="noopener">${esc(h.label)}</a>` : esc(h.label)}</span>
+      <span class="meta">${fmt(h.views)} views</span></div><div class="meta">${esc(h.date || "")} · tip sinds ${dateNl(h.since)} · ${esc(h.signals.join(", ") || h.kind)}</div></li>`).join("");
+  }
+
+  function renderTiming(t) {
+    if (!t) return;
+    $("#tbl-m-days tbody").innerHTML = t.days.length ? t.days.map(x => `<tr><td>${esc(x.name)}</td><td class="num">${x.posts}</td>
+      ${idxCell(x.views_index)}${idxCell(x.followers_index)}<td class="hide-s meta">${x.mostly ? `${esc(x.mostly)} (${x.mostly_pct}%)` : "gemengd"}</td></tr>`).join("")
+      : `<tr><td colspan="5" class="muted">Te weinig posts met een datum.</td></tr>`;
+    $("#tbl-m-monthidx tbody").innerHTML = t.months.map(x => `<tr><td>${esc(x.name)}</td><td class="num">${x.posts}</td>
+      ${idxCell(x.views_index)}${idxCell(x.followers_index)}</tr>`).join("");
+  }
+
+  async function hookCheck(e) {
+    e.preventDefault();
+    const f = e.target;
+    const r = await api("/api/hookcheck", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ caption: f.caption.value, format: f.format.value }) });
+    const scope = r.format ? `je ${fmt(r.posts)} posts in '${esc(r.format)}'` : `je ${fmt(r.posts)} posts`;
+    $("#hook-result").innerHTML = (r.findings.length ? `<p class="hint">Vergeleken met ${scope} (100 = even goed als de rest):</p><ul class="list">${r.findings.map(x =>
+      `<li><div class="row"><span>Eerste zin ${esc(x.label)}</span><b class="${x.index >= 110 ? "up" : x.index < 90 ? "down" : ""}">${x.index}</b></div>
+       <div class="meta">${x.posts} posts, mediaan ${fmt(x.median_views)} views${x.followers != null ? ` · ${x.followers} volgers per post (de rest ${x.followers_other ?? "–"})` : ""}</div></li>`).join("")}</ul>`
+      : `<p class="muted">Niets wat duidelijk afwijkt in ${scope}: de eerste zin lijkt op wat je normaal doet.</p>`)
+      + (r.similar.length ? `<p class="hint">Je posts met de meest vergelijkbare eerste zin:</p><ul class="list">${r.similar.map(p =>
+        `<li><div class="row"><span>${p.url ? `<a href="${safeHref(p.url)}" target="_blank" rel="noopener">${esc(p.first_line)}</a>` : esc(p.first_line)}</span>
+         <span class="meta">${fmt(p.views)} views${p.followers_count && p.followers != null ? ` · ${fmt(p.followers)} volgers` : ""}</span></div></li>`).join("")}</ul>` : "")
+      + `<p class="hint">Een verband, geen garantie: test het een paar keer.</p>`;
   }
 
   function renderMpGroups() {
@@ -1328,6 +1414,7 @@
       refresh();
     });
     $("#form-settings").addEventListener("submit", saveSettings);
+    $("#form-hook").addEventListener("submit", hookCheck);
     $("#btn-backup").addEventListener("click", async e => {
       e.target.disabled = true;
       try {
@@ -1401,6 +1488,17 @@
       $("#form-tip [name=name]").focus();
     });
     $("#t-add-close").addEventListener("click", () => { $("#form-tip").hidden = true; });
+    $("#t-maps").addEventListener("click", async e => {
+      const b = e.target.closest("[data-maps-add]");
+      if (!b) return;
+      const p = state.newPlaces[Number(b.dataset.mapsAdd)];
+      b.disabled = true;
+      await api("/api/tips", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: p.name, place: p.city || "", list: "Nieuw op Google Maps",
+          note: `Nieuw op Google Maps (${p.reviews} reviews${p.rating ? ", " + p.rating + " ★" : ""})` }) });
+      toast(`${p.name} staat nu in je tips`);
+      loadTips();
+    });
     $("#t-suggest").addEventListener("click", async e => {
       const b = e.target.closest("[data-sugg-add]");
       if (!b) return;

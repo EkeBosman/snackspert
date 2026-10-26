@@ -346,6 +346,16 @@ De tool legt drie bronnen naast elkaar: het **assortiment** van de supermarkten,
 
 Nieuws over nieuwe producten komt via Google News. Onder Instellingen kun je eigen RSS-feeds toevoegen, bijvoorbeeld van vakbladen.
 
+## Back-up
+
+Eens per week maakt de tool een kopie van de database (je lijst, tips, routes, notities, ♥/👎) en bewaart de laatste acht. Het liefst in de Google Drive-map **Snackspert Trendradar**. Daarvoor één keer: open op je Chromebook de app *Bestanden*, ga naar *Google Drive > Mijn Drive*, klik met rechts op de map *Snackspert Trendradar* en kies **Delen met Linux**. Zonder die stap komen de kopieën in `data/backups`. Een back-up terugzetten: stop de tool, kopieer het bestand naar `data/trendradar.db` en start opnieuw.
+
+## Nieuwe zaken en je eigen posts
+
+- **Nieuw op Google Maps** (Tips & routes): elke week zoekt de tool in twee steden naar snackbars, foodtrucks, streetfood en frituren (± 1 dollar per week). De eerste keer per stad legt hij vast wat er is; daarna zie je wat er nieuw bij komt, met nog weinig reviews.
+- **Je eigen posts**: vul bij Budget & instellingen je Instagram-account in, dan haalt de tool elke week je nieuwe posts en cijfers op (± 2 cent per week). Volgers per post en bewaard staan alleen in Instagram Insights: die komen uit je Excel-export.
+- **Trefkans** (Mijn posts): de tool houdt bij wat hij aanraadt en ziet later in je posts welke tips je postte en hoe die liepen. Signalen die bij jou goed werken, tellen op Vandaag zwaarder mee.
+
 ## Mappen en bestanden
 
 ```

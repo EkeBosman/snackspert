@@ -12,7 +12,7 @@ from flask import Flask, Response, jsonify, request, send_from_directory
 from werkzeug.exceptions import HTTPException
 
 from . import (budget, collector, config, db, geo, imports, lexicon, onderhoud, ownposts, potential, products,
-               routeplan, signals, snackspert, spots, taste, trends)
+               nieuwezaken, routeplan, signals, snackspert, spots, taste, trefkans, trends)
 from .sources import apify, meta_graph
 
 app = Flask(__name__, static_folder="static", static_url_path="/static")
@@ -324,6 +324,7 @@ def api_supermarkt():
         result = products.overview(conn, a["include_demo"], days,
                                    only_relevant=request.args.get("alles") != "1")
         result["status"] = db.get_state(conn, "supermarkt_status", {})
+        result["test_ideas"] = products.test_ideas(conn, a["include_demo"], limit=10)
         base = signals.baselines(conn, include_demo=a["include_demo"])
     for m in result["mentioned"]:
         if m["example"]:
@@ -692,6 +693,7 @@ def api_vandaag():
             "learned_from": {**prof.sources, "eigen_posts": conn.execute("SELECT COUNT(*) FROM own_posts").fetchone()[0]},
             "audience": [{"snack": k, **v} for k, v in list(ownposts.lifts(conn).items())[:5] if v["lift"] >= 1.1],
             "tips_in_radar": tips_in_radar,
+            "test_ideas": products.test_ideas(conn, a["include_demo"], limit=5),
         })
 
 
@@ -838,6 +840,22 @@ def api_mijnposts():
         return jsonify(ownposts.overview(conn, year))
 
 
+@app.get("/api/trefkans")
+def api_trefkans():
+    with db.session() as conn:
+        return jsonify(trefkans.report(conn))
+
+
+@app.post("/api/hookcheck")
+def api_hookcheck():
+    d = _body()
+    caption = _text(d, "caption", 3000)
+    if not caption:
+        return jsonify({"fout": "plak eerst een caption"}), 400
+    with db.session() as conn:
+        return jsonify(ownposts.hook_check(conn, caption, _text(d, "format", 60) or None))
+
+
 # --- tips & routes -----------------------------------------------------------------
 
 @app.get("/api/tips")
@@ -963,6 +981,12 @@ def api_route_reject():
 def api_geocode():
     started = geo.fill_in_background()
     return jsonify({"started": started, **geo.progress()})
+
+
+@app.get("/api/nieuwezaken")
+def api_new_places():
+    with db.session() as conn:
+        return jsonify({"places": nieuwezaken.new_places(conn), **nieuwezaken.summary(conn)})
 
 
 @app.get("/api/tips/suggesties")

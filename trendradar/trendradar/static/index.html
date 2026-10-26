@@ -103,6 +103,10 @@
           <h2>Snacknieuws <span class="muted">3 dagen</span></h2>
           <ul class="list" id="v-news"></ul>
         </article>
+        <article class="card" id="v-tests-card" hidden>
+          <h2>🧪 Om te testen <span class="muted">uit het schap</span></h2>
+          <ol class="list" id="v-tests"></ol>
+        </article>
         <article class="card">
           <h2>🛒 Nieuw in de supermarkt <span class="muted">2 dagen</span></h2>
           <ul class="list" id="v-products"></ul>
@@ -184,6 +188,11 @@
       <h2>🔎 Ontdekt in de radar <span class="muted">deze week, nog niet in je tips</span></h2>
       <p class="hint">Zaken waar meerdere makers over posten. Met één klik zet je ze in je tips; dan doen ze mee in de Viral-potentie en de routes.</p>
       <ul class="list" id="t-suggest"></ul>
+    </article>
+    <article class="card" id="t-maps-card">
+      <h2>🆕 Nieuw op Google Maps <span class="muted">net geopend, nog weinig reviews</span></h2>
+      <p class="hint" id="t-maps-info"></p>
+      <ul class="list" id="t-maps"></ul>
     </article>
     <div class="seg" role="group" aria-label="Weergave" id="t-view">
       <button data-v="tips" class="on">Tips</button>
@@ -278,6 +287,38 @@
         <ul class="list insights" id="m-insights"></ul>
       </article>
     </div>
+    <div class="grid-2">
+      <article class="card">
+        <h2>📅 Wanneer posten <span class="muted">eerlijk vergeleken, al je jaren</span></h2>
+        <p class="hint">100 = normaal. Een dag wordt vergeleken binnen hetzelfde format (anders meet je bij zondag vooral je supermarkttests), een maand binnen hetzelfde jaar (anders lijken oude maanden slechter omdat je groeit).</p>
+        <div class="table-wrap"><table class="data" id="tbl-m-days">
+          <thead><tr><th>Dag</th><th class="num">Posts</th><th class="num">Views</th><th class="num">Volgers</th><th class="hide-s">Meestal</th></tr></thead>
+          <tbody></tbody></table></div>
+        <div class="table-wrap"><table class="data" id="tbl-m-monthidx">
+          <thead><tr><th>Maand</th><th class="num">Posts</th><th class="num">Views</th><th class="num">Volgers</th></tr></thead>
+          <tbody></tbody></table></div>
+      </article>
+      <article class="card">
+        <h2>🪝 Hook-check</h2>
+        <p class="hint">Plak een caption. De tool vergelijkt je eerste zin met je eigen posts (in hetzelfde format, als je dat kiest): hoe deden eerste zinnen met een vraag, een getal of dezelfde woorden het eerder?</p>
+        <form id="form-hook" class="tip-form">
+          <textarea name="caption" rows="3" class="wide" placeholder="Bijv.: Dit is de beste kroket van Nederland 🤯" aria-label="Caption"></textarea>
+          <select name="format" id="hook-format" aria-label="Format"><option value="">Alle formats</option></select>
+          <div class="actions"><button class="btn small primary" type="submit">Check</button></div>
+        </form>
+        <div id="hook-result"></div>
+      </article>
+    </div>
+    <article class="card">
+      <h2>🎯 Trefkans <span class="muted">tips van de tool die je postte</span></h2>
+      <p class="hint" id="tk-info"></p>
+      <div class="grid-2">
+        <div class="table-wrap"><table class="data" id="tbl-tk-signals">
+          <thead><tr><th>Signaal</th><th class="num">Gepost</th><th class="num">× je mediaan</th></tr></thead>
+          <tbody></tbody></table></div>
+        <ul class="list" id="tk-hits"></ul>
+      </div>
+    </article>
     <div class="grid-2">
       <article class="card">
         <div class="card-head">
@@ -421,6 +462,11 @@
   <!-- SUPERMARKT -->
   <section class="panel" data-panel="supermarkt" hidden>
     <div class="chips" id="store-status"></div>
+    <article class="card">
+      <h2>🧪 Testlijst <span class="muted">nieuwe producten die een supermarkttest waard zijn</span></h2>
+      <p class="hint">Supermarkttests zijn je sterkste format voor nieuwe volgers. Bovenaan: herkenbare snacks met een draai eraan, waar al over gepost wordt en die bij jouw publiek goed doen. Wat je al getest hebt, staat er niet tussen.</p>
+      <ol class="list" id="list-tests"></ol>
+    </article>
     <div class="grid-2">
       <article class="card">
         <h2>Nieuw in het schap <span class="muted">laatste 30 dagen</span></h2>
