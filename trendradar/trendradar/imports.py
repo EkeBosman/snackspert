@@ -298,7 +298,7 @@ def spot_key(name: str, place: str) -> tuple[str, str]:
     return taste.zaak_key(name), _place_key(place)
 
 
-_STATUS_ORDER = ["te proberen", "gepland", "bezocht", "gereviewd", "afgevallen"]
+_STATUS_ORDER = ["nieuw", "te proberen", "gepland", "bezocht", "gereviewd", "afgevallen"]
 
 
 def merge_duplicate_spots(conn) -> int:
@@ -358,8 +358,8 @@ def save(conn, parsed: dict) -> dict:
                              (json.dumps(lists), spec, s["region"] or old["region"], now, old["id"]))
                 old.update(lists=json.dumps(lists), specialty=spec)
             else:
-                cur = conn.execute("INSERT INTO spots(name, place, specialty, region, lists, added_at, updated_at) "
-                                   "VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(name, place) DO NOTHING",
+                cur = conn.execute("INSERT INTO spots(name, place, specialty, region, lists, status, added_at, "
+                                   "updated_at) VALUES (?, ?, ?, ?, ?, 'nieuw', ?, ?) ON CONFLICT(name, place) DO NOTHING",
                                    (s["name"], s["place"], s["specialty"], s["region"], json.dumps([s["list"]]),
                                     now, now))
                 if cur.rowcount:
@@ -379,8 +379,8 @@ def save(conn, parsed: dict) -> dict:
                 conn.execute("UPDATE routes SET region = ?, stops = ?, km = ?, duration = ?, note = ? WHERE id = ?",
                              (r["region"], stops, r["km"], r["duration"], r["note"], old[r["name"]]))
             else:
-                conn.execute("INSERT INTO routes(name, region, stops, km, duration, note, added_at) "
-                             "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                conn.execute("INSERT INTO routes(name, region, stops, km, duration, note, status, added_at) "
+                             "VALUES (?, ?, ?, ?, ?, ?, 'nieuw', ?)",
                              (r["name"], r["region"], stops, r["km"], r["duration"], r["note"], now))
             seen.add(r["name"])
         gone = [rid for name, rid in old.items() if name not in seen]

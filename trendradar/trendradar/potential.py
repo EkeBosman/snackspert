@@ -37,7 +37,7 @@ POINTS = {
     "radar": 1.5,         # nu al posts over
     "kleine_viral": 1.5,  # en een daarvan doet het ver boven normaal
 }
-SKIP = ("gereviewd", "afgevallen")
+SKIP = spots.DONE  # bezocht, gereviewd of afgewezen: je zoekt de volgende
 
 
 def _has(text: str, words, whole: bool = False) -> str | None:
@@ -131,7 +131,7 @@ def _candidates(conn) -> list[dict]:
                     seen[key]["specialty"] = s["specialty"]
                 continue
             d = {"id": None, "name": s["name"], "place": s["place"], "specialty": s["specialty"], "region": "",
-                 "lists": ["Uit routes"], "status": "te proberen", "note": ""}
+                 "lists": ["Uit routes"], "status": "nieuw", "note": ""}
             seen[key] = d
             out.append(d)
     return out

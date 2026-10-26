@@ -1,13 +1,14 @@
 """Eén ophaalronde: bronnen ophalen, posts indelen, opslaan, nieuwe bronnen zoeken."""
 from __future__ import annotations
 
+import hashlib
 import logging
 import threading
 from datetime import timedelta
 
 import requests
 
-from . import budget, classify, config, db, discovery, lexicon, seeds, signals, snackspert
+from . import budget, classify, config, db, discovery, lexicon, onderhoud, seeds, signals, snackspert
 from .sources import apify, meta_graph, news, supermarket
 
 log = logging.getLogger(__name__)
@@ -634,6 +635,7 @@ def step_supermarkets(run: Run, settings: dict, force: bool = False) -> None:
                 "last_seen, is_new, relevant) VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
             conn.execute("UPDATE products SET last_seen = ? WHERE store = ? AND demo = 0", (now, store))
             db.set_state(conn, f"nulmeting_cjb_{store}", True)
+            stil = _stale_since(conn, store, products)
             if baseline_done:
                 n_new = len(fresh) - relisted
                 status[store] = {"ok": True, "t": now, "producten": len(products),
@@ -641,6 +643,10 @@ def step_supermarkets(run: Run, settings: dict, force: bool = False) -> None:
                                             f"({new_relevant} snack-relevant)"
                                             + (f", {relisted} opnieuw online gezet" if relisted else "")}
                 summary.append(f"{store} {n_new} ({new_relevant})")
+                if stil:
+                    # De bron levert voor deze winkel al lang exact hetzelfde assortiment: niet 'werkt'.
+                    status[store].update(ok=False, stil=stil,
+                                         melding=f"bron staat stil sinds {stil[:10]}: geen nieuwe gegevens van deze winkel")
             else:
                 status[store] = {"ok": True, "t": now, "producten": len(products),
                                  "melding": f"{len(products)} producten vastgelegd (nulmeting)"}
@@ -649,6 +655,25 @@ def step_supermarkets(run: Run, settings: dict, force: bool = False) -> None:
         fixed = unmark_relisted(conn)
     run.note("Supermarkten (nieuw, waarvan snack-relevant): " + ", ".join(summary)
              + (f". {fixed} eerder als nieuw gemelde producten bleken al bekend" if fixed else ""))
+
+
+STALE_DAYS = 4
+
+
+def _stale_since(conn, store: str, products: list[dict]) -> str | None:
+    """Sinds wanneer is het assortiment van deze winkel precies hetzelfde? None als het recent veranderde.
+
+    checkjebon werkt elke dag het bestand bij, maar voor sommige winkels (AH, Jumbo, Lidl, Plus)
+    bleef de inhoud maandenlang gelijk. Dan lijkt alles te werken, terwijl er nooit iets nieuws komt.
+    """
+    sig = hashlib.sha1("\n".join(sorted(f"{p['id']}|{p['price']}" for p in products)).encode()).hexdigest()
+    key = f"supermarkt_inhoud_{store}"
+    seen = db.get_state(conn, key)
+    if not seen or seen.get("sig") != sig:
+        db.set_state(conn, key, {"sig": sig, "since": db.iso(db.now())})
+        return None
+    since = seen["since"]
+    return since if db.now() - db.parse_iso(since) >= timedelta(days=STALE_DAYS) else None
 
 
 def _product_key(name: str, size: str | None) -> tuple[str, str]:
@@ -741,6 +766,7 @@ def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict 
                 step_snackspert(run)
                 step_discovery(run, settings)
                 step_geocode(run)
+            step_maintenance(run, settings)
         except Exception as exc:  # noqa: BLE001 - ronde altijd netjes afsluiten
             log.exception("Ophaalronde mislukt")
             run.note(f"Ronde afgebroken: {exc}", "fout")
@@ -748,6 +774,22 @@ def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict 
         return {"id": run.id, "results": run.results, "new": run.new_posts}
     finally:
         _run_lock.release()
+
+
+def step_maintenance(run: Run, settings: dict) -> None:
+    """Eens per week oude posts opruimen en een back-up maken."""
+    with db.session() as conn:
+        if onderhoud.cleanup_due(conn):
+            gone = onderhoud.cleanup(conn, settings)
+            if gone.get("posts"):
+                run.note(f"Opgeruimd: {gone['posts']} posts ouder dan {settings.get('bewaar_maanden')} maanden")
+        due = onderhoud.backup_due(conn, settings)
+    if due:
+        try:
+            info = onderhoud.make_backup(settings)
+            run.note(f"Back-up gemaakt ({info['mb']} MB) in {'Google Drive' if info['drive'] else info['path']}")
+        except Exception as exc:  # noqa: BLE001 - een volle schijf mag de ronde niet laten mislukken
+            run.note(f"Back-up mislukt: {exc}", "waarschuwing")
 
 
 def demo_active(conn) -> bool:

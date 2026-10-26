@@ -911,7 +911,8 @@ def test_import_own_posts_tips_and_routes(conn):
     assert next(s for s in listing["spots"] if s["name"] == "Döner Father")["place"] == "Amsterdam"
     route = spots.routes(conn)[0]
     assert route["stops"][0] == {"name": "Snackbar de Poppe", "place": "Coevorden", "specialty": "broodje lammert",
-                                 "text": "Snackbar de Poppe (Coevorden) - broodje lammert", "status": "te proberen"}
+                                 "text": "Snackbar de Poppe (Coevorden) - broodje lammert", "status": "nieuw",
+                                 "coords": None}
     assert route["maps"].startswith("https://www.google.com/maps/dir/") and "Pizza%20Pazza%20Norg" in route["maps"]
 
     # Opnieuw importeren: geen dubbele posts of tips, en je status blijft staan.
@@ -1595,3 +1596,63 @@ def test_csv_export_does_not_run_formulas(conn):
     text = client.get("/api/export/lijst.csv").get_data(as_text=True)
     assert "'=HYPERLINK" in text and "'@SUM" in text and "'-2+3" in text
     assert "\n=HYPERLINK" not in text and ";=HYPERLINK" not in text
+
+
+def test_frozen_supermarket_is_reported(conn, monkeypatch):
+    from trendradar import collector
+    from trendradar.sources import supermarket
+
+    items = [{"id": "ah:1", "store": "Albert Heijn", "name": "Kroket", "size": "2 st", "price": 1.0, "url": None}]
+    monkeypatch.setattr(supermarket, "fetch", lambda etag=None: ({"Albert Heijn": items}, "x"))
+    settings = dict(config.DEFAULTS)
+    collector.step_supermarkets(collector.Run("test"), settings, force=True)
+    collector.step_supermarkets(collector.Run("test"), settings, force=True)
+    assert db.get_state(conn, "supermarkt_status")["Albert Heijn"]["ok"]
+    old = db.iso(db.now() - timedelta(days=collector.STALE_DAYS + 1))
+    db.set_state(conn, "supermarkt_inhoud_Albert Heijn", {**db.get_state(conn, "supermarkt_inhoud_Albert Heijn"),
+                                                          "since": old})
+    conn.commit()
+    collector.step_supermarkets(collector.Run("test"), settings, force=True)
+    st = db.get_state(conn, "supermarkt_status")["Albert Heijn"]
+    assert not st["ok"] and st["stil"] == old and "staat stil" in st["melding"]
+    items.append({"id": "ah:2", "store": "Albert Heijn", "name": "Frikandel", "size": "", "price": 1.0, "url": None})
+    collector.step_supermarkets(collector.Run("test"), settings, force=True)
+    assert db.get_state(conn, "supermarkt_status")["Albert Heijn"]["ok"]
+
+
+def test_backup_and_cleanup(conn, tmp_path):
+    from trendradar import onderhoud
+
+    store_posts(conn, [post("oud", "Kroket in Zwolle", platform="tiktok", hours_ago=24 * 400),
+                       post("bewaard", "Frikandel in Zwolle", platform="tiktok", hours_ago=24 * 400),
+                       post("nieuw", "Kroket in Ede", platform="tiktok", hours_ago=5)], None)
+    conn.execute("INSERT INTO watchlist(kind, ref, title, added_at, updated_at) VALUES ('post', 'tiktok:bewaard', 'x', 'a', 'a')")
+    conn.commit()
+    settings = {**config.DEFAULTS, "backup_map": str(tmp_path / "bk")}
+    gone = onderhoud.cleanup(conn, settings)
+    conn.commit()
+    ids = {r[0] for r in conn.execute("SELECT id FROM posts")}
+    assert gone["posts"] == 1 and ids == {"tiktok:bewaard", "tiktok:nieuw"}
+    assert not onderhoud.cleanup_due(conn)
+    for _ in range(onderhoud.KEEP_BACKUPS + 2):
+        onderhoud.make_backup(settings)  # zelfde minuut: zelfde naam, dus geen stapel kopieën
+    files = list((tmp_path / "bk").glob("trendradar-*.db"))
+    assert 1 <= len(files) <= onderhoud.KEEP_BACKUPS and not list((tmp_path / "bk").glob("*.deel"))
+    import sqlite3
+    assert sqlite3.connect(files[0]).execute("SELECT COUNT(*) FROM posts").fetchone()[0] == 2
+    assert not onderhoud.backup_due(conn, settings)
+
+
+def test_budget_shifts_to_the_platform_that_delivers(conn):
+    rows = [("tiktok", "kroket", 10.0, 400), ("instagram", "snack", 10.0, 100), ("facebook", "friet", 1.0, 0)]
+    for platform, value, usd, useful in rows:
+        conn.execute("INSERT INTO sources(platform, kind, value, status, origin, added_at, cost_usd, useful_total) "
+                     "VALUES (?, 'hashtag', ?, 'actief', 'start', 'x', ?, ?)", (platform, value, usd, useful))
+    settings = dict(config.DEFAULTS)
+    split = budget.smart_split(conn, settings)
+    assert split["tiktok"] > settings["verdeling"]["tiktok"]          # 40 per dollar
+    assert split["instagram"] < settings["verdeling"]["instagram"]    # 10 per dollar
+    assert split["facebook"] == settings["verdeling"]["facebook"]     # nog te weinig uitgegeven om te oordelen
+    assert split["instagram"] >= settings["verdeling"]["instagram"] / 2
+    assert budget.smart_split(conn, {**settings, "verdeling_automatisch": False}) == settings["verdeling"]
+    assert sum(budget.overview(conn, settings)["verdeling"].values()) in (99, 100, 101)

@@ -73,7 +73,7 @@ def proposals(conn, include_demo: bool = True, limit: int = MAX_PROPOSALS) -> di
     for t in ranked:
         key = _stop_key(t["name"], t["place"])
         # Bezochte tips hoeven niet nog eens in een route; elke zaak maar één keer.
-        if t["status"] == "bezocht" or key in seen:
+        if t["status"] in spots.DONE or key in seen:
             continue
         xy = geo.coords(conn, t["place"])
         if xy and t["score"] > 0:
@@ -134,8 +134,8 @@ def save(conn, proposal: dict) -> int | None:
     for r in conn.execute("SELECT id, stops FROM routes"):
         if route_key([imports.parse_stop(x) for x in db.row_to_dict(r)["stops"]]) == key:
             return r["id"]
-    cur = conn.execute("INSERT INTO routes(name, region, stops, km, duration, note, origin, added_at) "
-                       "VALUES (?, ?, ?, ?, ?, ?, 'bedacht', ?)",
+    cur = conn.execute("INSERT INTO routes(name, region, stops, km, duration, note, status, origin, added_at) "
+                       "VALUES (?, ?, ?, ?, ?, ?, 'nieuw', 'bedacht', ?)",
                        (proposal["name"], proposal.get("region", ""), json.dumps(stops, ensure_ascii=False),
                         f"~{proposal['km']} km", proposal["duration"], "Bedacht door de tool",
                         db.iso(db.now())))

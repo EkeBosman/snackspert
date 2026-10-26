@@ -59,6 +59,7 @@ DEFAULTS: dict = {
     # Hoe het Apify-budget per run over de platforms wordt verdeeld.
     # Instagram krijgt minder omdat de gratis Meta-API een deel afdekt.
     "verdeling": {"instagram": 0.30, "tiktok": 0.45, "facebook": 0.25},
+    "verdeling_automatisch": True,    # bijsturen naar nuttige posts per dollar (zie budget.smart_split)
     "min_per_bron": 10,
     "max_per_bron": 40,
     "auto_toevoegen": True,
@@ -74,6 +75,9 @@ DEFAULTS: dict = {
     "nieuws_aan": True,
     "thuisbasis": "Amsterdam",        # vanaf hier rekent de tool routes (retour)
     "extra_rss": [],
+    "backup_map": "",                 # leeg: Google Drive-map 'Snackspert Trendradar', anders data/backups
+    "backup_dagen": 7,
+    "bewaar_maanden": 6,              # oudere posts opruimen (bewaarde en beoordeelde blijven); 0 = nooit
 }
 
 

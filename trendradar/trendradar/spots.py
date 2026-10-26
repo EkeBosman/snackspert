@@ -14,6 +14,12 @@ from urllib.parse import quote
 
 from . import classify, db, imports, ownposts, snackspert, taste
 
+# Statussen van tips en routes. 'Te proberen' en 'gepland' staan ook in Mijn lijst;
+# afgeronde tips verdwijnen uit de gewone lijsten en uit de Viral-potentie.
+STATUSES = ("nieuw", "te proberen", "gepland", "bezocht", "gereviewd", "afgevallen")
+PLANNED = ("te proberen", "gepland")
+DONE = ("bezocht", "gereviewd", "afgevallen")
+
 
 def _distinctive(name: str) -> str | None:
     """Sleutel om op te zoeken in posts, of None als de naam te algemeen is ('Raam', 'Istanbul')."""
@@ -67,7 +73,10 @@ def maps_search(name: str, place: str) -> str:
 
 
 def listing(conn, include_demo: bool = True) -> dict:
+    from . import geo
+
     hits = radar_hits(conn, include_demo=include_demo)
+    where: dict[str, list | None] = {}
     handles = {taste.zaak_key(h): v for h, v in ownposts.posted_handles(conn).items()}
     captions = ownposts.caption_index(conn)
     rows = []
@@ -77,13 +86,24 @@ def listing(conn, include_demo: bool = True) -> dict:
         s["maps"] = maps_search(s["name"], s["place"])
         key = _distinctive(s["name"])
         s["posted"] = handles.get(taste.zaak_key(s["name"])) or (ownposts.find_posted(key, captions) if key else None)
+        # Voor de kaart: de plaats van de tip (nog niet opgezocht = geen stip).
+        if s["place"] not in where:
+            xy = geo.coords(conn, s["place"])
+            where[s["place"]] = list(xy) if xy else None
+        s["coords"] = where[s["place"]]
         rows.append(s)
     lists = sorted({x for s in rows for x in s["lists"]})
     regions = sorted({s["region"] for s in rows if s["region"]})
-    return {"spots": rows, "lists": lists, "regions": regions}
+    home_name = db.get_settings(conn).get("thuisbasis") or "Amsterdam"
+    home = geo.coords(conn, home_name)
+    return {"spots": rows, "lists": lists, "regions": regions,
+            "home": {"name": home_name, "coords": list(home) if home else None},
+            "missing_places": len(geo.missing(conn))}
 
 
 def routes(conn) -> list[dict]:
+    from . import geo
+
     statuses = {(r["name"].lower(), r["place"].lower()): r["status"]
                 for r in conn.execute("SELECT name, place, status FROM spots")}
     out = []
@@ -93,6 +113,8 @@ def routes(conn) -> list[dict]:
         d["stops"] = [{**imports.parse_stop(s), "text": s} for s in d["stops"]]
         for s in d["stops"]:
             s["status"] = statuses.get((s["name"].lower(), s["place"].lower()))
+            xy = geo.coords(conn, s["place"])
+            s["coords"] = list(xy) if xy else None
         out.append(d)
     return out
 

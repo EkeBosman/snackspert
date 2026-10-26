@@ -196,7 +196,7 @@ CREATE TABLE IF NOT EXISTS spots (
     specialty   TEXT DEFAULT '',
     region      TEXT DEFAULT '',
     lists       TEXT DEFAULT '[]',
-    status      TEXT NOT NULL DEFAULT 'te proberen',
+    status      TEXT NOT NULL DEFAULT 'nieuw',  -- nieuw | te proberen | gepland | bezocht | gereviewd | afgevallen
     note        TEXT DEFAULT '',
     origin      TEXT NOT NULL DEFAULT 'import',   -- import | handmatig
     added_at    TEXT NOT NULL,
@@ -212,7 +212,7 @@ CREATE TABLE IF NOT EXISTS routes (
     km          TEXT DEFAULT '',
     duration    TEXT DEFAULT '',
     note        TEXT DEFAULT '',
-    status      TEXT NOT NULL DEFAULT 'te proberen',
+    status      TEXT NOT NULL DEFAULT 'nieuw',
     origin      TEXT NOT NULL DEFAULT 'import',
     added_at    TEXT NOT NULL
 );
@@ -313,6 +313,12 @@ def init() -> None:
             cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
             if column not in cols:
                 conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {kind}")
+        # Tips en routes kregen eerst automatisch 'te proberen'. Nu is dat een bewuste keuze
+        # (dan staan ze in Mijn lijst); alles wat alleen geïmporteerd was, heet 'nieuw'.
+        if not get_state(conn, "tip_status_nieuw", False):
+            for table in ("spots", "routes"):
+                conn.execute(f"UPDATE {table} SET status = 'nieuw' WHERE status = 'te proberen'")
+            set_state(conn, "tip_status_nieuw", True)
 
 
 # --- instellingen ---------------------------------------------------------
