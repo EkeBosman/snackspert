@@ -70,6 +70,14 @@ DEFAULTS: dict = {
     "ai_aan": True,
     "supermarkt_aan": True,
     "supermarkt_interval_uren": 12,
+    # Winkels waarvan de gratis bron stilstaat: zelf zoeken via Apify (± 3 dollar per keer, standaard 2× per week).
+    "supermarkt_apify_aan": True,
+    "supermarkt_apify_winkels": ["ah", "jumbo", "plus", "lidl", "aldi", "dirk", "vomar"],
+    "supermarkt_zoektermen": ["snack", "kroket", "frikandel", "bitterbal", "chips", "friet", "saus", "loempia",
+                              "kip", "pizza", "ijs", "nieuw"],
+    "supermarkt_per_winkel": 90,
+    "supermarkt_apify_dagen": 3.5,
+    "prijs_supermarkt_per_1000": 5.00,
     "alleen_nieuwe_posts": True,      # datumfilter: niet betalen voor posts die we al hebben
     "herhaalmeting_per_ronde": 15,    # snelste posts per platform opnieuw meten
     "nieuws_aan": True,

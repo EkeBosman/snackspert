@@ -541,6 +541,13 @@
       ["backup_dagen", "Back-up elke … dagen", "number", 1],
       ["backup_map", "Back-upmap (leeg = Google Drive-map 'Snackspert Trendradar')", "text"],
     ]],
+    ["Supermarkten via Apify (AH, Jumbo, Plus, Lidl, Aldi, Dirk, Vomar · ± 3 dollar per keer)", [
+      ["supermarkt_apify_aan", "Deze winkels zelf doorzoeken via Apify", "checkbox"],
+      ["supermarkt_apify_dagen", "Elke … dagen", "number", 0.5],
+      ["supermarkt_per_winkel", "Producten per winkel per keer", "number", 10],
+      ["supermarkt_apify_winkels", "Winkelcodes (één per regel)", "textarea"],
+      ["supermarkt_zoektermen", "Zoekwoorden (één per regel)", "textarea"],
+    ]],
     ["Overig", [
       ["supermarkt_interval_uren", "Supermarkten controleren elke … uur", "number", 1],
       ["supermarkt_aan", "Supermarkten controleren", "checkbox"],
@@ -1415,6 +1422,20 @@
     });
     $("#form-settings").addEventListener("submit", saveSettings);
     $("#form-hook").addEventListener("submit", hookCheck);
+    $("#btn-shop-test").addEventListener("click", async e => {
+      e.target.disabled = true;
+      $("#shop-test-result").textContent = "Bezig, dit duurt ongeveer een minuut…";
+      try {
+        const r = await api("/api/supermarkt/test", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ winkel: $("#shop-test-store").value }) });
+        $("#shop-test-result").innerHTML = r.gelezen
+          ? `✓ ${esc(r.winkel)} werkt: ${r.gelezen} producten, $${r.kosten_usd}.<ul>${r.voorbeelden.map(v =>
+            `<li>${esc(v.naam)}${v.prijs != null ? " · € " + String(v.prijs).replace(".", ",") : ""}</li>`).join("")}</ul>`
+          : `✗ ${esc(r.winkel)}: ${r.resultaten} resultaten, maar geen productnamen gevonden. Velden: <code>${esc(r.velden.join(", "))}</code>. Stuur dit naar Claude.`;
+      } catch (err) {
+        $("#shop-test-result").innerHTML = `✗ ${esc(err.message)}<br>Stuur deze melding naar Claude.`;
+      } finally { e.target.disabled = false; }
+    });
     $("#btn-backup").addEventListener("click", async e => {
       e.target.disabled = true;
       try {

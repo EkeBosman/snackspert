@@ -332,6 +332,30 @@ def api_supermarkt():
     return jsonify(result)
 
 
+@app.post("/api/supermarkt/test")
+def api_supermarket_test():
+    """Probeer de Apify-supermarktscraper voor één winkel met 5 producten (een paar cent)."""
+    from .sources import supermarket
+
+    code = _text(_body(), "winkel", 30).lower()
+    if not code:
+        return jsonify({"fout": "kies een winkel"}), 400
+    if not apify.available():
+        return jsonify({"fout": "zet eerst APIFY_TOKEN in .env"}), 400
+    store = supermarket.STORE_NAMES.get(code, code.title())
+    try:
+        items, cost = apify.run_actor("supermarkt", "zoekterm", ["kroket"], 5, 0.5, price_per_1000=5.0,
+                                      timeout_s=240, extra_input={"supermarkets": [code], "maxResults": 5})
+    except apify.ApifyError as exc:
+        return jsonify({"fout": config.redact(str(exc))[:400]}), 502
+    with db.session() as conn:
+        budget.record(conn, "apify", cost, None, f"supermarkttest {store}")
+    parsed = [p for p in (supermarket.parse_apify(i, store, code) for i in items) if p]
+    return jsonify({"winkel": store, "resultaten": len(items), "gelezen": len(parsed), "kosten_usd": round(cost, 3),
+                    "velden": sorted({k for i in items for k in i})[:30],
+                    "voorbeelden": [{"naam": p["name"], "prijs": p["price"], "url": p["url"]} for p in parsed[:5]]})
+
+
 @app.get("/api/zaken")
 def api_zaken():
     a = _args()

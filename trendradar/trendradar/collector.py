@@ -604,58 +604,134 @@ def step_supermarkets(run: Run, settings: dict, force: bool = False) -> None:
         return
 
     now = db.iso(db.now())
-    status = {}
+    via_apify = set(apify_stores(settings))
     summary = []
     with db.session() as conn:
+        status = db.get_state(conn, "supermarkt_status", {}) or {}
         for store, products in stores.items():
-            if not products:
-                status[store] = {"ok": False, "melding": "geen assortiment beschikbaar", "t": now}
-                continue
-            baseline_done = db.get_state(conn, f"nulmeting_cjb_{store}", False)
-            known, known_names = set(), set()
-            for r in conn.execute("SELECT id, name, size FROM products WHERE store = ?", (store,)):
-                known.add(r["id"])
-                known_names.add(_product_key(r["name"], r["size"]))
-            fresh = [p for p in products if p["id"] not in known]
-            rows = []
-            new_relevant = 0
-            relisted = 0
-            for p in fresh:
-                # Winkels zetten bestaande producten soms opnieuw online met een ander
-                # artikelnummer (Spar). Zelfde naam en verpakking = niet nieuw.
-                again = _product_key(p["name"], p["size"]) in known_names
-                relisted += again
-                # Bij de nulmeting is niets nieuw, dus beoordelen is niet nodig (scheelt een minuut).
-                relevant = baseline_done and not again and is_snack_product(p["name"])
-                is_new = int(baseline_done and not again)
-                new_relevant += is_new and relevant
-                rows.append((p["id"], p["store"], p["name"], p["size"], p["price"], p["url"],
-                             now, now, is_new, int(relevant)))
-            conn.executemany(
-                "INSERT OR IGNORE INTO products(id, store, name, size, price, url, first_seen, "
-                "last_seen, is_new, relevant) VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
-            conn.execute("UPDATE products SET last_seen = ? WHERE store = ? AND demo = 0", (now, store))
-            db.set_state(conn, f"nulmeting_cjb_{store}", True)
-            stil = _stale_since(conn, store, products)
-            if baseline_done:
-                n_new = len(fresh) - relisted
-                status[store] = {"ok": True, "t": now, "producten": len(products),
-                                 "melding": f"{len(products)} producten, {n_new} nieuw "
-                                            f"({new_relevant} snack-relevant)"
-                                            + (f", {relisted} opnieuw online gezet" if relisted else "")}
-                summary.append(f"{store} {n_new} ({new_relevant})")
-                if stil:
+            if store in via_apify:
+                continue  # deze winkel komt via Apify: de (stilstaande) checkjebon-data niet meer gebruiken
+            st, line = _store_products(conn, store, products, now, "cjb")
+            if st.get("ok") or not st.get("producten"):
+                stil = _stale_since(conn, store, products) if products else None
+                if stil and st.get("nulmeting_klaar"):
                     # De bron levert voor deze winkel al lang exact hetzelfde assortiment: niet 'werkt'.
-                    status[store].update(ok=False, stil=stil,
-                                         melding=f"bron staat stil sinds {stil[:10]}: geen nieuwe gegevens van deze winkel")
-            else:
-                status[store] = {"ok": True, "t": now, "producten": len(products),
-                                 "melding": f"{len(products)} producten vastgelegd (nulmeting)"}
-                summary.append(f"{store} nulmeting")
+                    st.update(ok=False, stil=stil,
+                              melding=f"bron staat stil sinds {stil[:10]}: geen nieuwe gegevens van deze winkel")
+            status[store] = st
+            if line:
+                summary.append(line)
         db.set_state(conn, "supermarkt_status", status)
         fixed = unmark_relisted(conn)
     run.note("Supermarkten (nieuw, waarvan snack-relevant): " + ", ".join(summary)
              + (f". {fixed} eerder als nieuw gemelde producten bleken al bekend" if fixed else ""))
+
+
+def _store_products(conn, store: str, products: list[dict], now: str, source: str,
+                    partial: bool = False) -> tuple[dict, str]:
+    """Vergelijk het assortiment van één winkel met wat we kennen. Geeft (status, samenvatting).
+
+    De eerste keer per bron en winkel is de nulmeting: dan is niets nieuw. Een product met
+    dezelfde naam en verpakking als een bekend product (ander artikelnummer, of uit een
+    andere bron) telt ook niet als nieuw.
+    """
+    if not products:
+        return {"ok": False, "melding": "geen assortiment beschikbaar", "t": now}, ""
+    baseline_done = db.get_state(conn, f"nulmeting_{source}_{store}", False)
+    known, known_names = set(), set()
+    for r in conn.execute("SELECT id, name, size FROM products WHERE store = ?", (store,)):
+        known.add(r["id"])
+        known_names.add(_product_key(r["name"], r["size"]))
+    fresh = [p for p in products if p["id"] not in known]
+    rows, new_relevant, relisted = [], 0, 0
+    for p in fresh:
+        # Winkels zetten bestaande producten soms opnieuw online met een ander
+        # artikelnummer (Spar). Zelfde naam en verpakking = niet nieuw.
+        again = _product_key(p["name"], p["size"]) in known_names
+        relisted += again
+        # Bij de nulmeting is niets nieuw, dus beoordelen is niet nodig (scheelt een minuut).
+        relevant = baseline_done and not again and is_snack_product(p["name"])
+        is_new = int(baseline_done and not again)
+        new_relevant += is_new and relevant
+        rows.append((p["id"], p["store"], p["name"], p["size"], p["price"], p["url"],
+                     now, now, is_new, int(relevant)))
+    conn.executemany(
+        "INSERT OR IGNORE INTO products(id, store, name, size, price, url, first_seen, "
+        "last_seen, is_new, relevant) VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
+    conn.executemany("UPDATE products SET last_seen = ? WHERE id = ?", [(now, p["id"]) for p in products])
+    db.set_state(conn, f"nulmeting_{source}_{store}", True)
+    what = "snackproducten bekeken" if partial else "producten"
+    if not baseline_done:
+        return ({"ok": True, "t": now, "producten": len(products), "bron": source,
+                 "melding": f"{len(products)} {what} vastgelegd (nulmeting)"}, f"{store} nulmeting")
+    n_new = len(fresh) - relisted
+    return ({"ok": True, "t": now, "producten": len(products), "bron": source, "nulmeting_klaar": True,
+             "melding": f"{len(products)} {what}, {n_new} nieuw ({new_relevant} snack-relevant)"
+                        + (f", {relisted} opnieuw online gezet" if relisted else "")},
+            f"{store} {n_new} ({new_relevant})")
+
+
+def apify_stores(settings: dict) -> dict[str, str]:
+    """{winkelnaam: code} voor de winkels die via Apify gaan (alleen met een Apify-sleutel)."""
+    if not settings.get("supermarkt_apify_aan", True) or not apify.available():
+        return {}
+    codes = settings.get("supermarkt_apify_winkels") or {}
+    return {supermarket.STORE_NAMES.get(c, c.title()): c for c in codes if c}
+
+
+def step_supermarkets_apify(run: Run, settings: dict, force: bool = False) -> None:
+    """Winkels waarvan de gratis bron stilstaat (AH, Jumbo, Lidl, ...): zelf zoeken via Apify.
+
+    Per winkel één run met snackzoektermen; de eerste keer is de nulmeting. Standaard
+    twee keer per week, ongeveer 600 producten per keer (± 3 dollar).
+    """
+    stores = apify_stores(settings)
+    terms = [t.strip() for t in settings.get("supermarkt_zoektermen") or [] if t.strip()]
+    if not stores or not terms:
+        return
+    with db.session() as conn:
+        last = db.get_state(conn, "supermarkt_apify_laatst")
+        days = max(1.0, float(settings.get("supermarkt_apify_dagen", 3.5) or 3.5))
+        if last and not force and db.now() - db.parse_iso(last) < timedelta(days=days) - timedelta(hours=1):
+            return
+        if budget.plan(conn, settings)["left_usd"] <= 0:
+            run.note("Supermarkten via Apify overgeslagen: het maandbudget is op", "info")
+            return
+    per_store = max(len(terms), int(settings.get("supermarkt_per_winkel", 90) or 90))
+    price = settings.get("prijs_supermarkt_per_1000", 5.0)
+    now = db.iso(db.now())
+    summary, total_cost = [], 0.0
+    for store, code in stores.items():
+        try:
+            items, cost = apify.run_actor("supermarkt", "zoekterm", terms, max(1, per_store // len(terms)),
+                                          per_store * price / 1000 * 1.3, price_per_1000=price,
+                                          extra_input={"supermarkets": [code], "maxResults": per_store})
+        except apify.ApifyRunFailed as exc:
+            with db.session() as conn:
+                budget.record(conn, "apify", exc.max_usd, None, f"supermarkt {store} (onderbroken)")
+            run.note(f"Supermarkt {store} via Apify: {exc}", "waarschuwing")
+            continue
+        except Exception as exc:  # noqa: BLE001
+            with db.session() as conn:
+                status = db.get_state(conn, "supermarkt_status", {}) or {}
+                status[store] = {"ok": False, "t": now, "bron": "apify", "melding": f"Apify: {str(exc)[:160]}"}
+                db.set_state(conn, "supermarkt_status", status)
+            run.note(f"Supermarkt {store} via Apify: {exc}", "waarschuwing")
+            continue
+        total_cost += cost
+        products = [p for p in (supermarket.parse_apify(it, store, code) for it in items) if p]
+        with db.session() as conn:
+            budget.record(conn, "apify", cost, None, f"supermarkt {store}: {len(items)} producten")
+            st, line = _store_products(conn, store, products, now, "apify", partial=True)
+            status = db.get_state(conn, "supermarkt_status", {}) or {}
+            status[store] = st
+            db.set_state(conn, "supermarkt_status", status)
+        summary.append(line or f"{store} 0")
+    with db.session() as conn:
+        db.set_state(conn, "supermarkt_apify_laatst", now)
+        unmark_relisted(conn)
+    run.cost += total_cost
+    run.note(f"Supermarkten via Apify (nieuw, waarvan snack-relevant): {', '.join(summary)}, ${total_cost:.2f}")
 
 
 STALE_DAYS = 4
@@ -764,6 +840,7 @@ def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict 
                 step_news(run, settings)
                 step_ai(run, settings)
                 step_supermarkets(run, settings, force_supermarkets)
+                step_supermarkets_apify(run, settings, force_supermarkets)
                 step_snackspert(run)
                 step_discovery(run, settings)
                 step_geocode(run)

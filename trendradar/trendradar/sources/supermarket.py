@@ -13,6 +13,8 @@ niet opnieuw.
 """
 from __future__ import annotations
 
+import re
+
 import requests
 
 DATA_URL = "https://raw.githubusercontent.com/supermarkt/checkjebon/main/data/supermarkets.json"
@@ -24,6 +26,42 @@ STORE_NAMES = {
     "vomar": "Vomar", "poiesz": "Poiesz", "ekoplaza": "Ekoplaza", "coop": "Coop",
     "janlinders": "Jan Linders", "picnic": "Picnic",
 }
+
+
+def _pick(item: dict, *keys):
+    for k in keys:
+        v = item.get(k)
+        if v not in (None, ""):
+            return v
+    return None
+
+
+def _price(value) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        m = re.search(r"\d+(?:[.,]\d{1,2})?", value.replace("\u20ac", ""))
+        return float(m.group(0).replace(",", ".")) if m else None
+    if isinstance(value, dict):
+        return _price(_pick(value, "now", "amount", "value", "price"))
+    return None
+
+
+def parse_apify(item: dict, store: str, code: str) -> dict | None:
+    """Eén product van de Apify-supermarktscraper. Veldnamen verschillen per versie, dus ruim lezen."""
+    name = _pick(item, "name", "title", "productName", "product_name")
+    if not name:
+        return None
+    # Bevat het resultaat een winkel en is het een andere? Dan niet meetellen.
+    shop = str(_pick(item, "supermarket", "store", "shop", "chain") or "").lower()
+    if shop and shop not in (code.lower(), store.lower()) and code.lower() not in shop and store.lower() not in shop:
+        return None
+    url = _pick(item, "url", "productUrl", "product_url", "link")
+    size = _pick(item, "unitSize", "unit_size", "size", "quantity", "unit")
+    native = _pick(item, "id", "productId", "product_id", "sku", "ean", "gtin") or url or f"{name}|{size or ''}"
+    return {"id": f"{code}:{native}", "store": store, "name": str(name).strip(),
+            "size": str(size) if size is not None else None,
+            "price": _price(_pick(item, "price", "currentPrice", "current_price")), "url": url}
 
 
 class StoreError(RuntimeError):

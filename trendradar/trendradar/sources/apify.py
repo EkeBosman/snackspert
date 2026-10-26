@@ -90,8 +90,14 @@ def _maps_input(values, limit, since=None):
             "countryCode": "nl", "skipClosedPlaces": True, "scrapePlaceDetailPage": False}
 
 
+def _shop_input(values, limit, since=None):
+    # Supermarkt: zoekwoorden; de winkel en het maximum komen via extra_input.
+    return {"keyterms": values}
+
+
 # (platform, soort) -> (actor-id, invoerbouwer)
 ACTORS = {
+    ("supermarkt", "zoekterm"): ("harvestedge~dutch-supermarkets-all-11", _shop_input),
     ("maps", "zoekterm"): ("compass~crawler-google-places", _maps_input),
     ("instagram", "hashtag"): ("apify~instagram-hashtag-scraper", _ig_hashtag_input),
     ("instagram", "account"): ("apify~instagram-scraper", _ig_profile_input),
@@ -217,7 +223,7 @@ def _start(url: str, **kw):
 
 def run_actor(platform: str, kind: str, values: list[str], per_value: int,
               max_usd: float, since: str | None = None, price_per_1000: float = 0.0,
-              timeout_s: int = 900) -> tuple[list[dict], float]:
+              timeout_s: int = 900, extra_input: dict | None = None) -> tuple[list[dict], float]:
     """Start een actor-run, wacht tot hij klaar is en geef (items, kosten_usd)."""
     actor, build = ACTORS[(platform, kind)]
     headers = _auth()
@@ -227,7 +233,7 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
         "maxTotalChargeUsd": f"{max(MIN_CHARGE_USD, max_usd):.2f}",
         "waitForFinish": 60,
     }
-    body = build(values, per_value, since)
+    body = {**build(values, per_value, since), **(extra_input or {})}
     resp = _start(f"{API}/acts/{actor}/runs", params=params, headers=headers, json=body, timeout=90)
     if resp.status_code == 400 and OPTIONAL_KEYS & body.keys():
         # Kent de actor een van de extra velden niet (meer)? Probeer het zonder,
