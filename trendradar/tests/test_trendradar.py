@@ -1744,3 +1744,38 @@ def test_new_places_from_google_maps(conn, monkeypatch):
     conn.execute("INSERT INTO spots(name, place, added_at, updated_at) VALUES ('Frietkot De Nieuwe', 'Utrecht', 'x', 'x')")
     assert nieuwezaken.new_places(conn) == []                                   # al in je tips
     assert budget.spent_usd(conn, "apify") == pytest.approx(0.8)
+
+
+def test_supermarkets_via_apify(conn, monkeypatch):
+    from trendradar import collector
+    from trendradar.sources import supermarket
+
+    ap = _apify_offline(monkeypatch)
+    rounds = iter([
+        [{"name": "AH Kroketten 4 st", "price": 2.49, "unit_size": "4 st", "url": "https://www.ah.nl/p/1"}],
+        [{"name": "AH Kroketten 4 st", "price": 2.49, "unit_size": "4 st", "url": "https://www.ah.nl/p/1"},
+         {"title": "AH Loaded Kipcorn Bites", "price": "€ 3,29", "url": "https://www.ah.nl/p/2"},
+         {"name": "Jumbo Frikandel", "supermarket": "jumbo", "url": "https://www.jumbo.com/x"}],
+    ])
+    calls = []
+
+    def fake(platform, kind, values, per_value, max_usd, **kw):
+        calls.append((platform, kind, values, kw.get("extra_input")))
+        return next(rounds), 0.3
+    monkeypatch.setattr(ap, "run_actor", fake)
+    cjb = {"Albert Heijn": [{"id": "ah:old", "store": "Albert Heijn", "name": "Oud", "size": "", "price": 1, "url": None}],
+           "Spar": [{"id": "spar:1", "store": "Spar", "name": "Spar Kroket", "size": "", "price": 1, "url": None}]}
+    monkeypatch.setattr(supermarket, "fetch", lambda etag=None: (cjb, "e"))
+    settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"]}
+    collector.step_supermarkets(collector.Run("t"), settings, force=True)
+    collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
+    assert calls[0][:2] == ("supermarkt", "zoekterm") and calls[0][3]["supermarkets"] == ["ah"]
+    status = db.get_state(conn, "supermarkt_status")
+    assert status["Albert Heijn"]["bron"] == "apify" and "nulmeting" in status["Albert Heijn"]["melding"]
+    assert status["Spar"]["bron"] == "cjb"
+    assert not conn.execute("SELECT 1 FROM products WHERE id = 'ah:old'").fetchone()   # stilstaande bron niet gebruikt
+    collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
+    new = {r["name"]: r["price"] for r in conn.execute("SELECT name, price FROM products WHERE is_new = 1")}
+    assert new == {"AH Loaded Kipcorn Bites": 3.29}                                    # Jumbo-resultaat niet bij AH
+    assert budget.spent_usd(conn, "apify") == pytest.approx(0.6)
+    assert supermarket.parse_apify({"productName": "X", "price": {"now": 1.5}}, "Plus", "plus")["price"] == 1.5
