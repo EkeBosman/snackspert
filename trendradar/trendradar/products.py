@@ -134,10 +134,15 @@ def overview(conn, include_demo: bool = True, days: int = 30, only_relevant: boo
 
 _STORES_RE = "|".join(sorted({re.escape(n.strip("# ")) for names in lexicon.SUPERMARKETS.values()
                                for n in names if len(n.strip("# ")) > 2}, key=len, reverse=True)) + "|ah"
+_BRANDS_RE = "|".join(sorted({re.escape(b).replace("'", "['’]?").replace("’", "['’]?")
+                               for b in lexicon.BRANDS if len(b) > 2}, key=len, reverse=True))
 _PATTERNS = [
     re.compile(rf"nieuw(?:e)? (?:bij|in de|van de) (?:de )?(?:{_STORES_RE})\s*[:!\-–]\s*(.{{4,60}}?)(?=[.!?#@\n]|$)", re.I),
     re.compile(rf"(?:gespot|gevonden) bij (?:de )?(?:{_STORES_RE})\s*[:!\-–]\s*(.{{4,60}}?)(?=[.!?#@\n]|$)", re.I),
-    re.compile(r"(?:de )?nieuwe ([A-Z][\w'’&-]+(?: [\w'’&-]+){0,4}) (?:van|bij) ", re.U),
+    # 'De nieuwe Doritos Loaded Cheese bij de Jumbo': alleen met een winkel of merk erachter, anders
+    # wordt 'de nieuwe Smashburger van de week' van een snackbar een supermarktproduct.
+    re.compile(rf"(?:de )?nieuwe ([A-Z][\w'’&-]+(?: [\w'’&-]+){{0,4}}?) (?:van|bij) (?:de )?(?:{_STORES_RE}|{_BRANDS_RE})\b",
+               re.U | re.I),
 ]
 
 

@@ -39,11 +39,10 @@ def coords(conn, place: str) -> tuple[float, float] | None:
     p = clean_place(place)
     if not p:
         return None
+    # Alleen een exacte naam uit de eigen lijst. 'Valkenburg, ZH' is niet het Valkenburg in
+    # Limburg: een plaats met een toevoeging zoekt de tool altijd op.
     if p.lower() in _CITIES:
         return _CITIES[p.lower()]
-    first = p.split(",")[0].strip().lower()
-    if first in _CITIES:
-        return _CITIES[first]
     row = conn.execute("SELECT lat, lon FROM geo WHERE place = ?", (p,)).fetchone()
     return (row["lat"], row["lon"]) if row and row["lat"] is not None else None
 

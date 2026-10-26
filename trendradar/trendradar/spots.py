@@ -43,7 +43,7 @@ def radar_hits(conn, days: int = 30, include_demo: bool = True) -> dict[int, dic
             if key in blob or key in keys:
                 h = hits.setdefault(spot_id, {"posts": 0, "last": p["posted_at"], "post_ids": []})
                 h["posts"] += 1
-                if len(h["post_ids"]) < 5:
+                if len(h["post_ids"]) < 50:
                     h["post_ids"].append(p["id"])
     return hits
 

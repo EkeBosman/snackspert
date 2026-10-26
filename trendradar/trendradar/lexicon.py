@@ -157,6 +157,9 @@ HAIR_WORDS = {
 
 # Woorden die op Nederlandstalige tekst wijzen.
 DUTCH_WORDS = {
+    "als", "om", "te", "er", "uit", "dus", "weer", "al", "wie", "dan", "na", "pas", "per", "lang",
+    "plus", "hoe", "welke", "zelf", "ze", "hij", "zij", "we", "jou", "haar", "hem", "mee", "door",
+    "over", "tegen", "zonder", "binnen", "buiten", "gehaald", "besteld", "geprobeerd", "proeven",
     "de", "het", "een", "en", "van", "is", "niet", "dat", "die", "met", "voor",
     "op", "ook", "maar", "wat", "echt", "lekker", "heel", "deze", "bij", "naar",
     "zijn", "wel", "nog", "nu", "jullie", "wij", "ik", "je", "jij", "mijn", "hier",
@@ -201,26 +204,29 @@ DUTCH_FOODS = {
 # post niet Nederlandstalig. Woorden die in beide talen bestaan (de, en, is, in,
 # die, van) staan er bewust niet in.
 FOREIGN_WORDS: dict[str, set[str]] = {
+    # Geen woorden die ook Nederlands zijn of die Nederlanders vaak gebruiken ('best', 'food').
     "en": {"the", "and", "with", "this", "you", "your", "are", "have", "got", "our", "it's",
            "it", "just", "what", "when", "from", "they", "will", "don't", "can't", "love",
-           "amazing", "delicious", "today", "best", "food", "try", "come", "here's", "who",
-           "has", "been", "were", "would", "about", "their", "there", "these", "those"},
+           "amazing", "delicious", "today", "try", "come", "here's", "who",
+           "has", "been", "were", "would", "about", "their", "there", "these", "those",
+           "for", "to", "at", "my", "so", "tried", "famous", "good", "must", "really", "very",
+           "first", "time", "taste", "great", "place", "visit", "market", "check", "out", "near"},
     "es": {"el", "la", "los", "las", "por", "para", "con", "que", "una", "del", "muy", "más",
            "gracias", "es", "este", "esta", "sus", "nuestro", "nuestra", "nuestros", "y",
            "como", "pero", "también", "aquí", "todo", "años", "fue", "lo", "le", "se"},
     "pt": {"não", "uma", "com", "para", "por", "nossa", "nosso", "nossas", "nossos", "são",
            "mais", "que", "do", "da", "das", "dos", "você", "muito", "aqui", "também", "fora",
-           "ninguém", "às", "na", "no", "nas", "nos", "pelo", "pela"},
+           "ninguém", "às", "no", "nas", "nos", "pelo", "pela"},
     "de": {"der", "und", "ist", "nicht", "mit", "ich", "wir", "auf", "für", "ein", "eine",
-           "das", "sehr", "auch", "wie", "noch", "bei", "uns", "euch", "heute", "gibt"},
+           "das", "sehr", "auch", "noch", "bei", "uns", "euch", "heute", "gibt"},
     "fr": {"le", "les", "et", "est", "avec", "pour", "une", "du", "des", "très", "nous",
-           "vous", "sur", "dans", "qui", "pas", "plus", "chez", "c'est"},
-    "it": {"il", "della", "per", "che", "molto", "sono", "questo", "anche", "alla", "dei"},
-    "id": {"yang", "dan", "di", "ini", "itu", "dengan", "untuk", "tidak", "ada", "aku",
+           "vous", "sur", "dans", "qui", "chez", "c'est"},
+    "it": {"il", "della", "che", "molto", "sono", "questo", "anche", "alla", "dei"},
+    "id": {"yang", "di", "ini", "itu", "dengan", "untuk", "tidak", "ada", "aku",
            "kamu", "enak", "banget", "sudah", "juga", "saja", "lagi", "makan", "sama", "dari",
            "ke", "karena", "bisa", "mau", "kita", "kami", "akan", "sangat", "murah", "harga",
            "beli", "pesan", "langsung", "rasa", "sekali", "jangan", "lebih", "seperti", "atau"},
-    "tl": {"ang", "ng", "sa", "mga", "po", "ako", "ito", "masarap", "naman", "lang", "ko"},
+    "tl": {"ang", "ng", "sa", "mga", "po", "ako", "ito", "masarap", "naman", "ko"},
     "tr": {"ve", "bir", "bu", "çok", "için", "ile", "daha", "ama", "gibi", "lezzetli",
            "afiyet", "olsun", "sipariş", "değil", "var", "yok"},
 }
@@ -363,7 +369,7 @@ ITEM_GROUPS: dict[str, tuple[str, ...]] = {
     "kip": ("fried chicken", "kipnuggets", "nuggets", "wings", "tenders"),
     "sushi": ("sushi",),
     "ramen": ("ramen", "noedels"),
-    "softijs": ("softijs", "ijsje", "ijs ", "gelato", "milkshake"),
+    "softijs": ("softijs", "ijsje", "ijs ", "gelato"),  # geen milkshake: friet met een milkshake is een menu
     "donut": ("donut", "donuts"),
     "wafel": ("wafel", "stroopwafel"),
     "croissant": ("croissant", "cruffin", "crookie"),
@@ -398,17 +404,18 @@ COMMON_PAIRS = {
 # Een bekende snack in een nieuwe vorm: 'loaded kipcorn', 'gevulde kroket',
 # 'xxl frikandel'. Dat is vaak hoe een snackbar iets nieuws maakt.
 TWIST_WORDS = ("loaded", "dirty", "gevulde", "gevuld", "xxl", "mega", "giga", "monster",
-               "gefrituurde", "gefrituurd", "deepfried", "crispy", "crunchy", "smashed", "mini")
+               "gefrituurde", "gefrituurd", "deepfried", "crispy", "crunchy", "smashed")
 # Twists die al heel gewoon zijn.
 COMMON_TWISTS = {"loaded friet", "dirty friet", "mini kroket", "mini frikandel", "crispy kip",
                  "mega burger", "xxl burger", "smashed burger", "mini pizza", "gevulde wafel",
-                 "mini donut", "gefrituurde kip", "crunchy kip"}
+                 "mini donut", "gefrituurde kip", "crunchy kip", "gefrituurde kaas", "gefrituurd kaas",
+                 "crispy kaas", "loaded kaas"}
 
 # Amsterdamse wijken en buurten: een post met een van deze namen telt als Amsterdam.
 AMSTERDAM_AREAS = (
     "jordaan", "de pijp", "oud-west", "oud west", "westerpark", "de baarsjes", "bos en lommer",
     "nieuw-west", "nieuw west", "oud-zuid", "oud zuid", "rivierenbuurt", "buitenveldert",
-    "zuidas", "bijlmer", "zuidoost", "watergraafsmeer", "indische buurt", "dapperbuurt",
+    "zuidas", "bijlmer", "amsterdam zuidoost", "amsterdam-zuidoost", "zuidoost amsterdam", "watergraafsmeer", "indische buurt", "dapperbuurt",
     "oosterpark", "ijburg", "zeeburg", "oostelijke eilanden", "amsterdam-noord",
     "amsterdam noord", "amsterdam-oost", "amsterdam oost", "amsterdam-west", "amsterdam west",
     "amsterdam-zuid", "amsterdam zuid", "amsterdam centrum", "ndsm", "buikslotermeer",
@@ -451,6 +458,29 @@ COMMON_COMPOUNDS = {"hamburger", "cheeseburger", "kipburger", "smashburger", "ch
 NOT_A_NAME = {"bal", "met", "mexicano", "frikandel", "kroket", "kaas", "warm", "gezond", "gezonde", "ei", "hete",
               "grof", "porky", "de", "van", "met", "pastrami", "braaiworst", "spareribs", "bakkeljauw",
               "kaasfondue", "frikandel", "kip", "shoarma", "döner", "doner", "bal", "gezond", "zalm", "tonijn"}
+# Ingrediënten en bijvoeglijke woorden: 'rundvleeskroket' en 'truffelburger' zijn een variant
+# op een bekende snack, geen eigen creatie met een eigen naam.
+INGREDIENT_WORDS = {
+    "rundvlees", "kalfs", "kalfsvlees", "garnalen", "garnaal", "kip", "kippen", "kaas", "boeren", "truffel",
+    "pulled", "spicy", "ham", "vegan", "vega", "vegetarische", "groente", "groenten", "sate", "saté", "kerrie",
+    "goulash", "asperge", "zuurvlees", "oesterzwam", "paddenstoel", "champignon", "spinazie", "tonijn", "zalm",
+    "vis", "kreeft", "krab", "wagyu", "angus", "bbq", "pittige", "hete", "pikante", "cheese", "chicken", "beef",
+    "pork", "lams", "lamsvlees", "geiten", "eend", "hert", "wild", "rendang", "babi", "ketjap", "honing",
+    "mosterd", "knoflook", "ui", "uien", "jalapeno", "jalapeño", "chili", "chipotle", "sriracha", "pesto",
+    "brie", "oude", "jonge", "dubbel", "dubbele", "triple", "maxi", "kleine", "grote", "luxe", "special",
+    "speciaal", "bami", "nasi", "gehakt", "hachee", "stoofvlees", "ossenhaas", "biefstuk", "spek", "bacon",
+    "worst", "rookworst", "cheddar", "mozzarella", "gouda", "feta", "halloumi", "avocado", "ei", "eier",
+    "tomaat", "tomaten", "paprika", "curry", "satesaus", "pinda", "noten", "pistache", "chocolade", "karamel",
+}
+# Gewone broodjes: geen eigen creatie.
+ORDINARY_FILLINGS = {"carpaccio", "haring", "gehakt", "kipsate", "kipsaté", "speciaal", "pulled", "filet", "americain",
+                     "rosbief", "beenham", "brie", "tonijn", "zalm", "kipfilet", "kipkerrie", "eiersalade",
+                     "tonijnsalade", "smos", "martino", "mexicano", "kroket", "frikandel", "bal", "kaas", "ham",
+                     "ei", "gezond", "warm", "warme", "vlees", "kip", "shoarma", "döner", "doner", "hete",
+                     "unox", "rookworst", "worst", "braadworst", "hamburger", "burger", "schnitzel", "kalkoen",
+                     "pastrami", "spareribs", "bakkeljauw", "pom", "saté", "sate", "falafel", "hummus", "kaasfondue"}
+# Woorden die laten zien dat een zaak (misschien) niet meer bestaat.
+CLOSED_WORDS = ("gesloten", "failliet", "gestopt", "opgeheven", "bestaat niet meer", "niet meer open")
 HOMEMADE_WORDS = ("zelfgemaakt", "eigengemaakt", "eigen gemaakt", "huisgemaakt", "eigen pindasaus", "eigen saus",
                   "eigen sauzen", "zelf ontwikkeld", "eigen creatie", "eigen recept", "huysfrikandel")
 SPECTACLE_WORDS = ("in de vorm van", "tank", "xxl", "giga", "monster", "mega", "over the top", "knettergek", "gekke",
@@ -478,3 +508,23 @@ CHANNEL_HINTS = {
 PLACE_WORDS = ("toren", "kerk", "plein", "straat", "park", "strand", "haven", "museum", "station", "brug", "dijk",
                "laan", "kade", "gracht", "stadion", "arena", "kasteel", "molen", "vakantie", "bruiloft",
                "wedding", "verjaardag", "birthday", "uitzicht", "sunset", "zonsondergang")
+
+
+# --- Plaatsherkenning (classify.find_city) --------------------------------------
+
+# Plaatsnamen die ook een gewoon woord zijn ('een houten bakje', 'jonge gouda', 'kan leiden tot',
+# '#ijshoorn'). In tekst tellen ze alleen na 'in', 'uit', 'bij' enzovoort; als hashtag alleen
+# los of met een foodwoord ervoor of erachter (#goudafood).
+AMBIGUOUS_PLACES = {"gouda", "houten", "leiden", "hoorn", "kampen", "edam", "laren", "lisse", "epe", "soest",
+                    "baarn", "ede", "venlo", "oss", "zeist", "weesp", "urk", "tiel", "ommen", "gennep"}
+PLACE_PREPOSITIONS = ("in", "uit", "bij", "naar", "te", "vanuit", "richting", "rondom", "rond", "centrum",
+                      "regio", "omgeving")
+# Een stad in een hashtag telt als hij los staat of samen met zo'n woord: #foodamsterdam,
+# #amsterdamfood, #streetfoodrotterdam. Niet in #ijshoorn of #goudakaas.
+CITY_TAG_AFFIXES = ("food", "foodie", "foodies", "eten", "eat", "eats", "visit", "snack", "snacks", "spot",
+                    "spots", "foodspot", "foodspots", "streetfood", "foodtour", "tour", "ilove", "hungry",
+                    "proef", "explore", "lunch", "diner", "dinner", "centrum", "city", "stad", "nl", "noord",
+                    "zuid", "oost", "west", "guide", "foodguide", "burger", "burgers", "friet", "snackbar")
+# Landen en algemene plaatsaanduidingen: een locatie die alleen dit is, is geen zaak.
+COUNTRY_WORDS = {"nederland", "netherlands", "the netherlands", "holland", "nl", "belgie", "belgië", "belgium",
+                 "deutschland", "germany", "europe", "europa"}

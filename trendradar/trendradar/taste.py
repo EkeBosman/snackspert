@@ -17,6 +17,7 @@ heeft geleerd, en bij elke kandidaat waarop hij lijkt.
 """
 from __future__ import annotations
 
+import functools
 import json
 import re
 from collections import defaultdict
@@ -66,6 +67,7 @@ class Profile(dict):
         return out
 
 
+@functools.lru_cache(maxsize=16384)
 def zaak_key(name: str) -> str:
     """'Snackbar De Poppe, Coevorden', 'Snackbar de Poppe' en '@snackbardepoppe': dezelfde sleutel."""
     if ", " in name:

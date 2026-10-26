@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from collections import defaultdict
+from html import escape
 from statistics import median
 
 from . import classify
@@ -29,12 +30,20 @@ def _test_product(caption: str) -> str | None:
     return m.group(1).strip() if m else None
 
 
+_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
+
+
 def _rows(conn, year: str | None = None) -> list[dict]:
     sql, args = "SELECT * FROM own_posts", []
     if year:
         sql += " WHERE month LIKE ?"
         args.append(f"{year}-%")
-    return [dict(r) for r in conn.execute(sql + " ORDER BY COALESCE(date, month) DESC", args)]
+    rows = [dict(r) for r in conn.execute(sql + " ORDER BY COALESCE(date, month) DESC", args)]
+    for r in rows:
+        # Een maand als 'maart 2026' uit een oudere import: niet laten crashen, gewoon overslaan.
+        if not _MONTH_RE.match(r["month"] or ""):
+            r["month"] = None
+    return rows
 
 
 def _med(values) -> float:
@@ -63,7 +72,8 @@ def _stats(rows, overall_median: float) -> dict:
 
 def years(conn) -> list[str]:
     return [r["y"] for r in conn.execute(
-        "SELECT DISTINCT substr(month, 1, 4) AS y FROM own_posts WHERE month IS NOT NULL ORDER BY y DESC")]
+        "SELECT DISTINCT substr(month, 1, 4) AS y FROM own_posts "
+        "WHERE month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]' ORDER BY y DESC")]
 
 
 def snack_lifts(rows: list[dict], overall_median: float | None = None) -> dict[str, dict]:
@@ -139,6 +149,11 @@ def _slim(r) -> dict:
                               "followers", "followers_count", "format", "channel", "location")}
 
 
+def _per_10k(followers: int, rows) -> float | None:
+    views = sum(r["views"] or 0 for r in rows if r["followers_count"] and r["followers"] is not None)
+    return round(10000 * followers / views, 1) if views else None
+
+
 def _fmt(n) -> str:
     return f"{round(n):,}".replace(",", ".")
 
@@ -148,12 +163,12 @@ def _insights(rows, groups, snacks, all_rows, overall) -> list[str]:
     fmts = [(k, v) for k, v in groups["format"].items() if v["posts"] >= MIN_GROUP]
     if fmts:
         k, v = max(fmts, key=lambda kv: kv[1]["median_views"])
-        out.append(f"Je best bekeken format is <b>{k}</b>: mediaan {_fmt(v['median_views'])} views, "
-                   f"{v['index'] - 100:+d}% ten opzichte van je mediaan.")
+        vs = f", {v['index'] - 100:+d}% ten opzichte van je mediaan" if v["index"] is not None else ""
+        out.append(f"Je best bekeken format is <b>{escape(k)}</b>: mediaan {_fmt(v['median_views'])} views{vs}.")
         with_f = [(k, v) for k, v in fmts if v["followers_per_post"] is not None]
         if with_f:
             k, v = max(with_f, key=lambda kv: kv[1]["followers_per_post"])
-            out.append(f"De meeste nieuwe volgers per post haal je met <b>{k}</b>: "
+            out.append(f"De meeste nieuwe volgers per post haal je met <b>{escape(k)}</b>: "
                        f"{str(v['followers_per_post']).replace('.', ',')} per post.")
     loc = groups["location"]
     if loc.get("Amsterdam", {}).get("posts", 0) >= MIN_GROUP and loc.get("Buiten Amsterdam", {}).get("posts", 0) >= MIN_GROUP:
@@ -167,7 +182,7 @@ def _insights(rows, groups, snacks, all_rows, overall) -> list[str]:
                    f"{_fmt(rec['Mainstream']['median_views'])} views, <b>niche</b> {_fmt(rec['Niche']['median_views'])}.")
     top = [(k, v) for k, v in snacks.items() if v["lift"] >= 1.1][:3]
     if top:
-        parts = [f"<b>{k}</b> ({str(v['lift']).replace('.', ',')}×)" for k, v in top]
+        parts = [f"<b>{escape(k)}</b> ({str(v['lift']).replace('.', ',')}×)" for k, v in top]
         out.append("Snacks die het bij jouw publiek beter doen dan gemiddeld: " + ", ".join(parts) + ".")
     # Laatste 3 maanden tegen dezelfde maanden een jaar eerder.
     months = sorted({r["month"] for r in all_rows if r["month"]})
@@ -182,7 +197,8 @@ def _insights(rows, groups, snacks, all_rows, overall) -> list[str]:
                        f"{diff:+d}% ten opzichte van een jaar eerder.")
     tests = _supermarket_tests(rows)
     if tests:
-        out.append(f"Je best bekeken supermarkttest: <b>{tests[0]['product']}</b> ({_fmt(tests[0]['views'] or 0)} views).")
+        out.append(f"Je best bekeken supermarkttest: <b>{escape(tests[0]['product'])}</b> "
+                   f"({_fmt(tests[0]['views'] or 0)} views).")
     return out
 
 
@@ -200,8 +216,7 @@ def overview(conn, year: str | None = None) -> dict:
         "median_views": round(overall),
         "followers": fol,
         "followers_per_post": round(fol / n_fol, 1) if n_fol else None,
-        "followers_per_10k": round(10000 * fol / sum(r["views"] or 0 for r in rows if r["followers_count"]), 1)
-        if n_fol else None,
+        "followers_per_10k": _per_10k(fol, rows),
         "collabs": sum(1 for r in rows if (r["format"] or "") in ("Samenwerking", "Collab")),
     }
     by_month = defaultdict(list)

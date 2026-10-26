@@ -31,6 +31,7 @@ class Run:
         self.cost = 0.0
         self.ai_cost = 0.0
         self.errors = 0
+        self.offline = 0      # bronnen die niet konden door een netwerkfout
         with db.session() as conn:
             cur = conn.execute("INSERT INTO runs(started_at, trigger) VALUES (?, ?)",
                                (db.iso(db.now()), trigger))
@@ -46,7 +47,13 @@ class Run:
             conn.execute("UPDATE runs SET log = ? WHERE id = ?", (config.dumps(self.lines), self.id))
 
     def finish(self) -> None:
-        status = "klaar" if not self.errors else ("deels" if self.results or self.new_posts else "fout")
+        if not self.errors and not self.offline:
+            status = "klaar"
+        elif self.results or self.new_posts:
+            status = "deels"
+        else:
+            # Niets opgehaald door fouten of geen internet: over een half uur opnieuw (zie due()).
+            status = "fout"
         with db.session() as conn:
             conn.execute(
                 "UPDATE runs SET finished_at = ?, status = ?, results = ?, new_posts = ?, "
@@ -105,22 +112,35 @@ def store_posts(conn, posts: list[dict], source_id: int | None,
 
 
 def _attribute(posts: list[dict], kind: str, values: list[str]) -> dict[str, list[dict]]:
-    """Wijs posts uit één Apify-run toe aan de bron waar ze vandaan kwamen."""
+    """Wijs posts uit één Apify-run toe aan de bron waar ze vandaan kwamen.
+
+    Elke betaalde post wordt opgeslagen. Is niet te zien bij welke bron een post
+    hoort (de hashtag staat alleen in de eerste reactie, een zoekresultaat bevat
+    de zoekwoorden niet letterlijk), dan verdelen we die posts eerlijk over de bronnen.
+    """
     out: dict[str, list[dict]] = {v: [] for v in values}
+    rest: list[dict] = []
     for p in posts:
         target = None
         if kind == "hashtag":
             target = next((v for v in values if v.lower() in (p.get("hashtags") or [])), None)
         elif kind == "account":
             author = (p.get("author") or "").lower()
-            target = next((v for v in values if v.lower() == author or v.lower() in author), None)
+            target = next((v for v in values if v.lower() == author), None) or \
+                next((v for v in values if v.lower() in author), None)
+        elif kind == "zoekterm":
+            text = (p.get("text") or "").lower()
+            scores = [(sum(w in text for w in v.lower().split()) / max(1, len(v.split())), v) for v in values]
+            best = max(scores, default=(0, None))
+            target = best[1] if best[0] > 0 else None
         if target is None and len(values) == 1:
             target = values[0]
-        if target is None and kind == "zoekterm":
-            text = (p.get("text") or "").lower()
-            target = next((v for v in values if all(w in text for w in v.split())), values[0])
-        if target is not None:
+        if target is None:
+            rest.append(p)
+        else:
             out[target].append(p)
+    for i, p in enumerate(rest):
+        out[values[i % len(values)]].append(p)
     return out
 
 
@@ -145,8 +165,15 @@ def step_graph(run: Run, settings: dict) -> set[int]:
                 continue
             free -= 1
         try:
+            # Internet buiten de database-sessie, anders wacht de interface op Meta.
             with db.session() as conn:
-                posts = meta_graph.fetch_hashtag(conn, s["value"])
+                hid = meta_graph.cached_hashtag_id(conn, s["value"])
+            if not hid:
+                hid = meta_graph.search_hashtag_id(s["value"])
+                with db.session() as conn:
+                    meta_graph.remember_hashtag_id(conn, s["value"], hid)
+            posts = meta_graph.hashtag_media(hid)
+            with db.session() as conn:
                 new, rel, useful = store_posts(conn, posts, s["id"])
                 discovery.update_source_stats(conn, s["id"], len(posts), rel, new, useful,
                                               0.0, settings["interval_uren"])
@@ -178,15 +205,18 @@ def step_apify(run: Run, settings: dict, skip: set[int]) -> None:
     if not apify.available():
         run.note("Geen APIFY_TOKEN: TikTok, Facebook en extra Instagram overgeslagen", "waarschuwing")
         return
+    step_reconcile_apify(run, settings)
     with db.session() as conn:
         p = budget.plan(conn, settings)
         sources = [dict(r) for r in conn.execute("SELECT * FROM sources WHERE status='actief'")]
     run.note(f"Budget deze ronde: ${p['per_run_usd']:.2f} "
              f"(nog ${p['left_usd']:.2f} voor {p['runs_left']} rondes deze maand)")
-    # Het budget in de tool is iets anders dan het tegoed op je Apify-account.
-    acct = apify.account_usage()
+    # Het budget in de tool is iets anders dan het tegoed op je Apify-account
+    # (net opgevraagd door step_reconcile_apify).
     with db.session() as conn:
-        db.set_state(conn, "apify_account", {**acct, "checked": db.iso(db.now())} if acct else None)
+        acct = db.get_state(conn, "apify_account")
+        if acct and db.now() - db.parse_iso(acct["checked"]) > timedelta(minutes=10):
+            acct = None
     if acct:
         left = acct["limit_usd"] - acct["used_usd"]
         if left < 0.05:
@@ -225,10 +255,10 @@ def step_apify(run: Run, settings: dict, skip: set[int]) -> None:
                     break
                 since = None
                 if settings.get("alleen_nieuwe_posts", True):
-                    # Vanaf de oudste laatste ophaalbeurt in deze groep, min een dag marge.
+                    # Vanaf de dag van de oudste laatste ophaalbeurt in deze groep. Het filter werkt
+                    # per dag, dus die dag zelf zit er nog in: genoeg marge, minder dubbel betalen.
                     fetched = [db.parse_iso(s["last_fetched"]) for s in batch if s["last_fetched"]]
-                    start = (min(fetched) if len(fetched) == len(batch) else db.now()
-                             - timedelta(days=2)) - timedelta(days=1)
+                    start = min(fetched) if len(fetched) == len(batch) else db.now() - timedelta(days=3)
                     since = start.strftime("%Y-%m-%d")
                 try:
                     items, cost = apify.run_actor(platform, kind, values, per_value, cap, since,
@@ -238,9 +268,14 @@ def step_apify(run: Run, settings: dict, skip: set[int]) -> None:
                              "tool verhoogt je Apify-tegoed niet: dat doe je met een betaald plan op apify.com "
                              "(Billing). De rest van deze ronde slaat Apify over.", "fout")
                     return
+                except apify.ApifyRunFailed as exc:
+                    _remember_failed_run(run, exc, platform, kind, values)
+                    usd_left -= exc.max_usd
+                    continue
                 except (requests.ConnectionError, requests.Timeout) as exc:
-                    # Internet of DNS even weg: de bronnen tellen niet als leeg en komen
-                    # de volgende ronde gewoon weer aan de beurt. Er is niets betaald.
+                    # Internet of DNS even weg vóór de start: de bronnen tellen niet als leeg en
+                    # komen de volgende ronde gewoon weer aan de beurt. Er is niets betaald.
+                    run.offline += len(values)
                     run.note(f"Apify {platform}/{kind}: geen verbinding met Apify (internet even weg?), ook niet "
                              f"na een tweede poging. {len(values)} bronnen komen de volgende ronde weer aan de beurt.",
                              "waarschuwing")
@@ -256,23 +291,132 @@ def step_apify(run: Run, settings: dict, skip: set[int]) -> None:
                     continue
                 usd_left -= cost
                 run.cost += cost
-                posts = [x for x in (apify.normalize(platform, it) for it in items) if x]
-                by_value = _attribute(posts, kind, values)
-                batch_new = 0
+                # Eerst de kosten vastleggen, in een eigen sessie: wat er daarna ook misgaat,
+                # betaald is betaald.
                 with db.session() as conn:
                     budget.record(conn, "apify", cost, platform, f"{kind}: {', '.join(values)}")
-                    for s in batch:
-                        mine = by_value.get(s["value"], [])
-                        share = cost * (len(mine) / len(posts) if posts else 1 / len(batch))
-                        new, rel, useful = store_posts(conn, mine, s["id"])
-                        run.new_posts += new
-                        batch_new += new
-                        discovery.update_source_stats(conn, s["id"], len(mine), rel, new, useful,
-                                                      share, settings["interval_uren"])
+                posts = _normalize_all(run, platform, items)
+                by_value = _attribute(posts, kind, values)
+                batch_new = 0
+                for s in batch:
+                    mine = by_value.get(s["value"], [])
+                    share = cost * (len(mine) / len(posts) if posts else 1 / len(batch))
+                    try:
+                        with db.session() as conn:
+                            new, rel, useful = store_posts(conn, mine, s["id"])
+                            discovery.update_source_stats(conn, s["id"], len(mine), rel, new, useful,
+                                                          share, settings["interval_uren"],
+                                                          filtered=since is not None)
+                    except Exception as exc:  # noqa: BLE001 - één bron mag de ronde niet stoppen
+                        run.note(f"Opslaan mislukt voor {s['value']}: {exc}", "fout")
+                        continue
+                    run.new_posts += new
+                    batch_new += new
                 run.results += len(posts)
                 dup = 1 - batch_new / len(posts) if posts else 0
                 run.note(f"Apify {platform}/{kind}: {len(posts)} posts uit {len(values)} bronnen, "
                          f"{batch_new} nieuw ({dup:.0%} al bekend), ${cost:.3f}")
+
+
+def _normalize_all(run: Run, platform: str, items: list[dict]) -> list[dict]:
+    """Zet Apify-resultaten om; één vreemd resultaat mag de rest niet tegenhouden."""
+    posts, bad = [], 0
+    for it in items:
+        try:
+            p = apify.normalize(platform, it)
+        except Exception:  # noqa: BLE001
+            bad += 1
+            continue
+        if p:
+            posts.append(p)
+    if bad:
+        run.note(f"{platform}: {bad} resultaten konden niet worden gelezen en zijn overgeslagen", "waarschuwing")
+    return posts
+
+
+def _remember_failed_run(run: Run, exc, platform: str, kind: str, values: list[str]) -> None:
+    """Een gestarte run ging mis: tel voorlopig het maximum en zet hem recht in de volgende ronde."""
+    run.cost += exc.max_usd
+    with db.session() as conn:
+        spend_id = budget.record(conn, "apify", exc.max_usd, platform,
+                                 f"voorlopig (run {exc.run_id} onderbroken): {kind}: {', '.join(values)}")
+        pending = db.get_state(conn, "apify_pending", []) or []
+        pending.append({"run_id": exc.run_id, "platform": platform, "kind": kind, "values": values,
+                        "provisional": exc.max_usd, "spend_id": spend_id, "at": db.iso(db.now())})
+        db.set_state(conn, "apify_pending", pending)
+    run.offline += len(values)
+    run.note(f"Apify {platform}/{kind}: de run liep al, maar daarna ging er iets mis ({exc}). De tool telt "
+             f"voorlopig ${exc.max_usd:.2f} en haalt de resultaten en echte kosten de volgende ronde op.",
+             "waarschuwing")
+
+
+def step_reconcile_apify(run: Run, settings: dict) -> None:
+    """Zet de kosten recht: onderbroken runs ophalen, en de telling vergelijken met Apify zelf."""
+    with db.session() as conn:
+        pending = db.get_state(conn, "apify_pending", []) or []
+    keep = []
+    for item in pending:
+        info = apify.run_info(item["run_id"])
+        age_h = (db.now() - db.parse_iso(item["at"])).total_seconds() / 3600
+        if not info or info["status"] not in apify.FINAL:
+            if info and age_h > 2:
+                apify.abort(item["run_id"])
+            if age_h < 72:
+                keep.append(item)
+            continue
+        posts = []
+        if info["dataset"]:
+            try:
+                posts = _normalize_all(run, item["platform"], apify.dataset_items(info["dataset"]))
+            except Exception:  # noqa: BLE001 - dan alleen de kosten rechtzetten
+                posts = []
+        price = settings[f"prijs_{item['platform']}_per_1000"]
+        actual = max(info["usage_usd"], len(posts) * price / 1000)
+        with db.session() as conn:
+            budget.record(conn, "apify", round(actual - item["provisional"], 4), item["platform"],
+                          f"correctie run {item['run_id']}", correction=True)
+            by_value = _attribute(posts, item["kind"], item["values"])
+            new = 0
+            for value, mine in by_value.items():
+                src = conn.execute("SELECT id FROM sources WHERE platform = ? AND kind = ? AND value = ?",
+                                   (item["platform"], item["kind"], value)).fetchone()
+                new += store_posts(conn, mine, src["id"] if src else None)[0]
+        run.new_posts += new
+        run.note(f"Onderbroken run van {item['platform']} rechtgezet: {len(posts)} posts ({new} nieuw), "
+                 f"echte kosten ${actual:.2f} in plaats van ${item['provisional']:.2f}")
+    with db.session() as conn:
+        db.set_state(conn, "apify_pending", keep)
+    _reconcile_account(run)
+
+
+def _reconcile_account(run: Run) -> None:
+    """Vergelijk wat de tool telde met wat Apify zelf rekende, sinds de vorige ronde.
+
+    Sommige actors rekenen extra (startkosten, filters, proxy) of melden hun kosten
+    niet: dan klopt de eigen telling niet en loopt het budget ongemerkt uit.
+    """
+    acct = apify.account_usage()
+    if not acct:
+        return
+    with db.session() as conn:
+        last = db.get_state(conn, "apify_usage_mark")
+        # Het meetpunt is het laatste kostenregelnummer: exacter dan een tijdstip per seconde.
+        mark_id = conn.execute("SELECT COALESCE(MAX(id), 0) FROM spend").fetchone()[0]
+        db.set_state(conn, "apify_usage_mark", {"used": acct["used_usd"], "cycle_end": acct.get("cycle_end"),
+                                                "spend_id": mark_id, "at": db.iso(db.now())})
+        db.set_state(conn, "apify_account", {**acct, "checked": db.iso(db.now())})
+        if (not last or "spend_id" not in last or last.get("cycle_end") != acct.get("cycle_end")
+                or acct["used_usd"] < last["used"]):
+            return  # eerste keer of nieuwe Apify-periode: alleen het meetpunt bewaren
+        actual = acct["used_usd"] - last["used"]
+        counted = conn.execute("SELECT COALESCE(SUM(usd), 0) FROM spend WHERE kind = 'apify' AND id > ?",
+                               (last["spend_id"],)).fetchone()[0]
+        diff = round(actual - counted, 2)
+        if abs(diff) >= 0.05:
+            budget.record(conn, "apify", diff, None, "correctie volgens je Apify-account", correction=True)
+    if abs(diff) >= 0.05:
+        run.note(f"Kosten rechtgezet volgens je Apify-account: {'+' if diff > 0 else ''}${diff:.2f} "
+                 f"(Apify rekende ${actual:.2f}, de tool telde ${counted:.2f})")
 
 
 def step_remeasure(run: Run, settings: dict) -> None:
@@ -283,6 +427,13 @@ def step_remeasure(run: Run, settings: dict) -> None:
     """
     per_platform = int(settings.get("herhaalmeting_per_ronde", 0))
     if not per_platform or not apify.available():
+        return
+    with db.session() as conn:
+        if budget.plan(conn, settings)["left_usd"] <= 0:
+            run.note("Herhaalmeting overgeslagen: het maandbudget is op", "info")
+            return
+        acct = db.get_state(conn, "apify_account")
+    if acct and acct.get("limit_usd", 0) - acct.get("used_usd", 0) < 0.05:
         return
     since = db.iso(db.now() - timedelta(hours=48))
     recent = db.iso(db.now() - timedelta(hours=settings["interval_uren"] - 0.5))
@@ -305,12 +456,16 @@ def step_remeasure(run: Run, settings: dict) -> None:
         try:
             found, cost = apify.run_actor(platform, "post", urls, 1, cap,
                                           price_per_1000=settings[f"prijs_{platform}_per_1000"])
+        except apify.ApifyRunFailed as exc:
+            _remember_failed_run(run, exc, platform, "post", urls)
+            continue
         except Exception as exc:  # noqa: BLE001
             run.note(f"Herhaalmeting {platform}: {exc}", "waarschuwing")
             continue
-        posts = [x for x in (apify.normalize(platform, it) for it in found) if x]
         with db.session() as conn:
             budget.record(conn, "apify", cost, platform, f"herhaalmeting: {len(urls)} posts")
+        posts = _normalize_all(run, platform, found)
+        with db.session() as conn:
             store_posts(conn, posts, None)
             conn.executemany("UPDATE posts SET remeasured_at = ? WHERE id = ?",
                              [(db.iso(db.now()), pid) for _, _, pid in chosen])
@@ -390,7 +545,7 @@ def step_news(run: Run, settings: dict) -> None:
 
 # Verhoog dit getal als de woordenlijsten of regels in classify.py veranderen:
 # bij de volgende start worden alle posts (zonder AI-oordeel) opnieuw beoordeeld.
-CLASSIFY_VERSION = 6
+CLASSIFY_VERSION = 7
 
 
 def reclassify_if_needed() -> int:
@@ -399,7 +554,7 @@ def reclassify_if_needed() -> int:
             return 0
         rows = [db.row_to_dict(r) for r in conn.execute(
             "SELECT id, platform, text, location, author, author_name, products, hashtags, "
-            "mentions FROM posts WHERE ai_done != 1")]
+            "mentions, demo FROM posts WHERE ai_done != 1")]
         for p in rows:
             c = classify.classify_rules(p)
             conn.execute(
@@ -408,7 +563,9 @@ def reclassify_if_needed() -> int:
                 (c["relevance"], c["nl_score"], config.dumps(c["categories"]),
                  config.dumps(c["brands"]), config.dumps(c["places"]), config.dumps(c["phrases"]),
                  c["city"], config.dumps(c["hashtags"]), config.dumps(c["mentions"]),
-                 config.dumps(p["products"] or c["products"]), config.dumps(c["flags"]), p["id"]))
+                 # Producten opnieuw raden (betere regels); alleen demodata heeft vaste producten.
+                 config.dumps((p["products"] if p["demo"] else None) or c["products"]),
+                 config.dumps(c["flags"]), p["id"]))
         removed = discovery.prune_bad_hashtags(conn)
         if removed:
             log.info("Opgeruimd: %s", ", ".join("#" + r for r in removed))
@@ -605,9 +762,17 @@ def last_run(conn) -> dict | None:
     return db.row_to_dict(r) if r else None
 
 
+RETRY_AFTER_FAILED = timedelta(minutes=30)
+
+
 def due(conn, settings: dict) -> bool:
-    r = conn.execute("SELECT started_at FROM runs WHERE status != 'bezig' ORDER BY started_at DESC, id DESC LIMIT 1").fetchone()
+    r = conn.execute("SELECT started_at, status FROM runs WHERE status != 'bezig' "
+                     "ORDER BY started_at DESC, id DESC LIMIT 1").fetchone()
     if not r:
         return True
-    return db.now() - db.parse_iso(r["started_at"]) >= timedelta(hours=settings["interval_uren"])
+    waited = db.now() - db.parse_iso(r["started_at"])
+    # Een mislukte of afgebroken ronde (geen internet, Ctrl+C) niet 6 uur laten liggen.
+    if r["status"] == "fout":
+        return waited >= RETRY_AFTER_FAILED
+    return waited >= timedelta(hours=settings["interval_uren"])
 
