@@ -75,7 +75,7 @@ DEFAULTS: dict = {
     "supermarkt_apify_winkels": ["ah", "jumbo", "plus", "lidl", "aldi", "dirk", "vomar"],
     "supermarkt_zoektermen": ["snack", "kroket", "frikandel", "bitterbal", "chips", "saus", "loempia", "nieuw"],
     "supermarkt_per_zoekwoord": 12,   # de scraper bladert per woord: meer = trager en duurder
-    "supermarkt_apify_dagen": 7,
+    "supermarkt_tijden": ["maandag 07:00", "donderdag 17:00"],  # lokale tijd; gemist = ingehaald
     "prijs_supermarkt_per_1000": 5.00,
     "alleen_nieuwe_posts": True,      # datumfilter: niet betalen voor posts die we al hebben
     "herhaalmeting_per_ronde": 15,    # snelste posts per platform opnieuw meten

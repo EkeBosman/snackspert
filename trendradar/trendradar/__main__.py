@@ -25,6 +25,11 @@ def scheduler_loop(stop: threading.Event) -> None:
                 is_due = collector.due(conn, settings)
             if is_due and not collector.is_running():
                 collector.run_once("schema")
+            # Supermarkten op vaste tijden (maandag 07:00, donderdag 17:00), los van de gewone rondes.
+            with db.session() as conn:
+                shop = not collector.demo_active(conn) and collector.shop_due(conn, settings)
+            if shop:
+                collector.start_supermarkets_apify(settings)
         except Exception:  # noqa: BLE001 - de planner mag nooit stoppen
             log.exception("Fout in de planner")
         stop.wait(60)

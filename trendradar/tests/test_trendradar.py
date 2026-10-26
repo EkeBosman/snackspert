@@ -1802,3 +1802,22 @@ def test_supermarkets_via_apify_run_in_background(conn, monkeypatch):
     row = conn.execute("SELECT trigger FROM runs ORDER BY id DESC LIMIT 1").fetchone()
     assert row["trigger"] == "supermarkt"
     assert collector.due(conn, settings)                                  # telt niet als gewone ronde
+
+
+def test_supermarkets_on_fixed_times(conn, monkeypatch):
+    from datetime import datetime, timezone
+
+    from trendradar import collector
+
+    _apify_offline(monkeypatch)
+    settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"]}
+    tz = timezone.utc
+    wed = datetime(2026, 10, 28, 12, 0, tzinfo=tz)                       # woensdag
+    assert collector._last_slot(settings["supermarkt_tijden"], wed) == datetime(2026, 10, 26, 7, 0, tzinfo=tz)
+    assert collector._last_slot(["do 17.00"], datetime(2026, 10, 29, 17, 0, tzinfo=tz)).day == 29
+    assert collector._last_slot(["onzin", "maandag 25:00"], wed) is None
+    assert collector.shop_due(conn, settings, wed)                       # nog nooit gedaan
+    db.set_state(conn, "supermarkt_apify_laatst", "2026-10-26T07:05:00Z")
+    assert not collector.shop_due(conn, settings, wed)                   # maandag al gedaan
+    assert collector.shop_due(conn, settings, datetime(2026, 10, 29, 17, 1, tzinfo=tz))   # donderdag 17:00
+    assert not collector.shop_due(conn, {**settings, "supermarkt_apify_aan": False}, wed.replace(day=29, hour=18))

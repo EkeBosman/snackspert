@@ -543,7 +543,7 @@
     ]],
     ["Supermarkten via Apify (AH, Jumbo, Plus, Lidl, Aldi, Dirk, Vomar · ± 3,50 dollar per keer, op de achtergrond)", [
       ["supermarkt_apify_aan", "Deze winkels zelf doorzoeken via Apify", "checkbox"],
-      ["supermarkt_apify_dagen", "Elke … dagen", "number", 0.5],
+      ["supermarkt_tijden", "Vaste tijden (één per regel, bijv. 'maandag 07:00')", "textarea"],
       ["supermarkt_per_zoekwoord", "Producten per zoekwoord per winkel", "number", 1],
       ["supermarkt_apify_winkels", "Winkelcodes (één per regel)", "textarea"],
       ["supermarkt_zoektermen", "Zoekwoorden (één per regel)", "textarea"],

@@ -3,8 +3,9 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import re
 import threading
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import requests
 
@@ -680,6 +681,38 @@ def apify_stores(settings: dict) -> dict[str, str]:
 
 
 SHOP_TIMEOUT_S = 45 * 60
+_WEEKDAYS = {"ma": 0, "di": 1, "wo": 2, "do": 3, "vr": 4, "za": 5, "zo": 6}
+
+
+def _last_slot(times: list[str], now: datetime) -> datetime | None:
+    """Het laatste vaste tijdstip vóór nu, bijv. uit ['maandag 07:00', 'donderdag 17:00'] (lokale tijd)."""
+    best = None
+    for t in times or []:
+        m = re.match(r"\s*([a-z]{2})[a-z]*\.?\s+(\d{1,2})[:.](\d{2})\s*$", t.lower())
+        if not m or m.group(1) not in _WEEKDAYS:
+            continue
+        day, hour, minute = _WEEKDAYS[m.group(1)], int(m.group(2)), int(m.group(3))
+        if hour > 23 or minute > 59:
+            continue
+        slot = (now - timedelta(days=(now.weekday() - day) % 7)).replace(hour=hour, minute=minute, second=0,
+                                                                         microsecond=0)
+        if slot > now:
+            slot -= timedelta(days=7)
+        best = max(best, slot) if best else slot
+    return best
+
+
+def shop_due(conn, settings: dict, now: datetime | None = None) -> bool:
+    """Is er een vast supermarkt-tijdstip voorbij sinds de vorige keer? Een gemist tijdstip
+    (laptop uit) wordt ingehaald zodra de tool weer draait."""
+    if not apify_stores(settings):
+        return False
+    now = now or datetime.now().astimezone()
+    slot = _last_slot(settings.get("supermarkt_tijden") or [], now)
+    last = db.get_state(conn, "supermarkt_apify_laatst")
+    if not last:
+        return slot is not None
+    return slot is not None and db.parse_iso(last) < slot
 _shop_lock = threading.Lock()
 
 
@@ -717,9 +750,7 @@ def step_supermarkets_apify(run: Run, settings: dict, force: bool = False) -> No
     if not stores or not terms:
         return
     with db.session() as conn:
-        last = db.get_state(conn, "supermarkt_apify_laatst")
-        days = max(1.0, float(settings.get("supermarkt_apify_dagen", 7) or 7))
-        if last and not force and db.now() - db.parse_iso(last) < timedelta(days=days) - timedelta(hours=1):
+        if not force and not shop_due(conn, settings):
             return
         if budget.plan(conn, settings)["left_usd"] <= 0:
             run.note("Supermarkten via Apify overgeslagen: het maandbudget is op", "info")
@@ -870,7 +901,9 @@ def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict 
                 step_news(run, settings)
                 step_ai(run, settings)
                 step_supermarkets(run, settings, force_supermarkets)
-                if start_supermarkets_apify(settings, force_supermarkets):
+                with db.session() as conn:
+                    shop = force_supermarkets or shop_due(conn, settings)
+                if shop and start_supermarkets_apify(settings, force_supermarkets):
                     run.note("Supermarkten via Apify gestart op de achtergrond (zie de ronde 'supermarkt')")
                 step_snackspert(run)
                 step_discovery(run, settings)
