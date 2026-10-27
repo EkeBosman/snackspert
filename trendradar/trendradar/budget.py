@@ -117,7 +117,8 @@ def overview(conn, settings: dict) -> dict:
     ai_spent = spent_usd(conn, "ai", now)
     days = calendar.monthrange(now.year, now.month)[1]
     elapsed_days = max(0.25, (now - month_start(now)).total_seconds() / 86400)
-    by_platform = {r["platform"]: r["s"] for r in conn.execute(
+    # Google Maps en de supermarkten hebben geen platform: die vallen onder 'overig'.
+    by_platform = {r["platform"] or "overig": r["s"] for r in conn.execute(
         "SELECT platform, SUM(usd) AS s FROM spend WHERE kind = 'apify' AND at >= ? GROUP BY platform",
         (db.iso(month_start(now)),))}
     useful = conn.execute(

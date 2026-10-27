@@ -1821,3 +1821,14 @@ def test_supermarkets_on_fixed_times(conn, monkeypatch):
     assert not collector.shop_due(conn, settings, wed)                   # maandag al gedaan
     assert collector.shop_due(conn, settings, datetime(2026, 10, 29, 17, 1, tzinfo=tz))   # donderdag 17:00
     assert not collector.shop_due(conn, {**settings, "supermarkt_apify_aan": False}, wed.replace(day=29, hour=18))
+
+
+def test_budget_page_with_spend_without_platform(conn):
+    from trendradar.web import app
+
+    budget.record(conn, "apify", 0.5, None, "Google Maps")
+    budget.record(conn, "apify", 0.2, "tiktok", "ronde")
+    conn.commit()
+    r = app.test_client().get("/api/budget")
+    assert r.status_code == 200
+    assert r.get_json()["data_per_platform_eur"]["overig"] > 0
