@@ -1751,9 +1751,11 @@ def test_supermarkets_via_apify(conn, monkeypatch):
     from trendradar.sources import supermarket
 
     ap = _apify_offline(monkeypatch)
+    base = [{"name": "AH Kroketten 4 st", "price": 2.49, "unit_size": "4 st", "url": "https://www.ah.nl/p/1"}]
     rounds = iter([
-        [{"name": "AH Kroketten 4 st", "price": 2.49, "unit_size": "4 st", "url": "https://www.ah.nl/p/1"}],
-        [{"name": "AH Kroketten 4 st", "price": 2.49, "unit_size": "4 st", "url": "https://www.ah.nl/p/1"},
+        base, base + [{"name": "AH Oude Snack", "url": "https://www.ah.nl/p/9"}], base,   # drie keer inleren
+        [{"name": "ah oude snack", "url": "https://www.ah.nl/p/99"},                        # zelfde naam: niet nieuw
+         {"name": "AH Kroketten 4 st", "price": 2.49, "unit_size": "4 st", "url": "https://www.ah.nl/p/1"},
          {"title": "AH Loaded Kipcorn Bites", "price": "€ 3,29", "url": "https://www.ah.nl/p/2"},
          {"name": "Jumbo Frikandel", "supermarket": "jumbo", "url": "https://www.jumbo.com/x"}],
     ])
@@ -1775,10 +1777,13 @@ def test_supermarkets_via_apify(conn, monkeypatch):
     assert status["Albert Heijn"]["bron"] == "apify" and "nulmeting" in status["Albert Heijn"]["melding"]
     assert status["Spar"]["bron"] == "cjb"
     assert not conn.execute("SELECT 1 FROM products WHERE id = 'ah:old'").fetchone()   # stilstaande bron niet gebruikt
+    for _ in range(2):
+        collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
+        assert "nulmeting" in db.get_state(conn, "supermarkt_status")["Albert Heijn"]["melding"]
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
     new = {r["name"]: r["price"] for r in conn.execute("SELECT name, price FROM products WHERE is_new = 1")}
     assert new == {"AH Loaded Kipcorn Bites": 3.29}                                    # Jumbo-resultaat niet bij AH
-    assert budget.spent_usd(conn, "apify") == pytest.approx(0.6)
+    assert budget.spent_usd(conn, "apify") == pytest.approx(1.2)
     assert supermarket.parse_apify({"productName": "X", "price": {"now": 1.5}}, "Plus", "plus")["price"] == 1.5
 
 
@@ -1859,3 +1864,23 @@ def test_exact_places_for_city_map(conn, monkeypatch):
     assert listing["Snackbar Bertus"]["exact"] is None
     with db.session() as c:
         assert plekken.todo(c, ["Amsterdam"]) == []                         # niet gevonden: pas over een maand weer
+
+
+def test_apify_start_timeout_recovers_the_run(monkeypatch):
+    import requests as rq
+
+    from trendradar.sources import apify as ap
+
+    monkeypatch.setattr(ap, "_auth", lambda: {})
+    monkeypatch.setattr(ap, "_start", lambda *a, **k: (_ for _ in ()).throw(rq.ReadTimeout("Read timed out")))
+    started = []
+
+    class R:
+        def __init__(self, data): self._d = data; self.ok = True; self.status_code = 200
+        def json(self): return {"data": self._d}
+        def raise_for_status(self): pass
+    now_iso = db.now().strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    monkeypatch.setattr(ap, "_get", lambda url, **k: R({"items": [{"id": "r1", "status": "RUNNING", "startedAt": now_iso}]}))
+    monkeypatch.setattr(ap, "_finish_run", lambda actor, run, *a: started.append(run["id"]) or ([{"name": "x"}], 0.1))
+    items, cost = ap.run_actor("supermarkt", "zoekterm", ["kroket"], 5, 0.5)
+    assert started == ["r1"] and items == [{"name": "x"}]
