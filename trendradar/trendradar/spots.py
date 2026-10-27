@@ -77,6 +77,7 @@ def listing(conn, include_demo: bool = True) -> dict:
 
     hits = radar_hits(conn, include_demo=include_demo)
     where: dict[str, list | None] = {}
+    exact = {r["spot_id"]: r for r in conn.execute("SELECT * FROM spot_geo WHERE lat IS NOT NULL")}
     handles = {taste.zaak_key(h): v for h, v in ownposts.posted_handles(conn).items()}
     captions = ownposts.caption_index(conn)
     rows = []
@@ -91,12 +92,19 @@ def listing(conn, include_demo: bool = True) -> dict:
             xy = geo.coords(conn, s["place"])
             where[s["place"]] = list(xy) if xy else None
         s["coords"] = where[s["place"]]
+        e = exact.get(s["id"])
+        s["exact"] = [e["lat"], e["lon"]] if e else None
+        s["address"] = e["address"] if e else None
         rows.append(s)
     lists = sorted({x for s in rows for x in s["lists"]})
     regions = sorted({s["region"] for s in rows if s["region"]})
     home_name = db.get_settings(conn).get("thuisbasis") or "Amsterdam"
     home = geo.coords(conn, home_name)
-    return {"spots": rows, "lists": lists, "regions": regions,
+    from . import plekken
+
+    cities = db.get_settings(conn).get("exacte_kaart_steden") or []
+    return {"spots": rows, "lists": lists, "regions": regions, "exact_cities": cities,
+            "exact_missing": len(plekken.todo(conn, cities)), "exact_busy": plekken.progress()["running"],
             "home": {"name": home_name, "coords": list(home) if home else None},
             "missing_places": len(geo.missing(conn))}
 

@@ -639,6 +639,12 @@ def _store_products(conn, store: str, products: list[dict], now: str, source: st
     if not products:
         return {"ok": False, "melding": "geen assortiment beschikbaar", "t": now}, ""
     baseline_done = db.get_state(conn, f"nulmeting_{source}_{store}", False)
+    if partial:
+        # Zoekresultaten verschillen per keer: wat de eerste keer net buiten de top viel, lijkt
+        # de tweede keer 'nieuw'. Daarom eerst een paar keer inleren voordat iets nieuw is.
+        rounds = db.get_state(conn, f"inleren_{source}_{store}", 0)
+        baseline_done = rounds >= LEARN_ROUNDS
+        db.set_state(conn, f"inleren_{source}_{store}", rounds + 1)
     known, known_names = set(), set()
     for r in conn.execute("SELECT id, name, size FROM products WHERE store = ?", (store,)):
         known.add(r["id"])
@@ -663,8 +669,9 @@ def _store_products(conn, store: str, products: list[dict], now: str, source: st
     db.set_state(conn, f"nulmeting_{source}_{store}", True)
     what = "snackproducten bekeken" if partial else "producten"
     if not baseline_done:
+        step = f" {rounds + 1} van {LEARN_ROUNDS}" if partial else ""
         return ({"ok": True, "t": now, "producten": len(products), "bron": source,
-                 "melding": f"{len(products)} {what} vastgelegd (nulmeting)"}, f"{store} nulmeting")
+                 "melding": f"{len(products)} {what} vastgelegd (nulmeting{step})"}, f"{store} nulmeting{step}")
     n_new = len(fresh) - relisted
     return ({"ok": True, "t": now, "producten": len(products), "bron": source, "nulmeting_klaar": True,
              "melding": f"{len(products)} {what}, {n_new} nieuw ({new_relevant} snack-relevant)"
@@ -780,6 +787,7 @@ def step_supermarkets_apify(run: Run, settings: dict, force: bool = False) -> No
             run.note(f"Supermarkt {store} via Apify: {exc}", "waarschuwing")
             continue
         total_cost += cost
+        run.results += len(items)
         products = [p for p in (supermarket.parse_apify(it, store, code) for it in items) if p]
         with db.session() as conn:
             budget.record(conn, "apify", cost, None, f"supermarkt {store}: {len(items)} producten")
@@ -814,8 +822,13 @@ def _stale_since(conn, store: str, products: list[dict]) -> str | None:
     return since if db.now() - db.parse_iso(since) >= timedelta(days=STALE_DAYS) else None
 
 
-def _product_key(name: str, size: str | None) -> tuple[str, str]:
-    return (classify.norm(name or ""), classify.norm(size or ""))
+LEARN_ROUNDS = 3  # zoekende scrapers (Apify): de eerste drie keer is de nulmeting
+
+
+def _product_key(name: str, size: str | None = None) -> tuple[str]:
+    """Zelfde naam = zelfde product. De verpakking telt niet mee: bronnen schrijven die anders
+    ('1 l' of '1000 ml'), en een nieuwe verpakking van een bestaand product is geen nieuwe snack."""
+    return (classify.norm(name or ""),)
 
 
 def unmark_relisted(conn) -> int:
@@ -859,6 +872,20 @@ def step_discovery(run: Run, settings: dict, demo: bool = False) -> None:
                           for a in act[:6])
         run.note(f"Ontdekt: {len(added)} nieuwe bronnen, {len(act)} direct actief"
                  + (f" ({names})" if names else ""))
+
+
+def step_spot_places(run: Run, settings: dict) -> None:
+    """Precieze plekken van nieuwe tips in je kaartsteden (Amsterdam) opzoeken."""
+    from . import plekken
+
+    try:
+        res = plekken.fill(settings)
+    except Exception as exc:  # noqa: BLE001
+        run.note(f"Plekken van tips opzoeken mislukt: {exc}", "waarschuwing")
+        return
+    if res.get("todo") and "cost" in res:
+        run.cost += res["cost"]
+        run.note(f"Plekken van tips: {res['found']} van {res['todo']} gevonden, ${res['cost']:.2f}")
 
 
 def step_geocode(run: Run) -> None:
@@ -909,6 +936,7 @@ def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict 
                 step_discovery(run, settings)
                 step_geocode(run)
                 step_own_posts(run, settings)
+                step_spot_places(run, settings)
                 step_maps(run, settings)
             step_maintenance(run, settings)
             try:

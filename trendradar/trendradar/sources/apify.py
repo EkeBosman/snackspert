@@ -186,12 +186,14 @@ RETRY_WAIT_S = 20
 
 
 def _get(url: str, **kw):
-    """GET met één nieuwe poging bij een netwerkfout: opvragen kost niets extra."""
-    try:
-        return requests.get(url, **kw)
-    except (requests.ConnectionError, requests.Timeout):
-        time.sleep(RETRY_WAIT_S)
-        return requests.get(url, **kw)
+    """GET met nieuwe pogingen bij een netwerkfout: opvragen kost niets extra."""
+    for attempt in range(3):
+        try:
+            return requests.get(url, **kw)
+        except (requests.ConnectionError, requests.Timeout):
+            if attempt == 2:
+                raise
+            time.sleep(RETRY_WAIT_S)
 
 
 def _never_sent(exc: Exception) -> bool:
@@ -231,10 +233,21 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
     params = {
         "maxItems": max_items,
         "maxTotalChargeUsd": f"{max(MIN_CHARGE_USD, max_usd):.2f}",
-        "waitForFinish": 60,
     }
     body = {**build(values, per_value, since), **(extra_input or {})}
-    resp = _start(f"{API}/acts/{actor}/runs", params=params, headers=headers, json=body, timeout=90)
+    started = time.time()
+    try:
+        resp = _start(f"{API}/acts/{actor}/runs", params=params, headers=headers, json=body, timeout=90)
+    except requests.Timeout:
+        # Geen antwoord, maar de run kan wel gestart zijn (en kost dan geld): zoek hem op.
+        run = _recent_run(actor, headers, started)
+        if not run:
+            raise
+        resp = None
+    else:
+        run = None
+    if resp is None:
+        return _finish_or_fail(actor, run, headers, max_items, price_per_1000, timeout_s, max_usd)
     if resp.status_code == 400 and OPTIONAL_KEYS & body.keys():
         # Kent de actor een van de extra velden niet (meer)? Probeer het zonder,
         # zodat één verkeerde veldnaam niet de hele ronde kost.
@@ -246,6 +259,27 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
             raise ApifyLimitError(f"{actor}: {resp.status_code} {resp.text[:300]}")
         raise ApifyError(f"{actor}: {resp.status_code} {resp.text[:300]}")
     run = resp.json()["data"]
+    return _finish_or_fail(actor, run, headers, max_items, price_per_1000, timeout_s, max_usd)
+
+
+def _recent_run(actor: str, headers: dict, started: float) -> dict | None:
+    try:
+        r = _get(f"{API}/acts/{actor}/runs", headers=headers, params={"desc": 1, "limit": 3}, timeout=30)
+        r.raise_for_status()
+    except requests.RequestException:
+        return None
+    for item in r.json().get("data", {}).get("items", []):
+        when = item.get("startedAt") or ""
+        try:
+            ts = datetime.fromisoformat(when.replace("Z", "+00:00")).timestamp()
+        except ValueError:
+            continue
+        if ts >= started - 60:
+            return item
+    return None
+
+
+def _finish_or_fail(actor, run, headers, max_items, price_per_1000, timeout_s, max_usd):
     cap = max(MIN_CHARGE_USD, max_usd)
     try:
         return _finish_run(actor, run, headers, max_items, price_per_1000, timeout_s)
@@ -264,7 +298,7 @@ def _finish_run(actor, run, headers, max_items, price_per_1000, timeout_s) -> tu
     deadline = time.time() + timeout_s
     while run.get("status") in ("READY", "RUNNING") and time.time() < deadline:
         time.sleep(10)
-        r = _get(f"{API}/actor-runs/{run['id']}", headers=headers, params={"waitForFinish": 60}, timeout=90)
+        r = _get(f"{API}/actor-runs/{run['id']}", headers=headers, params={"waitForFinish": 30}, timeout=90)
         r.raise_for_status()
         run = r.json()["data"]
 

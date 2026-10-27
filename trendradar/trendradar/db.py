@@ -235,6 +235,16 @@ CREATE TABLE IF NOT EXISTS places (
     is_new      INTEGER NOT NULL DEFAULT 0
 );
 
+-- Precieze plek van een tip (Google Maps), voor de kaart van één stad. lat NULL = niet gevonden.
+CREATE TABLE IF NOT EXISTS spot_geo (
+    spot_id     INTEGER PRIMARY KEY,
+    lat         REAL,
+    lon         REAL,
+    address     TEXT,
+    url         TEXT,
+    looked_up   TEXT NOT NULL
+);
+
 -- Wat de tool aanraadde (trefkans): later te koppelen aan je eigen posts.
 CREATE TABLE IF NOT EXISTS suggestions (
     key         TEXT PRIMARY KEY,           -- zaak:<sleutel> | zin:<combinatie> | product:<naam>
@@ -348,6 +358,13 @@ def init() -> None:
             conn.execute("DELETE FROM settings WHERE key IN ('supermarkt_zoektermen', 'supermarkt_per_winkel', "
                          "'supermarkt_apify_dagen')")
             set_state(conn, "supermarkt_v2", True)
+        # De eerste Apify-rondes (26-27 okt) markeerden producten als nieuw die alleen de vorige keer
+        # buiten de zoekresultaten vielen. Die tellen nu als nulmeting; het inleren begint opnieuw.
+        if not get_state(conn, "supermarkt_v3", False):
+            stores = ("Albert Heijn", "Jumbo", "Plus", "Lidl", "Aldi", "Dirk", "Vomar")
+            conn.execute(f"UPDATE products SET is_new = 0 WHERE store IN ({','.join('?' * len(stores))}) "
+                         "AND first_seen >= '2026-10-26T00:00:00Z'", stores)
+            set_state(conn, "supermarkt_v3", True)
         if not get_state(conn, "tip_status_nieuw", False):
             for table in ("spots", "routes"):
                 conn.execute(f"UPDATE {table} SET status = 'nieuw' WHERE status = 'te proberen'")
