@@ -235,6 +235,16 @@ CREATE TABLE IF NOT EXISTS places (
     is_new      INTEGER NOT NULL DEFAULT 0
 );
 
+-- Precieze plek van een tip (Google Maps), voor de kaart van één stad. lat NULL = niet gevonden.
+CREATE TABLE IF NOT EXISTS spot_geo (
+    spot_id     INTEGER PRIMARY KEY,
+    lat         REAL,
+    lon         REAL,
+    address     TEXT,
+    url         TEXT,
+    looked_up   TEXT NOT NULL
+);
+
 -- Wat de tool aanraadde (trefkans): later te koppelen aan je eigen posts.
 CREATE TABLE IF NOT EXISTS suggestions (
     key         TEXT PRIMARY KEY,           -- zaak:<sleutel> | zin:<combinatie> | product:<naam>

@@ -914,6 +914,9 @@
     fillSelect($("#t-list"), t.lists, "Alle lijsten");
     fillSelect($("#t-region"), t.regions, "Alle regio's");
     fillStatusFilter($("#t-status"), t.statuses);
+    const city = t.exact_cities?.[0];
+    $("#t-view-city").hidden = !city;
+    if (city) $("#t-view-city").textContent = `📍 Kaart ${city}`;
     const count = sts => t.spots.filter(x => sts.includes(x.status)).length;
     const kpis = [["Open tips", fmt(t.spots.length - count(DONE)), `${t.lists.length} lijsten`],
       ["📍 In je plan", fmt(count(PLANNED)), `${count(["gepland"])} gepland`],
@@ -946,10 +949,12 @@
   function showTipsView() {
     const v = state.tipsView;
     $$("#t-view button").forEach(x => x.classList.toggle("on", x.dataset.v === v));
-    $("#t-tips-card").hidden = v !== "tips" && v !== "kaart";
-    $("#t-map-wrap").hidden = $("#t-map-routes-label").hidden = v !== "kaart";
-    $("#t-table-wrap").hidden = v === "kaart";
-    if (v === "tips" || v === "kaart") renderTips();
+    const map = v === "kaart" || v === "stadkaart";
+    $("#t-tips-card").hidden = v !== "tips" && !map;
+    $("#t-map-wrap").hidden = !map;
+    $("#t-map-routes-label").hidden = v !== "kaart";
+    $("#t-table-wrap").hidden = map;
+    if (v === "tips" || map) renderTips();
     $("#t-routes-card").hidden = v !== "routes";
     $("#t-proposals-card").hidden = v !== "voorstellen";
     if (v === "routes") loadRoutes();
@@ -999,6 +1004,7 @@
       && (!lst || x.lists.includes(lst)) && (!reg || x.region === reg) && statusMatch(st, x.status) && (!radar || x.radar))
       .sort((a, b) => (b.radar?.posts || 0) - (a.radar?.posts || 0));
     if (state.tipsView === "kaart") { renderTipMap(rows); return; }
+    if (state.tipsView === "stadkaart") { renderCityMap(rows); return; }
     $("#tbl-tips tbody").innerHTML = rows.length ? rows.map(x => `<tr>
       <td><a class="tip-name" href="${safeHref(x.maps)}" target="_blank" rel="noopener" title="Open in Google Maps">${esc(x.name)}</a>
         <div class="meta">${esc([x.place, x.region].filter(Boolean).join(" · "))}
@@ -1064,13 +1070,51 @@
           .bindTooltip(esc(r.name)).addTo(tipLayer).bringToBack();  // stippen blijven klikbaar
       });
     }
-    if (bounds.length && !state.tipMapFitted) { tipMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 11 }); state.tipMapFitted = true; }
+    if (bounds.length && state.tipMapFitted !== "nl") { tipMap.fitBounds(bounds, { padding: [30, 30], maxZoom: 11 }); state.tipMapFitted = "nl"; }
     setTimeout(() => tipMap.invalidateSize(), 50);
     $("#t-map-note").innerHTML = `${fmt(rows.length - without)} tips op ${fmt(groups.size)} plaatsen. Kleur: <b style="color:${color.plan}">●</b> in je plan, `
       + `<b style="color:${color.hot}">●</b> nu in de radar, <b style="color:${color.tip}">●</b> overig, <b style="color:${color.done}">●</b> afgerond. `
       + "De stippen staan op de plaats, niet op het adres: klik voor de zaken en open ze in Google Maps."
       + (without ? ` ${fmt(without)} tips staan er nog niet op omdat de tool hun plaats nog niet kent`
         + (t.missing_places ? ` (<button class="btn small" id="t-map-geo">nu opzoeken</button>, duurt ±${Math.ceil(t.missing_places * 1.2 / 60)} min)` : "") + "." : "");
+  }
+
+  // Eén stad met een stip per zaak, op de precieze plek (via Google Maps opgezocht).
+  function renderCityMap(rows) {
+    const t = state.tips, city = t.exact_cities?.[0];
+    if (!window.L || !city) return;
+    if (!tipMap) {
+      tipMap = L.map("t-map", { scrollWheelZoom: true }).setView([52.37, 4.9], 12);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "© OpenStreetMap" }).addTo(tipMap);
+    }
+    if (tipLayer) tipLayer.remove();
+    tipLayer = L.layerGroup().addTo(tipMap);
+    const c = city.toLowerCase();
+    const mine = rows.filter(x => (x.place || "").toLowerCase() === c || x.lists.some(l => l.toLowerCase() === c));
+    const css = getComputedStyle(document.documentElement);
+    const color = { plan: css.getPropertyValue("--accent").trim() || "#e4572e", hot: "#d62828", done: "#8a8a8a", tip: "#2a6f97" };
+    const placed = mine.filter(x => x.exact);
+    placed.forEach(x => {
+      const kind = PLANNED.includes(x.status) ? "plan" : x.radar ? "hot" : DONE.includes(x.status) ? "done" : "tip";
+      L.circleMarker(x.exact, { radius: 8, color: "#fff", weight: 2, fillColor: color[kind], fillOpacity: 0.9, className: "tipdot" })
+        .bindTooltip(esc(x.name))
+        .bindPopup(`<div class="tippop"><h4><a href="${safeHref(x.maps)}" target="_blank" rel="noopener">${esc(x.name)}</a>${x.radar ? " 🔥" : ""}</h4>
+          ${x.specialty ? `<div>${esc(x.specialty)}</div>` : ""}<div class="st">${esc(x.status)}${x.address ? " · " + esc(x.address) : ""}</div></div>`)
+        .addTo(tipLayer);
+    });
+    const key = "stad:" + city;
+    if (placed.length && state.tipMapFitted !== key) {
+      tipMap.fitBounds(placed.map(x => x.exact), { padding: [30, 30], maxZoom: 15 });
+      state.tipMapFitted = key;
+    }
+    setTimeout(() => tipMap.invalidateSize(), 50);
+    const missing = mine.length - placed.length;
+    $("#t-map-note").innerHTML = `${fmt(placed.length)} van je ${fmt(mine.length)} tips in ${esc(city)} op hun precieze plek. Kleur: <b style="color:${color.plan}">●</b> in je plan, `
+      + `<b style="color:${color.hot}">●</b> nu in de radar, <b style="color:${color.tip}">●</b> overig, <b style="color:${color.done}">●</b> afgerond.`
+      + (missing ? ` ${fmt(missing)} staan er nog niet op. `
+        + (t.exact_busy ? "Bezig met opzoeken…"
+          : t.exact_missing ? `<button class="btn small" id="t-city-geo">Precieze plekken opzoeken</button> (via Google Maps, ± ${String(Math.max(0.01, t.exact_missing * 0.005).toFixed(2)).replace(".", ",")} dollar; daarna vanzelf bij nieuwe tips).`
+          : "Die vond Google Maps niet onder deze naam; over een maand probeert de tool het opnieuw.") : "");
   }
 
   async function loadRoutesData() {
@@ -1454,6 +1498,13 @@
     });
     ["#t-q", "#t-list", "#t-region", "#t-status", "#t-radar", "#t-map-routes"].forEach(id => $(id).addEventListener("input", renderTips));
     $("#t-map-wrap").addEventListener("click", async e => {
+      if (e.target.closest("#t-city-geo")) {
+        e.target.disabled = true;
+        await api("/api/tips/plekken", { method: "POST" });
+        toast("Plekken opzoeken gestart; dit duurt een paar minuten");
+        setTimeout(loadTips, 120000);
+        return;
+      }
       if (!e.target.closest("#t-map-geo")) return;
       await api("/api/locaties", { method: "POST" });
       toast("Plaatsen opzoeken gestart; de kaart vult zich vanzelf aan");

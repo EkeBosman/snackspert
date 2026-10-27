@@ -1832,3 +1832,30 @@ def test_budget_page_with_spend_without_platform(conn):
     r = app.test_client().get("/api/budget")
     assert r.status_code == 200
     assert r.get_json()["data_per_platform_eur"]["overig"] > 0
+
+
+def test_exact_places_for_city_map(conn, monkeypatch):
+    from trendradar import plekken, spots
+
+    ap = _apify_offline(monkeypatch)
+    now = db.iso(db.now())
+    for name, place, lists in [("Friterie Par Hasard", "Amsterdam", "[]"), ("Snackbar Bertus", "Amsterdam", "[]"),
+                               ("Döner Father", "", '["Amsterdam"]'), ("Snackbar de Poppe", "Coevorden", "[]")]:
+        conn.execute("INSERT INTO spots(name, place, lists, added_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+                     (name, place, lists, now, now))
+    conn.commit()
+    items = [{"searchString": "Friterie Par Hasard Amsterdam", "title": "Friterie Par Hasard", "placeId": "a",
+              "location": {"lat": 52.36, "lng": 4.88}, "address": "Ferdinand Bolstraat 6, Amsterdam"},
+             {"searchString": "Snackbar Bertus Amsterdam", "title": "Albert Heijn", "placeId": "b",
+              "location": {"lat": 52.3, "lng": 4.9}}]                       # verkeerde zaak: niet gebruiken
+    calls = []
+    monkeypatch.setattr(ap, "run_actor", lambda *a, **k: calls.append(a) or (items, 0.02))
+    settings = {**config.DEFAULTS}
+    res = plekken.fill(settings)
+    assert sorted(calls[0][2]) == ["Döner Father Amsterdam", "Friterie Par Hasard Amsterdam", "Snackbar Bertus Amsterdam"]
+    assert res["found"] == 1 and res["todo"] == 3
+    listing = {s["name"]: s for s in spots.listing(conn)["spots"]}
+    assert listing["Friterie Par Hasard"]["exact"] == [52.36, 4.88]
+    assert listing["Snackbar Bertus"]["exact"] is None
+    with db.session() as c:
+        assert plekken.todo(c, ["Amsterdam"]) == []                         # niet gevonden: pas over een maand weer

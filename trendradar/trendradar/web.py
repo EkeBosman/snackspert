@@ -1014,6 +1014,17 @@ def api_new_places():
         return jsonify({"places": nieuwezaken.new_places(conn), **nieuwezaken.summary(conn)})
 
 
+@app.post("/api/tips/plekken")
+def api_spot_places():
+    from . import plekken
+
+    with db.session() as conn:
+        settings = db.get_settings(conn)
+    if not apify.available():
+        return jsonify({"fout": "zet eerst APIFY_TOKEN in .env"}), 400
+    return jsonify({"started": plekken.fill_in_background(settings)})
+
+
 @app.get("/api/tips/suggesties")
 def api_tip_suggestions():
     a = _args()

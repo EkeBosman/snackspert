@@ -89,6 +89,7 @@ DEFAULTS: dict = {
     "eigen_posts_dagen": 7,
     # Nieuwe zaken via Google Maps: elke week een paar steden, op rij af.
     "maps_aan": True,
+    "exacte_kaart_steden": ["Amsterdam"],   # per zaak de precieze plek opzoeken (± 0,5 cent per zaak)
     "maps_zoektermen": ["snackbar", "foodtruck", "streetfood", "frituur"],
     "maps_steden": ["Amsterdam", "Rotterdam", "Utrecht", "Den Haag", "Eindhoven", "Groningen", "Arnhem",
                     "Nijmegen", "Tilburg", "Breda", "Zwolle", "Haarlem", "Leiden", "Almere"],

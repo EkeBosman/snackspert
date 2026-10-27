@@ -861,6 +861,20 @@ def step_discovery(run: Run, settings: dict, demo: bool = False) -> None:
                  + (f" ({names})" if names else ""))
 
 
+def step_spot_places(run: Run, settings: dict) -> None:
+    """Precieze plekken van nieuwe tips in je kaartsteden (Amsterdam) opzoeken."""
+    from . import plekken
+
+    try:
+        res = plekken.fill(settings)
+    except Exception as exc:  # noqa: BLE001
+        run.note(f"Plekken van tips opzoeken mislukt: {exc}", "waarschuwing")
+        return
+    if res.get("todo") and "cost" in res:
+        run.cost += res["cost"]
+        run.note(f"Plekken van tips: {res['found']} van {res['todo']} gevonden, ${res['cost']:.2f}")
+
+
 def step_geocode(run: Run) -> None:
     """Zoek plaatsen van tips op (OpenStreetMap, gratis) voor routes die de tool zelf bedenkt."""
     from . import geo
@@ -909,6 +923,7 @@ def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict 
                 step_discovery(run, settings)
                 step_geocode(run)
                 step_own_posts(run, settings)
+                step_spot_places(run, settings)
                 step_maps(run, settings)
             step_maintenance(run, settings)
             try:
