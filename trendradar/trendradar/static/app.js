@@ -1479,20 +1479,30 @@
         : `Niet gevonden. Winkels waarvan de tool het hele assortiment kent: ${esc(r.full_stores.join(", ") || "nog geen")}. Bij de andere zoekt hij op woorden en mist hij producten zonder zo'n woord in de naam.`;
     });
     $("#btn-shop-test").addEventListener("click", async e => {
-      e.target.disabled = true;
-      $("#shop-test-result").textContent = "Bezig, dit duurt ongeveer een minuut…";
+      const btn = e.target, code = $("#shop-test-store").value, out = $("#shop-test-result");
+      btn.disabled = true;
       try {
-        const r = await api("/api/supermarkt/test", { method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ winkel: $("#shop-test-store").value }) });
-        $("#shop-test-result").innerHTML = r.gelezen
-          ? `✓ ${esc(r.winkel)} werkt met <code>${esc(r.scraper)}</code> (${r.volledig ? "<b>hele assortiment</b>" : "zoekt op woorden"}): ${r.gelezen} producten, $${r.kosten_usd}.`
-            + (r.eerder_geprobeerd.length ? `<br>Niet gelukt: ${r.eerder_geprobeerd.map(t => `${esc(t.scraper)} (${esc(t.fout)})`).join("; ")}` : "")
-            + `<ul>${r.voorbeelden.map(v =>
-            `<li>${esc(v.naam)}${v.prijs != null ? " · € " + String(v.prijs).replace(".", ",") : ""}</li>`).join("")}</ul>`
-          : `✗ ${esc(r.winkel)}: ${r.resultaten} resultaten, maar geen productnamen gevonden. Velden: <code>${esc(r.velden.join(", "))}</code>. Stuur dit naar Claude.`;
+        await api("/api/supermarkt/test", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ winkel: code }) });
+        // Voortgang opvragen tot de test klaar is (hooguit een paar minuten per scraper).
+        for (;;) {
+          const r = await api("/api/supermarkt/test?winkel=" + encodeURIComponent(code));
+          const tried = r.tried.length ? `<br>Niet gelukt: ${r.tried.map(t => `<code>${esc(t.scraper)}</code> (${esc(t.fout)})`).join("; ")}` : "";
+          if (r.running) {
+            out.innerHTML = r.now ? `Bezig met <code>${esc(r.now.scraper)}</code> (${r.now.volledig ? "hele assortiment" : "zoekwoorden"}): ${r.now.seconden || 0} seconden, ${r.now.gevonden || 0} van 5 producten…${tried}` : "Bezig…";
+            await new Promise(res => setTimeout(res, 4000));
+            continue;
+          }
+          const x = r.result;
+          out.innerHTML = x
+            ? `✓ ${esc(r.winkel)} werkt met <code>${esc(x.scraper)}</code> (${x.volledig ? "<b>hele assortiment</b>" : "zoekt op woorden"}): ${x.gelezen} producten, $${x.kosten_usd}.${tried}<ul>${x.voorbeelden.map(v =>
+              `<li>${esc(v.naam)}${v.prijs != null ? " · € " + String(v.prijs).replace(".", ",") : ""}</li>`).join("")}</ul>`
+            : `✗ Geen scraper werkte voor ${esc(r.winkel || code)}.${tried}<br>Stuur deze melding naar Claude.`;
+          break;
+        }
       } catch (err) {
-        $("#shop-test-result").innerHTML = `✗ ${esc(err.message)}<br>Stuur deze melding naar Claude.`;
-      } finally { e.target.disabled = false; }
+        out.innerHTML = `✗ ${esc(err.message)}<br>Stuur deze melding naar Claude.`;
+      } finally { btn.disabled = false; }
     });
     $("#btn-backup").addEventListener("click", async e => {
       e.target.disabled = true;

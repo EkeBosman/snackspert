@@ -334,12 +334,15 @@ def api_supermarkt():
     return jsonify(result)
 
 
+_shop_tests: dict[str, dict] = {}
+
+
 @app.post("/api/supermarkt/test")
 def api_supermarket_test():
-    """Probeer de scraper(s) voor één winkel met een handvol producten (een paar cent).
+    """Test de scraper(s) van één winkel op de achtergrond; de pagina vraagt de voortgang op.
 
-    Voor winkels met een scraper voor het hele assortiment test hij die eerst; werkt die
-    niet, dan de scraper die op woorden zoekt.
+    Per scraper hooguit 2,5 minuut: hij stopt zodra er 5 producten binnen zijn. Voor winkels
+    met een scraper voor het hele assortiment test hij die eerst, daarna het zoeken op woorden.
     """
     from .sources import supermarket
 
@@ -348,33 +351,52 @@ def api_supermarket_test():
         return jsonify({"fout": "kies een winkel"}), 400
     if not apify.available():
         return jsonify({"fout": "zet eerst APIFY_TOKEN in .env"}), 400
+    if _shop_tests.get(code, {}).get("running"):
+        return jsonify({"started": False})
     store = supermarket.STORE_NAMES.get(code, code.title())
     with db.session() as conn:
         settings = db.get_settings(conn)
-    tried = []
-    for src in supermarket.sources(code, settings):
+    test = _shop_tests[code] = {"running": True, "winkel": store, "now": None, "tried": [], "result": None}
+
+    def work():
         try:
-            if src["volledig"]:
-                items, cost = apify.run_actor("actor", src["actor"], [], 0, 0.5, timeout_s=300,
-                                              extra_input=src.get("input") or {}, max_items=20)
-            else:
-                items, cost = apify.run_actor("supermarkt", "zoekterm", ["kroket"], 5, 0.5, price_per_1000=5.0,
-                                              timeout_s=240, extra_input={"supermarkets": [code], "maxResults": 5})
-        except apify.ApifyError as exc:
-            tried.append({"scraper": src["actor"], "fout": config.redact(str(exc))[:300]})
-            continue
-        with db.session() as conn:
-            budget.record(conn, "apify", cost, None, f"supermarkttest {store}")
-        parsed = [p for p in (supermarket.parse_apify(i, store, code) for i in items) if p]
-        if not parsed:
-            tried.append({"scraper": src["actor"], "fout": f"{len(items)} resultaten zonder productnaam",
-                          "velden": sorted({k for i in items for k in i})[:30]})
-            continue
-        return jsonify({"winkel": store, "scraper": src["actor"], "volledig": src["volledig"], "resultaten": len(items),
-                        "gelezen": len(parsed), "kosten_usd": round(cost, 3), "eerder_geprobeerd": tried,
-                        "velden": sorted({k for i in items for k in i})[:30],
-                        "voorbeelden": [{"naam": p["name"], "prijs": p["price"], "url": p["url"]} for p in parsed[:5]]})
-    return jsonify({"fout": "geen scraper werkte: " + "; ".join(f"{t['scraper']}: {t['fout']}" for t in tried)[:600]}), 502
+            for src in supermarket.sources(code, settings):
+                body = (src.get("input") or {}) if src["volledig"] else \
+                    {"keyterms": ["kroket"], "supermarkets": [code], "maxResults": 5}
+                test["now"] = {"scraper": src["actor"], "volledig": src["volledig"], "seconden": 0, "gevonden": 0}
+
+                def progress(sec, found, status, _now=test["now"]):
+                    _now.update(seconden=sec, gevonden=found, status=status)
+                try:
+                    items, cost, status = apify.sample_actor(src["actor"], body, n=5, wait_s=150, progress=progress)
+                except Exception as exc:  # noqa: BLE001
+                    test["tried"].append({"scraper": src["actor"], "fout": config.redact(str(exc))[:300]})
+                    continue
+                with db.session() as conn:
+                    budget.record(conn, "apify", cost, None, f"supermarkttest {store}")
+                parsed = [p for p in (supermarket.parse_apify(i, store, code) for i in items) if p]
+                if not parsed:
+                    why = (f"{len(items)} resultaten zonder productnaam" if items
+                           else f"na {test['now'].get('seconden', 0)} seconden nog geen producten (status {status})")
+                    test["tried"].append({"scraper": src["actor"], "fout": why,
+                                          "velden": sorted({k for i in items for k in i})[:30]})
+                    continue
+                test["result"] = {"scraper": src["actor"], "volledig": src["volledig"], "gelezen": len(parsed),
+                                  "kosten_usd": round(cost, 3), "velden": sorted({k for i in items for k in i})[:30],
+                                  "voorbeelden": [{"naam": p["name"], "prijs": p["price"], "url": p["url"]}
+                                                  for p in parsed[:5]]}
+                break
+        finally:
+            test["now"] = None
+            test["running"] = False
+    threading.Thread(target=work, daemon=True).start()
+    return jsonify({"started": True})
+
+
+@app.get("/api/supermarkt/test")
+def api_supermarket_test_status():
+    code = (request.args.get("winkel") or "").lower()
+    return jsonify(_shop_tests.get(code) or {"running": False, "result": None, "tried": []})
 
 
 @app.get("/api/supermarkt/zoek")
