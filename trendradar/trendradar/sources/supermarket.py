@@ -47,8 +47,30 @@ def _price(value) -> float | None:
     return None
 
 
+# Per winkel de Apify-scrapers in volgorde van voorkeur. 'volledig': het hele assortiment, dan valt
+# elk nieuw product op (ook 'Kesbeke gember citroen'). Lukt geen enkele, dan zoekt de tool op
+# woorden met de scraper voor alle winkels: die mist alles zonder zo'n woord in de naam.
+FULL_SOURCES = {
+    "ah": [{"actor": "chipendale~albert-heijn-products", "input": {}},
+           {"actor": "rashadansari~albert-heijn-scraper", "input": {}}],
+    "jumbo": [{"actor": "rashadansari~jumbo-scraper", "input": {}}],
+    "lidl": [{"actor": "rashadansari~lidl-scraper", "input": {}}],
+}
+KEYWORD_ACTOR = "harvestedge~dutch-supermarkets-all-11"
+MIN_FULL = 500   # een volledig assortiment met minder producten is mislukt
+
+
+def sources(code: str, settings: dict) -> list[dict]:
+    """De volledige scrapers voor deze winkel (eigen instelling gaat voor), dan zoeken op woorden."""
+    own = (settings.get("supermarkt_bronnen") or {}).get(code)
+    full = [{**s, "volledig": True} for s in (own if isinstance(own, list) else FULL_SOURCES.get(code, []))]
+    return full + [{"actor": KEYWORD_ACTOR, "volledig": False}]
+
+
 def parse_apify(item: dict, store: str, code: str) -> dict | None:
-    """Eén product van de Apify-supermarktscraper. Veldnamen verschillen per versie, dus ruim lezen."""
+    """Eén product van een Apify-supermarktscraper. Veldnamen verschillen per scraper, dus ruim lezen."""
+    if item.get("type") and item.get("type") != "product":
+        return None  # categorieën
     name = _pick(item, "name", "title", "productName", "product_name")
     if not name:
         return None
@@ -56,12 +78,18 @@ def parse_apify(item: dict, store: str, code: str) -> dict | None:
     shop = str(_pick(item, "supermarket", "store", "shop", "chain") or "").lower()
     if shop and shop not in (code.lower(), store.lower()) and code.lower() not in shop and store.lower() not in shop:
         return None
-    url = _pick(item, "url", "productUrl", "product_url", "link")
-    size = _pick(item, "unitSize", "unit_size", "size", "quantity", "unit")
-    native = _pick(item, "id", "productId", "product_id", "sku", "ean", "gtin") or url or f"{name}|{size or ''}"
+    url = _pick(item, "url", "productUrl", "product_url", "website_url", "websiteUrl", "link")
+    size = _pick(item, "unitSize", "unit_size", "salesUnitSize", "size", "quantity", "unit")
+    native = _pick(item, "webshopId", "external_id", "externalId", "id", "productId", "product_id", "sku",
+                   "ean", "gtin") or url or f"{name}|{size or ''}"
+    if not url and code == "ah" and str(native).isdigit():
+        url = f"https://www.ah.nl/producten/product/wi{native}"
+    if isinstance(url, str) and url.startswith("/"):
+        url = {"ah": "https://www.ah.nl", "jumbo": "https://www.jumbo.com", "lidl": "https://www.lidl.nl"}.get(code, "") + url
     return {"id": f"{code}:{native}", "store": store, "name": str(name).strip(),
-            "size": str(size) if size is not None else None,
-            "price": _price(_pick(item, "price", "currentPrice", "current_price")), "url": url}
+            "size": str(size) if size is not None and not isinstance(size, (dict, list)) else None,
+            "price": _price(_pick(item, "current_price", "currentPrice", "price", "priceBeforeBonus",
+                                  "base_price")), "url": url}
 
 
 class StoreError(RuntimeError):

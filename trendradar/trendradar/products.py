@@ -54,7 +54,9 @@ def overview(conn, include_demo: bool = True, days: int = 30, only_relevant: boo
     tracked = tracked_stores(conn)
     new_products = [dict(r) for r in conn.execute(
         f"SELECT * FROM products WHERE is_new = 1 AND first_seen >= ?{demo}{relevant} "
-        "ORDER BY first_seen DESC LIMIT 300", (since,))]
+        "ORDER BY relevant DESC, first_seen DESC LIMIT 600", (since,))]
+    if not only_relevant:  # alles wat je kunt eten of drinken, geen shampoo of batterijen
+        new_products = [p for p in new_products if not any(w in p["name"].lower() for w in lexicon.NON_FOOD)][:300]
     all_keys = [(key(r["name"]), r["is_new"]) for r in conn.execute(
         f"SELECT name, is_new FROM products WHERE 1=1{demo}")]
     # Alleen nieuws dat de woordenlijsten relevant vinden: Google News geeft bij

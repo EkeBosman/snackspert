@@ -381,11 +381,13 @@
 
   async function loadSupermarkt() {
     const fresh = ticket("supermarkt");
-    const d = await api("/api/supermarkt?" + qs(state.allProducts ? { alles: "1" } : {}));
+    // Standaard alle nieuwe eetbare producten (ook 'gember citroen'); het vinkje beperkt tot snacks.
+    const d = await api("/api/supermarkt?" + qs(state.onlySnacks ? {} : { alles: "1" }));
     if (!fresh()) return;
     const st = Object.entries(d.status || {});
     $("#store-status").innerHTML = st.length ? st.map(([store, s]) =>
-      `<span class="chip static"><span class="badge ${s.ok ? "ok" : s.stil ? "warn" : "bad"}">${s.ok ? "✓ werkt" : s.stil ? "⚠ staat stil" : "✗ storing"}</span>${esc(store)}: ${esc(s.melding)} · ${ago(s.t)}</span>`).join("")
+      `<span class="chip static"><span class="badge ${s.ok ? "ok" : s.stil ? "warn" : "bad"}">${s.ok ? "✓ werkt" : s.stil ? "⚠ staat stil" : "✗ storing"}</span>${esc(store)}${s.volledig ? " 📦" : s.bron === "apify" ? " 🔎" : ""}: ${esc(s.melding)} · ${ago(s.t)}</span>`).join("")
+      + `<span class="chip static">📦 = hele assortiment (elk nieuw product valt op) · 🔎 = zoekt op woorden (mist producten zonder zo'n woord)</span>`
       : `<span class="chip static">Het assortiment van AH, Jumbo, Lidl, Plus en andere winkels wordt twee keer per dag vergeleken (eerste keer bij de eerstvolgende ronde).</span>`;
     $("#list-tests").innerHTML = testIdeas(d.test_ideas,
       "Nog geen kandidaten. Zodra er nieuwe snackproducten in het schap komen, zet de tool de beste hier.");
@@ -545,6 +547,7 @@
       ["supermarkt_apify_aan", "Deze winkels zelf doorzoeken via Apify", "checkbox"],
       ["supermarkt_tijden", "Vaste tijden (één per regel, bijv. 'maandag 07:00')", "textarea"],
       ["supermarkt_per_zoekwoord", "Producten per zoekwoord per winkel", "number", 1],
+      ["supermarkt_max_usd_volledig", "Maximaal per winkel voor het hele assortiment (AH, Jumbo, Lidl), $", "number", 0.5],
       ["supermarkt_apify_winkels", "Winkelcodes (één per regel)", "textarea"],
       ["supermarkt_zoektermen", "Zoekwoorden (één per regel)", "textarea"],
     ]],
@@ -1450,7 +1453,7 @@
       try { await api("/api/run", { method: "POST" }); toast("Ophaalronde gestart"); wasRunning = true; poll(); }
       catch (e) { toast(e.message); }
     });
-    $("#p-all-products").addEventListener("change", e => { state.allProducts = e.target.checked; loadSupermarkt(); });
+    $("#p-all-products").addEventListener("change", e => { state.onlySnacks = e.target.checked; loadSupermarkt(); });
     $("#btn-supermarkt").addEventListener("click", async () => {
       try {
         await api("/api/run", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supermarkt: true }) });
@@ -1466,6 +1469,15 @@
     });
     $("#form-settings").addEventListener("submit", saveSettings);
     $("#form-hook").addEventListener("submit", hookCheck);
+    $("#form-psearch").addEventListener("submit", async e => {
+      e.preventDefault();
+      const r = await api("/api/supermarkt/zoek?" + new URLSearchParams({ q: e.target.q.value }));
+      $("#psearch-result").innerHTML = r.products.length ? `<ul class="list">${r.products.map(p =>
+        `<li><div class="row"><span>${p.url ? `<a href="${safeHref(p.url)}" target="_blank" rel="noopener">${esc(p.name)}</a>` : esc(p.name)}</span>
+         <span class="badge ${p.is_new ? "new" : ""}">${p.is_new ? "nieuw" : "bekend"}</span></div>
+         <div class="meta">${esc(p.store)} · eerst gezien ${dateNl(p.first_seen)} · laatst gezien ${dateNl(p.last_seen)}</div></li>`).join("")}</ul>`
+        : `Niet gevonden. Winkels waarvan de tool het hele assortiment kent: ${esc(r.full_stores.join(", ") || "nog geen")}. Bij de andere zoekt hij op woorden en mist hij producten zonder zo'n woord in de naam.`;
+    });
     $("#btn-shop-test").addEventListener("click", async e => {
       e.target.disabled = true;
       $("#shop-test-result").textContent = "Bezig, dit duurt ongeveer een minuut…";
@@ -1473,7 +1485,9 @@
         const r = await api("/api/supermarkt/test", { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ winkel: $("#shop-test-store").value }) });
         $("#shop-test-result").innerHTML = r.gelezen
-          ? `✓ ${esc(r.winkel)} werkt: ${r.gelezen} producten, $${r.kosten_usd}.<ul>${r.voorbeelden.map(v =>
+          ? `✓ ${esc(r.winkel)} werkt met <code>${esc(r.scraper)}</code> (${r.volledig ? "<b>hele assortiment</b>" : "zoekt op woorden"}): ${r.gelezen} producten, $${r.kosten_usd}.`
+            + (r.eerder_geprobeerd.length ? `<br>Niet gelukt: ${r.eerder_geprobeerd.map(t => `${esc(t.scraper)} (${esc(t.fout)})`).join("; ")}` : "")
+            + `<ul>${r.voorbeelden.map(v =>
             `<li>${esc(v.naam)}${v.prijs != null ? " · € " + String(v.prijs).replace(".", ",") : ""}</li>`).join("")}</ul>`
           : `✗ ${esc(r.winkel)}: ${r.resultaten} resultaten, maar geen productnamen gevonden. Velden: <code>${esc(r.velden.join(", "))}</code>. Stuur dit naar Claude.`;
       } catch (err) {
