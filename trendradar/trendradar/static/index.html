@@ -464,6 +464,12 @@
   <section class="panel" data-panel="supermarkt" hidden>
     <div class="chips" id="store-status"></div>
     <article class="card">
+      <h2>🔍 Staat dit product in de data?</h2>
+      <form id="form-psearch" class="toolbar"><input type="search" name="q" placeholder="Naam of link, bijv. https://www.ah.nl/producten/product/wi617410/…" aria-label="Product zoeken" style="flex:1">
+        <button class="btn small" type="submit">Zoeken</button></form>
+      <div id="psearch-result" class="hint"></div>
+    </article>
+    <article class="card">
       <h2>🧪 Testlijst <span class="muted">nieuwe producten die een supermarkttest waard zijn</span></h2>
       <p class="hint">Supermarkttests zijn je sterkste format voor nieuwe volgers. Bovenaan: herkenbare snacks met een draai eraan, waar al over gepost wordt en die bij jouw publiek goed doen. Wat je al getest hebt, staat er niet tussen.</p>
       <ol class="list" id="list-tests"></ol>
@@ -472,7 +478,7 @@
       <article class="card">
         <h2>Nieuw in het schap <span class="muted">laatste 30 dagen</span></h2>
         <p class="hint">Producten die na de eerste meting voor het eerst in het assortiment opdoken (bron: checkjebon). ‘Bevestigd door’ laat zien of makers en nieuws het ook oppikken.</p>
-        <label class="hint"><input type="checkbox" id="p-all-products"> Ook producten tonen die niet over snacks of streetfood gaan</label>
+        <label class="hint"><input type="checkbox" id="p-all-products"> Alleen snacks en streetfood</label>
         <div class="table-wrap"><table class="data" id="tbl-products">
           <thead><tr><th>Product</th><th>Winkel</th><th class="hide-s">Inhoud</th><th class="num">Prijs</th><th>Sinds</th><th>Bevestigd door</th><th></th></tr></thead>
           <tbody></tbody></table></div>

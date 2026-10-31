@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 import threading
 from datetime import timedelta
 from urllib.parse import urlsplit
@@ -335,7 +336,11 @@ def api_supermarkt():
 
 @app.post("/api/supermarkt/test")
 def api_supermarket_test():
-    """Probeer de Apify-supermarktscraper voor één winkel met 5 producten (een paar cent)."""
+    """Probeer de scraper(s) voor één winkel met een handvol producten (een paar cent).
+
+    Voor winkels met een scraper voor het hele assortiment test hij die eerst; werkt die
+    niet, dan de scraper die op woorden zoekt.
+    """
     from .sources import supermarket
 
     code = _text(_body(), "winkel", 30).lower()
@@ -344,17 +349,56 @@ def api_supermarket_test():
     if not apify.available():
         return jsonify({"fout": "zet eerst APIFY_TOKEN in .env"}), 400
     store = supermarket.STORE_NAMES.get(code, code.title())
-    try:
-        items, cost = apify.run_actor("supermarkt", "zoekterm", ["kroket"], 5, 0.5, price_per_1000=5.0,
-                                      timeout_s=240, extra_input={"supermarkets": [code], "maxResults": 5})
-    except apify.ApifyError as exc:
-        return jsonify({"fout": config.redact(str(exc))[:400]}), 502
     with db.session() as conn:
-        budget.record(conn, "apify", cost, None, f"supermarkttest {store}")
-    parsed = [p for p in (supermarket.parse_apify(i, store, code) for i in items) if p]
-    return jsonify({"winkel": store, "resultaten": len(items), "gelezen": len(parsed), "kosten_usd": round(cost, 3),
-                    "velden": sorted({k for i in items for k in i})[:30],
-                    "voorbeelden": [{"naam": p["name"], "prijs": p["price"], "url": p["url"]} for p in parsed[:5]]})
+        settings = db.get_settings(conn)
+    tried = []
+    for src in supermarket.sources(code, settings):
+        try:
+            if src["volledig"]:
+                items, cost = apify.run_actor("actor", src["actor"], [], 0, 0.5, timeout_s=300,
+                                              extra_input=src.get("input") or {}, max_items=20)
+            else:
+                items, cost = apify.run_actor("supermarkt", "zoekterm", ["kroket"], 5, 0.5, price_per_1000=5.0,
+                                              timeout_s=240, extra_input={"supermarkets": [code], "maxResults": 5})
+        except apify.ApifyError as exc:
+            tried.append({"scraper": src["actor"], "fout": config.redact(str(exc))[:300]})
+            continue
+        with db.session() as conn:
+            budget.record(conn, "apify", cost, None, f"supermarkttest {store}")
+        parsed = [p for p in (supermarket.parse_apify(i, store, code) for i in items) if p]
+        if not parsed:
+            tried.append({"scraper": src["actor"], "fout": f"{len(items)} resultaten zonder productnaam",
+                          "velden": sorted({k for i in items for k in i})[:30]})
+            continue
+        return jsonify({"winkel": store, "scraper": src["actor"], "volledig": src["volledig"], "resultaten": len(items),
+                        "gelezen": len(parsed), "kosten_usd": round(cost, 3), "eerder_geprobeerd": tried,
+                        "velden": sorted({k for i in items for k in i})[:30],
+                        "voorbeelden": [{"naam": p["name"], "prijs": p["price"], "url": p["url"]} for p in parsed[:5]]})
+    return jsonify({"fout": "geen scraper werkte: " + "; ".join(f"{t['scraper']}: {t['fout']}" for t in tried)[:600]}), 502
+
+
+@app.get("/api/supermarkt/zoek")
+def api_supermarket_search():
+    """Staat dit product in de data? Op naam, of met de link van de winkel."""
+    q = (request.args.get("q") or "").strip()
+    if len(q) < 3:
+        return jsonify({"fout": "typ minstens 3 tekens of plak een link"}), 400
+    m = re.search(r"/(wi\d+)/", q)
+    words = [w for w in re.sub(r"[^a-z0-9 ]", " ", q.lower().split("/")[-1].replace("-", " ")).split() if len(w) > 2]
+    with db.session() as conn:
+        if m:
+            rows = conn.execute("SELECT * FROM products WHERE url LIKE ? LIMIT 20", (f"%{m.group(1)}%",)).fetchall()
+        else:
+            rows = []
+        if not rows and words:
+            where = " AND ".join("lower(name) LIKE ?" for _ in words[:5])
+            rows = conn.execute(f"SELECT * FROM products WHERE {where} ORDER BY first_seen DESC LIMIT 20",
+                                [f"%{w}%" for w in words[:5]]).fetchall()
+        status = db.get_state(conn, "supermarkt_status", {}) or {}
+    return jsonify({"products": [{"name": r["name"], "store": r["store"], "first_seen": r["first_seen"],
+                                  "last_seen": r["last_seen"], "is_new": bool(r["is_new"]), "url": r["url"],
+                                  "price": r["price"]} for r in rows],
+                    "full_stores": sorted(s for s, v in status.items() if v.get("volledig"))})
 
 
 @app.get("/api/zaken")
@@ -693,7 +737,7 @@ def api_vandaag():
         topics = trends.compute(conn, "24u", None, 60, include_demo=a["include_demo"])["topics"]
         early = [t for t in topics if t["phase"] in ("vroeg", "groeit")
                  and t["type"] in ("woord", "zin", "product", "zaak")][:8]
-        prods = products.overview(conn, a["include_demo"], days=2)["products"][:8]
+        prods = products.overview(conn, a["include_demo"], days=2, only_relevant=False)["products"][:8]
         amsterdam = _candidates(conn, a["include_demo"], "Amsterdam", 4)
         lijst = {r["status"]: r["n"] for r in conn.execute(
             "SELECT status, COUNT(*) AS n FROM watchlist GROUP BY status")}

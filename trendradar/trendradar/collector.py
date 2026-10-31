@@ -769,38 +769,82 @@ def step_supermarkets_apify(run: Run, settings: dict, force: bool = False) -> No
     now = db.iso(db.now())
     summary, total_cost = [], 0.0
     for store, code in stores.items():
-        try:
-            items, cost = apify.run_actor("supermarkt", "zoekterm", terms, per_term,
-                                          per_store * price / 1000 * 1.3, price_per_1000=price,
-                                          timeout_s=SHOP_TIMEOUT_S,
-                                          extra_input={"supermarkets": [code], "maxResults": per_store})
-        except apify.ApifyRunFailed as exc:
-            with db.session() as conn:
-                budget.record(conn, "apify", exc.max_usd, None, f"supermarkt {store} (onderbroken)")
-            run.note(f"Supermarkt {store} via Apify: {exc}", "waarschuwing")
-            continue
-        except Exception as exc:  # noqa: BLE001
-            with db.session() as conn:
-                status = db.get_state(conn, "supermarkt_status", {}) or {}
-                status[store] = {"ok": False, "t": now, "bron": "apify", "melding": f"Apify: {str(exc)[:160]}"}
-                db.set_state(conn, "supermarkt_status", status)
-            run.note(f"Supermarkt {store} via Apify: {exc}", "waarschuwing")
-            continue
+        line, cost = _shop_from_sources(run, settings, store, code, terms, per_term, per_store, price, now)
         total_cost += cost
-        run.results += len(items)
-        products = [p for p in (supermarket.parse_apify(it, store, code) for it in items) if p]
-        with db.session() as conn:
-            budget.record(conn, "apify", cost, None, f"supermarkt {store}: {len(items)} producten")
-            st, line = _store_products(conn, store, products, now, "apify", partial=True)
-            status = db.get_state(conn, "supermarkt_status", {}) or {}
-            status[store] = st
-            db.set_state(conn, "supermarkt_status", status)
-        summary.append(line or f"{store} 0")
+        if line:
+            summary.append(line)
     with db.session() as conn:
         db.set_state(conn, "supermarkt_apify_laatst", now)
         unmark_relisted(conn)
     run.cost += total_cost
     run.note(f"Supermarkten via Apify (nieuw, waarvan snack-relevant): {', '.join(summary)}, ${total_cost:.2f}")
+
+
+FULL_TIMEOUT_S = 100 * 60
+SOURCE_RETRY_DAYS = 7
+
+
+def _shop_from_sources(run: Run, settings: dict, store: str, code: str, terms: list[str], per_term: int,
+                       per_store: int, price: float, now: str) -> tuple[str, float]:
+    """Eén winkel: probeer de scrapers voor het hele assortiment, anders zoeken op woorden.
+
+    Een scraper die faalt (bijvoorbeeld omdat de maker hem niet meer bijhoudt), slaat de tool
+    een week over; daarna probeert hij hem opnieuw.
+    """
+    total = 0.0
+    with db.session() as conn:
+        failed = db.get_state(conn, "supermarkt_bron_fout", {}) or {}
+    for src in supermarket.sources(code, settings):
+        key = f"{code}|{src['actor']}"
+        if src["volledig"] and key in failed and db.now() - db.parse_iso(failed[key]) < timedelta(days=SOURCE_RETRY_DAYS):
+            continue
+        try:
+            if src["volledig"]:
+                cap = float(settings.get("supermarkt_max_usd_volledig", 2.0) or 2.0)
+                items, cost = apify.run_actor("actor", src["actor"], [], 0, cap, timeout_s=FULL_TIMEOUT_S,
+                                              extra_input=src.get("input") or {}, max_items=80000)
+            else:
+                if not terms:
+                    break
+                items, cost = apify.run_actor("supermarkt", "zoekterm", terms, per_term,
+                                              per_store * price / 1000 * 1.3, price_per_1000=price,
+                                              timeout_s=SHOP_TIMEOUT_S,
+                                              extra_input={"supermarkets": [code], "maxResults": per_store})
+        except apify.ApifyRunFailed as exc:
+            cost, items = exc.max_usd, []
+            run.note(f"Supermarkt {store} ({src['actor']}): {exc}", "waarschuwing")
+        except Exception as exc:  # noqa: BLE001
+            cost, items = 0.0, []
+            run.note(f"Supermarkt {store} ({src['actor']}): {exc}", "waarschuwing")
+        total += cost
+        run.results += len(items)
+        products = [p for p in (supermarket.parse_apify(it, store, code) for it in items) if p]
+        ok = len(products) >= (supermarket.MIN_FULL if src["volledig"] else 1)
+        with db.session() as conn:
+            if cost:
+                budget.record(conn, "apify", cost, None, f"supermarkt {store}: {len(items)} producten ({src['actor']})")
+            if src["volledig"] and not ok:
+                failed[key] = now
+                db.set_state(conn, "supermarkt_bron_fout", failed)
+            if not products:
+                continue
+            st, line = _store_products(conn, store, products, now, "volledig" if ok and src["volledig"] else "apify",
+                                       partial=not (ok and src["volledig"]))
+            st["scraper"] = src["actor"]
+            st["volledig"] = bool(ok and src["volledig"])
+            status = db.get_state(conn, "supermarkt_status", {}) or {}
+            status[store] = st
+            db.set_state(conn, "supermarkt_status", status)
+        if ok:
+            return line, total
+        run.note(f"Supermarkt {store}: {src['actor']} gaf maar {len(products)} producten, volgende scraper proberen",
+                 "waarschuwing")
+    with db.session() as conn:
+        status = db.get_state(conn, "supermarkt_status", {}) or {}
+        if status.get(store, {}).get("t") != now:
+            status[store] = {"ok": False, "t": now, "bron": "apify", "melding": "geen enkele scraper werkte deze keer"}
+            db.set_state(conn, "supermarkt_status", status)
+    return f"{store} mislukt", total
 
 
 STALE_DAYS = 4
