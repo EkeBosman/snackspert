@@ -1941,3 +1941,59 @@ def test_broken_full_scraper_falls_back_and_waits_a_week(conn, monkeypatch):
     calls.clear()
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
     assert calls == ["zoekterm"]                                                    # kapotte scrapers een week overslaan
+
+
+def test_sample_actor_stops_after_a_few_products(monkeypatch):
+    from trendradar.sources import apify as ap
+
+    monkeypatch.setattr(ap, "_auth", lambda: {})
+    monkeypatch.setattr(ap.time, "sleep", lambda s: None)
+
+    class R:
+        def __init__(self, data, ok=True):
+            self._d, self.ok, self.status_code = data, ok, 201
+        def json(self):
+            return self._d
+        def raise_for_status(self):
+            pass
+    monkeypatch.setattr(ap, "_start", lambda *a, **k: R({"data": {"id": "r1", "status": "READY"}}))
+    polls = iter([0, 2, 7])
+
+    def get(url, **kw):
+        if "/datasets/" in url:
+            return R([{"name": f"p{i}"} for i in range(next(polls))][: kw["params"]["limit"]])
+        return R({"data": {"status": "RUNNING", "defaultDatasetId": "d1"}})
+    monkeypatch.setattr(ap, "_get", get)
+    aborted = []
+    monkeypatch.setattr(ap.requests, "post", lambda url, **k: aborted.append(url) or R({}))
+    monkeypatch.setattr(ap, "run_info", lambda rid: {"usage_usd": 0.02})
+    seen = []
+    items, cost, status = ap.sample_actor("x~y", {}, n=5, progress=lambda s, f, st: seen.append(f))
+    assert len(items) == 5 and cost == 0.02 and seen == [0, 2, 5]
+    assert aborted and aborted[0].endswith("/actor-runs/r1/abort")              # meteen gestopt
+
+
+def test_shop_test_runs_in_background(conn, monkeypatch):
+    import time as _t
+
+    from trendradar.web import app
+
+    ap = _apify_offline(monkeypatch)
+    calls = []
+
+    def sample(actor, body, **kw):
+        calls.append(actor)
+        if actor == "chipendale~albert-heijn-products":
+            return [], 0.01, "RUNNING"                                          # niets binnen: volgende proberen
+        return [{"type": "product", "external_id": "1", "name": "AH Kroket", "current_price": 1}], 0.02, "ABORTED"
+    monkeypatch.setattr(ap, "sample_actor", sample)
+    client = app.test_client()
+    assert client.post("/api/supermarkt/test", json={"winkel": "ah"}).get_json() == {"started": True}
+    for _ in range(100):
+        r = client.get("/api/supermarkt/test?winkel=ah").get_json()
+        if not r["running"]:
+            break
+        _t.sleep(0.02)
+    assert r["result"]["scraper"] == "rashadansari~albert-heijn-scraper" and r["result"]["volledig"]
+    assert "nog geen producten" in r["tried"][0]["fout"]
+    assert calls == ["chipendale~albert-heijn-products", "rashadansari~albert-heijn-scraper"]

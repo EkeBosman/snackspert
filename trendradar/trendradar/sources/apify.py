@@ -370,6 +370,56 @@ def abort(run_id: str) -> None:
         pass
 
 
+def sample_actor(actor: str, body: dict, n: int = 5, wait_s: int = 150, max_usd: float = 0.5,
+                 progress=None) -> tuple[list[dict], float, str]:
+    """Snelle test: start een actor en stop hem zodra er n resultaten zijn (of na wait_s seconden).
+
+    Een scraper voor een heel assortiment draait anders een half uur; voor een test is
+    'levert hij producten en kan de tool ze lezen' genoeg. Geeft (resultaten, kosten, status).
+    """
+    headers = _auth()
+    params = {"maxItems": max(n, 20), "maxTotalChargeUsd": f"{max(MIN_CHARGE_USD, max_usd):.2f}"}
+    started = time.time()
+    try:
+        resp = _start(f"{API}/acts/{actor}/runs", params=params, headers=headers, json=body, timeout=90)
+    except requests.Timeout:
+        run = _recent_run(actor, headers, started)
+        if not run:
+            raise ApifyError(f"{actor}: Apify gaf geen antwoord bij het starten") from None
+    else:
+        if resp.status_code >= 400:
+            raise ApifyError(f"{actor}: {resp.status_code} {resp.text[:300]}")
+        run = resp.json()["data"]
+    items: list[dict] = []
+    status = run.get("status") or "READY"
+    deadline = time.time() + wait_s
+    while True:
+        time.sleep(8)
+        r = _get(f"{API}/actor-runs/{run['id']}", headers=headers, timeout=60)
+        r.raise_for_status()
+        info = r.json()["data"]
+        status = info.get("status") or status
+        if info.get("defaultDatasetId"):
+            d = _get(f"{API}/datasets/{info['defaultDatasetId']}/items", headers=headers, timeout=60,
+                     params={"clean": "true", "format": "json", "limit": n})
+            if d.ok:
+                items = d.json()
+        if progress:
+            progress(int(time.time() - started), len(items), status)
+        if len(items) >= n or status not in ("READY", "RUNNING") or time.time() > deadline:
+            break
+    if status in ("READY", "RUNNING"):
+        for _ in range(3):
+            try:
+                if requests.post(f"{API}/actor-runs/{run['id']}/abort", headers=headers, timeout=20).ok:
+                    break
+            except requests.RequestException:
+                time.sleep(3)
+    time.sleep(3)
+    info = run_info(run["id"]) or {}
+    return items, info.get("usage_usd", 0.0), status
+
+
 
 # --- omzetten naar één postformaat -----------------------------------------
 
