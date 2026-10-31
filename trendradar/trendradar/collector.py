@@ -798,6 +798,7 @@ def _shop_from_sources(run: Run, settings: dict, store: str, code: str, terms: l
         key = f"{code}|{src['actor']}"
         if src["volledig"] and key in failed and db.now() - db.parse_iso(failed[key]) < timedelta(days=SOURCE_RETRY_DAYS):
             continue
+        gone = False
         try:
             if src["volledig"]:
                 cap = float(settings.get("supermarkt_max_usd_volledig", 2.0) or 2.0)
@@ -816,6 +817,10 @@ def _shop_from_sources(run: Run, settings: dict, store: str, code: str, terms: l
         except Exception as exc:  # noqa: BLE001
             cost, items = 0.0, []
             run.note(f"Supermarkt {store} ({src['actor']}): {exc}", "waarschuwing")
+            if "record-not-found" in str(exc):
+                # Bestaat niet (meer) op Apify: een maand niet proberen (7 dagen + 23 vooruit).
+                failed[key] = db.iso(db.now() + timedelta(days=23))
+                gone = True
         total += cost
         run.results += len(items)
         products = [p for p in (supermarket.parse_apify(it, store, code) for it in items) if p]
@@ -824,7 +829,8 @@ def _shop_from_sources(run: Run, settings: dict, store: str, code: str, terms: l
             if cost:
                 budget.record(conn, "apify", cost, None, f"supermarkt {store}: {len(items)} producten ({src['actor']})")
             if src["volledig"] and not ok:
-                failed[key] = now
+                if not gone:
+                    failed[key] = now
                 db.set_state(conn, "supermarkt_bron_fout", failed)
             if not products:
                 continue

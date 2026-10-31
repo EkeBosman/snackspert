@@ -1489,13 +1489,18 @@
           const r = await api("/api/supermarkt/test?winkel=" + encodeURIComponent(code));
           const tried = r.tried.length ? `<br>Niet gelukt: ${r.tried.map(t => `<code>${esc(t.scraper)}</code> (${esc(t.fout)})`).join("; ")}` : "";
           if (r.running) {
-            out.innerHTML = r.now ? `Bezig met <code>${esc(r.now.scraper)}</code> (${r.now.volledig ? "hele assortiment" : "zoekwoorden"}): ${r.now.seconden || 0} seconden, ${r.now.gevonden || 0} van 5 producten…${tried}` : "Bezig…";
+            const n = r.now;
+            out.innerHTML = !n ? "Bezig…" : n.volledig
+              ? `Bezig met <code>${esc(n.scraper)}</code> (hele assortiment): ${Math.floor((n.seconden || 0) / 60)} min. Deze scraper levert pas aan het eind, reken op 15 à 30 minuten; je kunt intussen gewoon verder.`
+                + (n.log ? `<br><span class="meta">Laatst gemeld: ${esc(n.log)}</span>` : "") + tried
+              : `Bezig met <code>${esc(n.scraper)}</code> (zoekwoorden): ${n.seconden || 0} seconden, ${n.gevonden || 0} van 5 producten…${tried}`;
             await new Promise(res => setTimeout(res, 4000));
             continue;
           }
           const x = r.result;
           out.innerHTML = x
-            ? `✓ ${esc(r.winkel)} werkt met <code>${esc(x.scraper)}</code> (${x.volledig ? "<b>hele assortiment</b>" : "zoekt op woorden"}): ${x.gelezen} producten, $${x.kosten_usd}.${tried}<ul>${x.voorbeelden.map(v =>
+            ? `✓ ${esc(r.winkel)} werkt met <code>${esc(x.scraper)}</code> (${x.volledig ? "<b>hele assortiment</b>" : "zoekt op woorden"}): ${fmt(x.gelezen)} producten, $${x.kosten_usd}.`
+              + (x.nulmeting ? " Dit telt meteen als nulmeting: vanaf de volgende keer valt elk nieuw product op." : "") + tried + `<ul>${x.voorbeelden.map(v =>
               `<li>${esc(v.naam)}${v.prijs != null ? " · € " + String(v.prijs).replace(".", ",") : ""}</li>`).join("")}</ul>`
             : `✗ Geen scraper werkte voor ${esc(r.winkel || code)}.${tried}<br>Stuur deze melding naar Claude.`;
           break;
