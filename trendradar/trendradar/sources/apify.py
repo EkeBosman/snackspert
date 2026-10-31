@@ -10,6 +10,7 @@ invoer, of wil je een goedkopere, dan pas je het alleen hier aan.
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import datetime, timezone
 
@@ -226,7 +227,7 @@ def _start(url: str, **kw):
 def run_actor(platform: str, kind: str, values: list[str], per_value: int,
               max_usd: float, since: str | None = None, price_per_1000: float = 0.0,
               timeout_s: int = 900, extra_input: dict | None = None,
-              max_items: int | None = None) -> tuple[list[dict], float]:
+              max_items: int | None = None, progress=None) -> tuple[list[dict], float]:
     """Start een actor-run, wacht tot hij klaar is en geef (items, kosten_usd)."""
     # platform 'actor': elke actor bij naam (kind), met alleen extra_input als invoer.
     actor, build = ACTORS[(platform, kind)] if platform != "actor" else (kind, lambda v, n, s=None: {})
@@ -249,7 +250,7 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
     else:
         run = None
     if resp is None:
-        return _finish_or_fail(actor, run, headers, max_items, price_per_1000, timeout_s, max_usd)
+        return _finish_or_fail(actor, run, headers, max_items, price_per_1000, timeout_s, max_usd, progress)
     if resp.status_code == 400 and OPTIONAL_KEYS & body.keys():
         # Kent de actor een van de extra velden niet (meer)? Probeer het zonder,
         # zodat één verkeerde veldnaam niet de hele ronde kost.
@@ -261,7 +262,7 @@ def run_actor(platform: str, kind: str, values: list[str], per_value: int,
             raise ApifyLimitError(f"{actor}: {resp.status_code} {resp.text[:300]}")
         raise ApifyError(f"{actor}: {resp.status_code} {resp.text[:300]}")
     run = resp.json()["data"]
-    return _finish_or_fail(actor, run, headers, max_items, price_per_1000, timeout_s, max_usd)
+    return _finish_or_fail(actor, run, headers, max_items, price_per_1000, timeout_s, max_usd, progress)
 
 
 def _recent_run(actor: str, headers: dict, started: float) -> dict | None:
@@ -281,10 +282,10 @@ def _recent_run(actor: str, headers: dict, started: float) -> dict | None:
     return None
 
 
-def _finish_or_fail(actor, run, headers, max_items, price_per_1000, timeout_s, max_usd):
+def _finish_or_fail(actor, run, headers, max_items, price_per_1000, timeout_s, max_usd, progress=None):
     cap = max(MIN_CHARGE_USD, max_usd)
     try:
-        return _finish_run(actor, run, headers, max_items, price_per_1000, timeout_s)
+        return _finish_run(actor, run, headers, max_items, price_per_1000, timeout_s, progress)
     except Exception as exc:  # noqa: BLE001 - de run loopt en kost geld: nooit stil laten verdwijnen
         for _ in range(3):  # stoppen, anders loopt hij door terwijl de tool al verder is
             try:
@@ -296,13 +297,16 @@ def _finish_or_fail(actor, run, headers, max_items, price_per_1000, timeout_s, m
                              run.get("defaultDatasetId")) from exc
 
 
-def _finish_run(actor, run, headers, max_items, price_per_1000, timeout_s) -> tuple[list[dict], float]:
+def _finish_run(actor, run, headers, max_items, price_per_1000, timeout_s, progress=None) -> tuple[list[dict], float]:
     deadline = time.time() + timeout_s
+    started = time.time()
     while run.get("status") in ("READY", "RUNNING") and time.time() < deadline:
         time.sleep(10)
         r = _get(f"{API}/actor-runs/{run['id']}", headers=headers, params={"waitForFinish": 30}, timeout=90)
         r.raise_for_status()
         run = r.json()["data"]
+        if progress:
+            progress(int(time.time() - started), run.get("status"), last_log_line(run["id"], headers))
 
     if run.get("status") in ("READY", "RUNNING"):
         try:
@@ -368,6 +372,17 @@ def abort(run_id: str) -> None:
         requests.post(f"{API}/actor-runs/{run_id}/abort", headers=_auth(), timeout=15)
     except requests.RequestException:
         pass
+
+
+def last_log_line(run_id: str, headers: dict | None = None) -> str:
+    """De laatste regel uit het logboek van een run: zo zie je waar een lange run mee bezig is."""
+    try:
+        r = requests.get(f"{API}/actor-runs/{run_id}/log", headers=headers or _auth(), timeout=20)
+        lines = [ln.strip() for ln in r.text.splitlines() if ln.strip()] if r.ok else []
+    except requests.RequestException:
+        return ""
+    line = lines[-1] if lines else ""
+    return re.sub(r"^\S+Z\s+", "", line)[:160]  # tijdstempel eraf
 
 
 def sample_actor(actor: str, body: dict, n: int = 5, wait_s: int = 150, max_usd: float = 0.5,

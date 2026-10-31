@@ -341,8 +341,9 @@ _shop_tests: dict[str, dict] = {}
 def api_supermarket_test():
     """Test de scraper(s) van één winkel op de achtergrond; de pagina vraagt de voortgang op.
 
-    Per scraper hooguit 2,5 minuut: hij stopt zodra er 5 producten binnen zijn. Voor winkels
-    met een scraper voor het hele assortiment test hij die eerst, daarna het zoeken op woorden.
+    Een scraper voor het hele assortiment levert pas aan het eind (AH ± 20 minuten): die laat
+    de test afmaken, en de uitkomst telt meteen als nulmeting. Het zoeken op woorden stopt
+    zodra er 5 producten binnen zijn.
     """
     from .sources import supermarket
 
@@ -364,6 +365,10 @@ def api_supermarket_test():
                 body = (src.get("input") or {}) if src["volledig"] else \
                     {"keyterms": ["kroket"], "supermarkets": [code], "maxResults": 5}
                 test["now"] = {"scraper": src["actor"], "volledig": src["volledig"], "seconden": 0, "gevonden": 0}
+                if src["volledig"]:
+                    if _test_full(test, store, code, src, settings):
+                        break
+                    continue
 
                 def progress(sec, found, status, _now=test["now"]):
                     _now.update(seconden=sec, gevonden=found, status=status)
@@ -391,6 +396,38 @@ def api_supermarket_test():
             test["running"] = False
     threading.Thread(target=work, daemon=True).start()
     return jsonify({"started": True})
+
+
+def _test_full(test: dict, store: str, code: str, src: dict, settings: dict) -> bool:
+    """Draai een scraper voor het hele assortiment helemaal; gelukt = meteen de nulmeting."""
+    from .sources import supermarket
+
+    def progress(sec, status, line, _now=test["now"]):
+        _now.update(seconden=sec, status=status, log=line)
+    cap = float(settings.get("supermarkt_max_usd_volledig", 2.0) or 2.0)
+    try:
+        items, cost = apify.run_actor("actor", src["actor"], [], 0, cap, timeout_s=collector.FULL_TIMEOUT_S,
+                                      extra_input=src.get("input") or {}, max_items=80000, progress=progress)
+    except Exception as exc:  # noqa: BLE001
+        test["tried"].append({"scraper": src["actor"], "fout": config.redact(str(exc))[:300]})
+        return False
+    products = [p for p in (supermarket.parse_apify(i, store, code) for i in items) if p]
+    now = db.iso(db.now())
+    with db.session() as conn:
+        budget.record(conn, "apify", cost, None, f"supermarkttest {store}: hele assortiment")
+        if len(products) < supermarket.MIN_FULL:
+            test["tried"].append({"scraper": src["actor"], "fout": f"klaar, maar maar {len(products)} producten",
+                                  "velden": sorted({k for i in items for k in i})[:30]})
+            return False
+        st, _ = collector._store_products(conn, store, products, now, "volledig")
+        st.update(scraper=src["actor"], volledig=True)
+        status = db.get_state(conn, "supermarkt_status", {}) or {}
+        status[store] = st
+        db.set_state(conn, "supermarkt_status", status)
+    test["result"] = {"scraper": src["actor"], "volledig": True, "gelezen": len(products), "kosten_usd": round(cost, 3),
+                      "nulmeting": True, "velden": sorted({k for i in items for k in i})[:30],
+                      "voorbeelden": [{"naam": p["name"], "prijs": p["price"], "url": p["url"]} for p in products[:5]]}
+    return True
 
 
 @app.get("/api/supermarkt/test")

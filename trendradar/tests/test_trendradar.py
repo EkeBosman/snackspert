@@ -1908,7 +1908,7 @@ def test_full_assortment_finds_every_new_product(conn, monkeypatch):
     settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"]}
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
     st = db.get_state(conn, "supermarkt_status")["Albert Heijn"]
-    assert calls == [("actor", "chipendale~albert-heijn-products")] and st["volledig"] and "nulmeting" in st["melding"]
+    assert calls == [("actor", "rashadansari~albert-heijn-scraper")] and st["volledig"] and "nulmeting" in st["melding"]
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)      # geen inleerrondes nodig
     new = conn.execute("SELECT name, url FROM products WHERE is_new = 1").fetchall()
     assert [(r["name"], r["url"]) for r in new] == [("Kesbeke Vers gesneden gember citroen",
@@ -1931,16 +1931,18 @@ def test_broken_full_scraper_falls_back_and_waits_a_week(conn, monkeypatch):
     def fake(platform, kind, values, per_value, max_usd, **kw):
         calls.append(kind)
         if platform == "actor":
-            raise ap.ApifyError("actor is deprecated")
+            raise ap.ApifyError("404 record-not-found: Actor with this name was not found")
         return [{"name": "AH Kroket", "url": "https://www.ah.nl/p/1"}], 0.3
     monkeypatch.setattr(ap, "run_actor", fake)
     settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"]}
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
-    assert calls == ["chipendale~albert-heijn-products", "rashadansari~albert-heijn-scraper", "zoekterm"]
+    assert calls == ["rashadansari~albert-heijn-scraper", "zoekterm"]
     assert not db.get_state(conn, "supermarkt_status")["Albert Heijn"]["volledig"]
     calls.clear()
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
-    assert calls == ["zoekterm"]                                                    # kapotte scrapers een week overslaan
+    assert calls == ["zoekterm"]                                                    # verdwenen scraper overslaan
+    gone = db.get_state(conn, "supermarkt_bron_fout")["ah|rashadansari~albert-heijn-scraper"]
+    assert db.parse_iso(gone) > db.now() + timedelta(days=20)                       # een maand, niet een week
 
 
 def test_sample_actor_stops_after_a_few_products(monkeypatch):
@@ -1979,21 +1981,33 @@ def test_shop_test_runs_in_background(conn, monkeypatch):
     from trendradar.web import app
 
     ap = _apify_offline(monkeypatch)
-    calls = []
+    full = [{"type": "product", "external_id": str(i), "name": f"AH Product {i}", "current_price": 1} for i in range(600)]
+    attempts = iter([ap.ApifyError("run eindigde met status FAILED"), None])
 
-    def sample(actor, body, **kw):
-        calls.append(actor)
-        if actor == "chipendale~albert-heijn-products":
-            return [], 0.01, "RUNNING"                                          # niets binnen: volgende proberen
-        return [{"type": "product", "external_id": "1", "name": "AH Kroket", "current_price": 1}], 0.02, "ABORTED"
-    monkeypatch.setattr(ap, "sample_actor", sample)
+    def run_actor(platform, kind, values, per_value, max_usd, progress=None, **kw):
+        if progress:
+            progress(65, "RUNNING", "Scraping Albert Heijn products...")
+        exc = next(attempts)
+        if exc:
+            raise exc
+        return full, 0.4
+    monkeypatch.setattr(ap, "run_actor", run_actor)
+    monkeypatch.setattr(ap, "sample_actor", lambda actor, body, **kw: (
+        [{"name": "AH Kroket", "url": "https://www.ah.nl/p/1"}], 0.01, "ABORTED"))
     client = app.test_client()
+
+    def wait():
+        for _ in range(200):
+            r = client.get("/api/supermarkt/test?winkel=ah").get_json()
+            if not r["running"]:
+                return r
+            _t.sleep(0.02)
     assert client.post("/api/supermarkt/test", json={"winkel": "ah"}).get_json() == {"started": True}
-    for _ in range(100):
-        r = client.get("/api/supermarkt/test?winkel=ah").get_json()
-        if not r["running"]:
-            break
-        _t.sleep(0.02)
-    assert r["result"]["scraper"] == "rashadansari~albert-heijn-scraper" and r["result"]["volledig"]
-    assert "nog geen producten" in r["tried"][0]["fout"]
-    assert calls == ["chipendale~albert-heijn-products", "rashadansari~albert-heijn-scraper"]
+    r = wait()                                                                  # hele assortiment mislukt: zoekwoorden
+    assert r["result"]["scraper"] == "harvestedge~dutch-supermarkets-all-11" and not r["result"]["volledig"]
+    assert "FAILED" in r["tried"][0]["fout"]
+    client.post("/api/supermarkt/test", json={"winkel": "ah"})
+    r = wait()
+    assert r["result"]["volledig"] and r["result"]["nulmeting"] and r["result"]["gelezen"] == 600
+    st = db.get_state(conn, "supermarkt_status")["Albert Heijn"]
+    assert st["volledig"] and "nulmeting" in st["melding"]

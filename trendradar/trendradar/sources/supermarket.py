@@ -51,8 +51,8 @@ def _price(value) -> float | None:
 # elk nieuw product op (ook 'Kesbeke gember citroen'). Lukt geen enkele, dan zoekt de tool op
 # woorden met de scraper voor alle winkels: die mist alles zonder zo'n woord in de naam.
 FULL_SOURCES = {
-    "ah": [{"actor": "chipendale~albert-heijn-products", "input": {}},
-           {"actor": "rashadansari~albert-heijn-scraper", "input": {}}],
+    # rashadansari: verzamelt eerst alles en levert pas aan het eind (AH ± 20 minuten).
+    "ah": [{"actor": "rashadansari~albert-heijn-scraper", "input": {}}],
     "jumbo": [{"actor": "rashadansari~jumbo-scraper", "input": {}}],
     "lidl": [{"actor": "rashadansari~lidl-scraper", "input": {}}],
 }
