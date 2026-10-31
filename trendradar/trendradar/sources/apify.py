@@ -225,11 +225,13 @@ def _start(url: str, **kw):
 
 def run_actor(platform: str, kind: str, values: list[str], per_value: int,
               max_usd: float, since: str | None = None, price_per_1000: float = 0.0,
-              timeout_s: int = 900, extra_input: dict | None = None) -> tuple[list[dict], float]:
+              timeout_s: int = 900, extra_input: dict | None = None,
+              max_items: int | None = None) -> tuple[list[dict], float]:
     """Start een actor-run, wacht tot hij klaar is en geef (items, kosten_usd)."""
-    actor, build = ACTORS[(platform, kind)]
+    # platform 'actor': elke actor bij naam (kind), met alleen extra_input als invoer.
+    actor, build = ACTORS[(platform, kind)] if platform != "actor" else (kind, lambda v, n, s=None: {})
     headers = _auth()
-    max_items = per_value * len(values)
+    max_items = max_items or per_value * len(values)
     params = {
         "maxItems": max_items,
         "maxTotalChargeUsd": f"{max(MIN_CHARGE_USD, max_usd):.2f}",
@@ -312,10 +314,16 @@ def _finish_run(actor, run, headers, max_items, price_per_1000, timeout_s) -> tu
     items: list[dict] = []
     dataset = run.get("defaultDatasetId")
     if dataset:
-        r = _get(f"{API}/datasets/{dataset}/items", headers=headers,
-                 params={"clean": "true", "format": "json", "limit": max_items}, timeout=120)
-        r.raise_for_status()
-        items = r.json()
+        # In stukken: een heel supermarktassortiment is tienduizenden producten.
+        while len(items) < max_items:
+            r = _get(f"{API}/datasets/{dataset}/items", headers=headers, timeout=120,
+                     params={"clean": "true", "format": "json", "offset": len(items),
+                             "limit": min(5000, max_items - len(items))})
+            r.raise_for_status()
+            page = r.json()
+            items += page
+            if len(page) < 5000:
+                break
     if run.get("status") not in ("SUCCEEDED", "ABORTED", "TIMED-OUT") and not items:
         raise ApifyError(f"{actor}: run eindigde met status {run.get('status')}")
     # De kosten staan soms pas even na afloop in de run; vraag ze nog één keer op.

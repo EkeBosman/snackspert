@@ -514,7 +514,7 @@ def test_supermarket_new_products_via_checkjebon(conn, monkeypatch):
     from trendradar import products
     o = products.overview(conn)
     assert [p["name"] for p in o["products"]] == ["AH Kapsalon chips"]
-    assert len(products.overview(conn, only_relevant=False)["products"]) == 2
+    assert len(products.overview(conn, only_relevant=False)["products"]) == 1   # alles eetbaars, geen shampoo
     with db.session() as c:
         status = db.get_state(c, "supermarkt_status")
     assert status["Albert Heijn"]["ok"] and not status["Aldi"]["ok"]
@@ -1768,6 +1768,7 @@ def test_supermarkets_via_apify(conn, monkeypatch):
     cjb = {"Albert Heijn": [{"id": "ah:old", "store": "Albert Heijn", "name": "Oud", "size": "", "price": 1, "url": None}],
            "Spar": [{"id": "spar:1", "store": "Spar", "name": "Spar Kroket", "size": "", "price": 1, "url": None}]}
     monkeypatch.setattr(supermarket, "fetch", lambda etag=None: (cjb, "e"))
+    monkeypatch.setattr(supermarket, "FULL_SOURCES", {})          # hier alleen het zoeken op woorden
     settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"]}
     collector.step_supermarkets(collector.Run("t"), settings, force=True)
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
@@ -1884,3 +1885,59 @@ def test_apify_start_timeout_recovers_the_run(monkeypatch):
     monkeypatch.setattr(ap, "_finish_run", lambda actor, run, *a: started.append(run["id"]) or ([{"name": "x"}], 0.1))
     items, cost = ap.run_actor("supermarkt", "zoekterm", ["kroket"], 5, 0.5)
     assert started == ["r1"] and items == [{"name": "x"}]
+
+
+def test_full_assortment_finds_every_new_product(conn, monkeypatch):
+    """Een heel assortiment: ook 'Kesbeke gember citroen' (geen snackwoord) valt op als nieuw."""
+    from trendradar import collector, products
+    from trendradar.sources import supermarket
+    from trendradar.web import app
+
+    ap = _apify_offline(monkeypatch)
+    base = [{"type": "product", "webshopId": str(400000 + i), "title": f"AH Product {i}", "currentPrice": 1.5}
+            for i in range(600)] + [{"type": "category", "name": "Kaas"}]
+    kesbeke = {"type": "product", "webshopId": "617410", "title": "Kesbeke Vers gesneden gember citroen",
+               "currentPrice": 2.79}
+    runs = iter([(base, 0.8), (base + [kesbeke], 0.8)])
+    calls = []
+
+    def fake(platform, kind, values, per_value, max_usd, **kw):
+        calls.append((platform, kind))
+        return next(runs)
+    monkeypatch.setattr(ap, "run_actor", fake)
+    settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"]}
+    collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
+    st = db.get_state(conn, "supermarkt_status")["Albert Heijn"]
+    assert calls == [("actor", "chipendale~albert-heijn-products")] and st["volledig"] and "nulmeting" in st["melding"]
+    collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)      # geen inleerrondes nodig
+    new = conn.execute("SELECT name, url FROM products WHERE is_new = 1").fetchall()
+    assert [(r["name"], r["url"]) for r in new] == [("Kesbeke Vers gesneden gember citroen",
+                                                     "https://www.ah.nl/producten/product/wi617410")]
+    shown = products.overview(conn, True, only_relevant=False)["products"]
+    assert [p["name"] for p in shown] == ["Kesbeke Vers gesneden gember citroen"]   # ook al is het geen snack
+    found = app.test_client().get("/api/supermarkt/zoek?q=https://www.ah.nl/producten/product/wi617410/kesbeke-vers").get_json()
+    assert found["products"][0]["is_new"] and found["full_stores"] == ["Albert Heijn"]
+    assert supermarket.parse_apify({"type": "product", "external_id": "201896STK", "name": "Jumbo X",
+                                    "website_url": "/producten/x-201896STK", "current_price": 1.0},
+                                   "Jumbo", "jumbo")["url"] == "https://www.jumbo.com/producten/x-201896STK"
+
+
+def test_broken_full_scraper_falls_back_and_waits_a_week(conn, monkeypatch):
+    from trendradar import collector
+
+    ap = _apify_offline(monkeypatch)
+    calls = []
+
+    def fake(platform, kind, values, per_value, max_usd, **kw):
+        calls.append(kind)
+        if platform == "actor":
+            raise ap.ApifyError("actor is deprecated")
+        return [{"name": "AH Kroket", "url": "https://www.ah.nl/p/1"}], 0.3
+    monkeypatch.setattr(ap, "run_actor", fake)
+    settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"]}
+    collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
+    assert calls == ["chipendale~albert-heijn-products", "rashadansari~albert-heijn-scraper", "zoekterm"]
+    assert not db.get_state(conn, "supermarkt_status")["Albert Heijn"]["volledig"]
+    calls.clear()
+    collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
+    assert calls == ["zoekterm"]                                                    # kapotte scrapers een week overslaan
