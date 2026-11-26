@@ -341,6 +341,7 @@ MIGRATIONS = [
     ("sources", "last_new", "INTEGER DEFAULT 0"),
     ("sources", "cost_usd", "REAL DEFAULT 0"),
     ("sources", "useful_total", "INTEGER DEFAULT 0"),
+    ("products", "store_new", "INTEGER DEFAULT 0"),   # de winkel noemt het zelf nieuw (AH-label)
 ]
 
 

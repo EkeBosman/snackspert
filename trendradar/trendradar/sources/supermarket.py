@@ -58,11 +58,18 @@ KEYWORD_ACTOR = "harvestedge~dutch-supermarkets-all-11"
 MIN_FULL = 500   # een volledig assortiment met minder producten is mislukt
 
 
+# AH: een zoekscraper die AH's eigen kenmerken meegeeft, waaronder 'nieuw' (zo markeert AH zelf
+# nieuwe producten, wekenlang). Eén run per zoekwoord; ± $0,004 per product.
+AH_SEARCH_ACTOR = "incognito_mode~albert-heijn-product-scraper"
+
+
 def sources(code: str, settings: dict) -> list[dict]:
     """De volledige scrapers voor deze winkel (eigen instelling gaat voor), dan zoeken op woorden."""
     own = (settings.get("supermarkt_bronnen") or {}).get(code)
     full = [{**s, "volledig": True} for s in (own if isinstance(own, list) else FULL_SOURCES.get(code, []))]
-    return full + [{"actor": KEYWORD_ACTOR, "volledig": False}]
+    extra = [{"actor": AH_SEARCH_ACTOR, "volledig": False, "per_woord": True}] \
+        if code == "ah" and settings.get("supermarkt_ah_zoekscraper", True) else []
+    return full + extra + [{"actor": KEYWORD_ACTOR, "volledig": False}]
 
 
 def parse_apify(item: dict, store: str, code: str) -> dict | None:
@@ -76,15 +83,20 @@ def parse_apify(item: dict, store: str, code: str) -> dict | None:
     shop = str(_pick(item, "supermarket", "store", "shop", "chain") or "").lower()
     if shop and shop not in (code.lower(), store.lower()) and code.lower() not in shop and store.lower() not in shop:
         return None
-    url = _pick(item, "url", "productUrl", "product_url", "website_url", "websiteUrl", "link")
+    url = _pick(item, "productUrl", "url", "product_url", "website_url", "websiteUrl", "link")
     size = _pick(item, "unitSize", "unit_size", "salesUnitSize", "size", "quantity", "unit")
     native = _pick(item, "webshopId", "external_id", "externalId", "id", "productId", "product_id", "sku",
                    "ean", "gtin") or url or f"{name}|{size or ''}"
-    if not url and code == "ah" and str(native).isdigit():
-        url = f"https://www.ah.nl/producten/product/wi{native}"
+    if code == "ah" and str(native).isdigit():
+        native = f"wi{native}"  # zelfde sleutel als de AH-productlijst ('wi617410')
+    if not url and code == "ah" and str(native).startswith("wi"):
+        url = f"https://www.ah.nl/producten/product/{native}"
     if isinstance(url, str) and url.startswith("/"):
         url = {"ah": "https://www.ah.nl", "jumbo": "https://www.jumbo.com", "lidl": "https://www.lidl.nl"}.get(code, "") + url
+    icons = (item.get("rawData") or {}).get("propertyIcons") or item.get("propertyIcons") or []
     return {"id": f"{code}:{native}", "store": store, "name": str(name).strip(),
+            # De winkel zegt zelf dat het nieuw is (AH: kenmerk 'nieuw').
+            "store_new": isinstance(icons, list) and "nieuw" in icons,
             "size": str(size) if size is not None and not isinstance(size, (dict, list)) else None,
             "price": _price(_pick(item, "current_price", "currentPrice", "price", "priceBeforeBonus",
                                   "base_price")), "url": url}
