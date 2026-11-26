@@ -11,7 +11,7 @@ import requests
 
 from . import (budget, classify, config, db, discovery, lexicon, nieuwezaken, onderhoud, ownposts, seeds, signals,
                snackspert, trefkans)
-from .sources import apify, meta_graph, news, supermarket
+from .sources import apify, meta_graph, news, sitemaps, supermarket
 
 log = logging.getLogger(__name__)
 _run_lock = threading.Lock()
@@ -679,6 +679,59 @@ def _store_products(conn, store: str, products: list[dict], now: str, source: st
             f"{store} {n_new} ({new_relevant})")
 
 
+SITEMAP_FRESH = timedelta(days=3)
+
+
+def step_supermarkets_sitemaps(run: Run, settings: dict, force: bool = False) -> None:
+    """Het hele assortiment van AH, Plus, Dirk en Aldi via hun openbare productlijsten (gratis).
+
+    De eerste keer per winkel is de nulmeting; daarna valt elk nieuw product op. Lukt het niet
+    (bijvoorbeeld omdat een winkel het adres blokkeert), dan neemt Apify die winkel over.
+    """
+    codes = [c for c in settings.get("supermarkt_sitemap_winkels") or [] if c in sitemaps.SITEMAPS]
+    if not codes or not settings.get("supermarkt_aan", True):
+        return
+    with db.session() as conn:
+        last = db.get_state(conn, "supermarkt_sitemap_laatst")
+    every = timedelta(hours=max(1, settings.get("supermarkt_sitemap_uren", 24) or 24)) - timedelta(minutes=30)
+    if last and not force and db.now() - db.parse_iso(last) < every:
+        return
+    now = db.iso(db.now())
+    summary = []
+    for code in codes:
+        store = supermarket.STORE_NAMES.get(code, code.title())
+        try:
+            products = sitemaps.fetch(code, store)
+        except Exception as exc:  # noqa: BLE001 - één winkel mag de rest niet tegenhouden
+            run.note(f"Productlijst {store}: {exc}", "waarschuwing")
+            with db.session() as conn:
+                status = db.get_state(conn, "supermarkt_status", {}) or {}
+                if status.get(store, {}).get("bron") in (None, "sitemap", "cjb"):
+                    status[store] = {"ok": False, "t": now, "bron": "sitemap",
+                                     "melding": f"productlijst niet gelukt: {str(exc)[:120]}"}
+                    db.set_state(conn, "supermarkt_status", status)
+            summary.append(f"{store} mislukt")
+            continue
+        with db.session() as conn:
+            st, line = _store_products(conn, store, products, now, "sitemap")
+            st.update(bron="sitemap", volledig=True, scraper="openbare productlijst")
+            status = db.get_state(conn, "supermarkt_status", {}) or {}
+            status[store] = st
+            db.set_state(conn, "supermarkt_status", status)
+        summary.append(line)
+    with db.session() as conn:
+        db.set_state(conn, "supermarkt_sitemap_laatst", now)
+        unmark_relisted(conn)
+    run.note("Supermarkten via openbare productlijsten (nieuw, waarvan snack-relevant): " + ", ".join(summary))
+
+
+def sitemap_covers(conn, store: str) -> bool:
+    """Kent de tool het hele assortiment van deze winkel al via de gratis productlijst?"""
+    st = (db.get_state(conn, "supermarkt_status", {}) or {}).get(store) or {}
+    return bool(st.get("bron") == "sitemap" and st.get("ok") and st.get("t")
+                and db.now() - db.parse_iso(st["t"]) < SITEMAP_FRESH)
+
+
 def apify_stores(settings: dict) -> dict[str, str]:
     """{winkelnaam: code} voor de winkels die via Apify gaan (alleen met een Apify-sleutel)."""
     if not settings.get("supermarkt_apify_aan", True) or not apify.available():
@@ -769,6 +822,9 @@ def step_supermarkets_apify(run: Run, settings: dict, force: bool = False) -> No
     now = db.iso(db.now())
     summary, total_cost = [], 0.0
     for store, code in stores.items():
+        with db.session() as conn:
+            if sitemap_covers(conn, store):
+                continue  # gratis productlijst werkt: geen geld uitgeven aan zoeken op woorden
         line, cost = _shop_from_sources(run, settings, store, code, terms, per_term, per_store, price, now)
         total_cost += cost
         if line:
@@ -978,6 +1034,7 @@ def run_once(trigger: str = "schema", force_supermarkets: bool = False) -> dict 
                 step_news(run, settings)
                 step_ai(run, settings)
                 step_supermarkets(run, settings, force_supermarkets)
+                step_supermarkets_sitemaps(run, settings, force_supermarkets)
                 with db.session() as conn:
                     shop = force_supermarkets or shop_due(conn, settings)
                 if shop and start_supermarkets_apify(settings, force_supermarkets):

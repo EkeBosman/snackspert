@@ -361,6 +361,8 @@ def api_supermarket_test():
 
     def work():
         try:
+            if _test_sitemap(test, store, code):
+                return
             for src in supermarket.sources(code, settings):
                 body = (src.get("input") or {}) if src["volledig"] else \
                     {"keyterms": ["kroket"], "supermarkets": [code], "maxResults": 5}
@@ -396,6 +398,31 @@ def api_supermarket_test():
             test["running"] = False
     threading.Thread(target=work, daemon=True).start()
     return jsonify({"started": True})
+
+
+def _test_sitemap(test: dict, store: str, code: str) -> bool:
+    """Eerst de gratis openbare productlijst. Gelukt = het hele assortiment, en meteen de nulmeting."""
+    from .sources import sitemaps
+
+    if code not in sitemaps.SITEMAPS:
+        return False
+    test["now"] = {"scraper": "openbare productlijst", "volledig": True, "seconden": 0, "gevonden": 0}
+    try:
+        products = sitemaps.fetch(code, store)
+    except Exception as exc:  # noqa: BLE001
+        test["tried"].append({"scraper": "openbare productlijst", "fout": str(exc)[:300]})
+        return False
+    now = db.iso(db.now())
+    with db.session() as conn:
+        st, _ = collector._store_products(conn, store, products, now, "sitemap")
+        st.update(bron="sitemap", volledig=True, scraper="openbare productlijst")
+        status = db.get_state(conn, "supermarkt_status", {}) or {}
+        status[store] = st
+        db.set_state(conn, "supermarkt_status", status)
+    test["result"] = {"scraper": "openbare productlijst", "volledig": True, "gelezen": len(products), "kosten_usd": 0,
+                      "nulmeting": "nulmeting" in st["melding"], "velden": [],
+                      "voorbeelden": [{"naam": p["name"], "prijs": None, "url": p["url"]} for p in products[:5]]}
+    return True
 
 
 def _test_full(test: dict, store: str, code: str, src: dict, settings: dict) -> bool:
