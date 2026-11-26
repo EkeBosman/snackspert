@@ -16,6 +16,8 @@ from trendradar.sources import apify, news  # noqa: E402
 
 
 REAL_ACCOUNT_USAGE = apify.account_usage
+from trendradar.sources import sitemaps as _sitemaps  # noqa: E402
+REAL_SITEMAP_DOWNLOAD = _sitemaps._download
 
 
 @pytest.fixture(autouse=True)
@@ -28,6 +30,12 @@ def offline(monkeypatch):
     def no_lookup(place):
         raise geo.requests.ConnectionError("offline in tests")
     monkeypatch.setattr(geo, "lookup", no_lookup)
+
+    from trendradar.sources import sitemaps
+
+    def no_download(url):
+        raise sitemaps.SitemapError(f"{url}: offline in tests")
+    monkeypatch.setattr(sitemaps, "_download", no_download)
 
 
 @pytest.fixture()
@@ -1894,6 +1902,7 @@ def test_full_assortment_finds_every_new_product(conn, monkeypatch):
     from trendradar.web import app
 
     ap = _apify_offline(monkeypatch)
+    monkeypatch.setattr(supermarket, "FULL_SOURCES", {"ah": [{"actor": "x~ah-full", "input": {}}]})
     base = [{"type": "product", "webshopId": str(400000 + i), "title": f"AH Product {i}", "currentPrice": 1.5}
             for i in range(600)] + [{"type": "category", "name": "Kaas"}]
     kesbeke = {"type": "product", "webshopId": "617410", "title": "Kesbeke Vers gesneden gember citroen",
@@ -1908,7 +1917,7 @@ def test_full_assortment_finds_every_new_product(conn, monkeypatch):
     settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"]}
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
     st = db.get_state(conn, "supermarkt_status")["Albert Heijn"]
-    assert calls == [("actor", "rashadansari~albert-heijn-scraper")] and st["volledig"] and "nulmeting" in st["melding"]
+    assert calls == [("actor", "x~ah-full")] and st["volledig"] and "nulmeting" in st["melding"]
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)      # geen inleerrondes nodig
     new = conn.execute("SELECT name, url FROM products WHERE is_new = 1").fetchall()
     assert [(r["name"], r["url"]) for r in new] == [("Kesbeke Vers gesneden gember citroen",
@@ -1924,8 +1933,10 @@ def test_full_assortment_finds_every_new_product(conn, monkeypatch):
 
 def test_broken_full_scraper_falls_back_and_waits_a_week(conn, monkeypatch):
     from trendradar import collector
+    from trendradar.sources import supermarket
 
     ap = _apify_offline(monkeypatch)
+    monkeypatch.setattr(supermarket, "FULL_SOURCES", {"ah": [{"actor": "x~ah-full", "input": {}}]})
     calls = []
 
     def fake(platform, kind, values, per_value, max_usd, **kw):
@@ -1936,12 +1947,12 @@ def test_broken_full_scraper_falls_back_and_waits_a_week(conn, monkeypatch):
     monkeypatch.setattr(ap, "run_actor", fake)
     settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"]}
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
-    assert calls == ["rashadansari~albert-heijn-scraper", "zoekterm"]
+    assert calls == ["x~ah-full", "zoekterm"]
     assert not db.get_state(conn, "supermarkt_status")["Albert Heijn"]["volledig"]
     calls.clear()
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
     assert calls == ["zoekterm"]                                                    # verdwenen scraper overslaan
-    gone = db.get_state(conn, "supermarkt_bron_fout")["ah|rashadansari~albert-heijn-scraper"]
+    gone = db.get_state(conn, "supermarkt_bron_fout")["ah|x~ah-full"]
     assert db.parse_iso(gone) > db.now() + timedelta(days=20)                       # een maand, niet een week
 
 
@@ -1978,9 +1989,11 @@ def test_sample_actor_stops_after_a_few_products(monkeypatch):
 def test_shop_test_runs_in_background(conn, monkeypatch):
     import time as _t
 
+    from trendradar.sources import supermarket
     from trendradar.web import app
 
     ap = _apify_offline(monkeypatch)
+    monkeypatch.setattr(supermarket, "FULL_SOURCES", {"ah": [{"actor": "x~ah-full", "input": {}}]})
     full = [{"type": "product", "external_id": str(i), "name": f"AH Product {i}", "current_price": 1} for i in range(600)]
     attempts = iter([ap.ApifyError("run eindigde met status FAILED"), None])
 
@@ -2005,9 +2018,75 @@ def test_shop_test_runs_in_background(conn, monkeypatch):
     assert client.post("/api/supermarkt/test", json={"winkel": "ah"}).get_json() == {"started": True}
     r = wait()                                                                  # hele assortiment mislukt: zoekwoorden
     assert r["result"]["scraper"] == "harvestedge~dutch-supermarkets-all-11" and not r["result"]["volledig"]
-    assert "FAILED" in r["tried"][0]["fout"]
+    assert "offline" in r["tried"][0]["fout"] and "FAILED" in r["tried"][1]["fout"]   # productlijst, dan scraper
     client.post("/api/supermarkt/test", json={"winkel": "ah"})
     r = wait()
     assert r["result"]["volledig"] and r["result"]["nulmeting"] and r["result"]["gelezen"] == 600
     st = db.get_state(conn, "supermarkt_status")["Albert Heijn"]
     assert st["volledig"] and "nulmeting" in st["melding"]
+
+
+SITEMAP_AH = """<?xml version="1.0"?><urlset>
+<url><loc>https://www.ah.nl/producten/product/wi415202/ah-oven-kroket</loc></url>
+{extra}
+</urlset>"""
+
+
+def test_free_product_lists_find_every_new_product(conn, monkeypatch):
+    """De openbare productlijst: Kesbeke gember citroen (geen snackwoord) valt op als nieuw, gratis."""
+    from trendradar import collector
+    from trendradar.sources import sitemaps
+
+    pages = {"base": "\n".join(f"<url><loc>https://www.ah.nl/producten/product/wi{500000 + i}/ah-product-{i}</loc></url>"
+                               for i in range(400))}
+    extra = {"v": ""}
+
+    def download(url):
+        assert url == sitemaps.SITEMAPS["ah"]["url"]
+        return SITEMAP_AH.replace("{extra}", pages["base"] + extra["v"])
+    monkeypatch.setattr(sitemaps, "_download", download)
+    ap = _apify_offline(monkeypatch)
+    apify_calls = []
+    monkeypatch.setattr(ap, "run_actor", lambda *a, **k: apify_calls.append(a) or ([], 0.0))
+    settings = {**config.DEFAULTS, "supermarkt_sitemap_winkels": ["ah"], "supermarkt_apify_winkels": ["ah"]}
+    collector.step_supermarkets_sitemaps(collector.Run("t"), settings, force=True)
+    st = db.get_state(conn, "supermarkt_status")["Albert Heijn"]
+    assert st["bron"] == "sitemap" and st["volledig"] and "nulmeting" in st["melding"] and st["producten"] == 401
+    extra["v"] = "<url><loc>https://www.ah.nl/producten/product/wi617410/kesbeke-vers-gesneden-gember-citroen</loc></url>"
+    collector.step_supermarkets_sitemaps(collector.Run("t"), settings)                # 24 uur nog niet om
+    assert not conn.execute("SELECT 1 FROM products WHERE is_new = 1").fetchone()
+    collector.step_supermarkets_sitemaps(collector.Run("t"), settings, force=True)
+    new = conn.execute("SELECT id, name, url FROM products WHERE is_new = 1").fetchall()
+    assert [(r["id"], r["name"]) for r in new] == [("ah:wi617410", "Kesbeke vers gesneden gember citroen")]
+    collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
+    assert apify_calls == []                                                           # gratis lijst werkt: geen Apify
+
+
+def test_product_list_patterns_and_index():
+    import gzip
+
+    from trendradar.sources import sitemaps
+
+    urls = ["https://www.plus.nl/product/kesbeke-augurken-pot-370-ml-258029",
+            "https://www.dirk.nl/boodschappen/snacks-snoep/chips/lays-paprika/112",
+            "https://www.dirk.nl/boodschappen/kind-drogisterij/shampoo/andrelon-shampoo/113",
+            "https://www.aldi.nl/product/bapao-kip-1238759.html", "https://www.aldi.nl/recepten/x.html"]
+    assert [p["name"] for p in sitemaps.parse("plus", urls, "Plus")] == ["Kesbeke augurken pot 370 ml"]
+    assert [p["id"] for p in sitemaps.parse("dirk", urls, "Dirk")] == ["dirk:112"]          # geen drogisterij
+    assert [p["name"] for p in sitemaps.parse("aldi", urls, "Aldi")] == ["Bapao kip"]
+    files = {"https://x/index.xml": "<sitemapindex><sitemap><loc>https://x/a.xml.gz</loc></sitemap></sitemapindex>",
+             "https://x/a.xml.gz": "<urlset><url><loc>https://x/p/1</loc></url></urlset>"}
+
+    class R:
+        def __init__(self, url):
+            self.status_code = 200
+            body = files[url].encode()
+            self.content = gzip.compress(body) if url.endswith(".gz") else body
+    import pytest as _pytest
+    mp = _pytest.MonkeyPatch()
+    mp.setattr(sitemaps, "_download", REAL_SITEMAP_DOWNLOAD)
+    mp.setattr(sitemaps.requests, "get", lambda url, **k: R(url))
+    try:
+        assert sitemaps._urls("https://x/index.xml") == ["https://x/p/1"]           # index gevolgd, gzip uitgepakt
+    finally:
+        mp.undo()

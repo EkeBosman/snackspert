@@ -1490,7 +1490,9 @@
           const tried = r.tried.length ? `<br>Niet gelukt: ${r.tried.map(t => `<code>${esc(t.scraper)}</code> (${esc(t.fout)})`).join("; ")}` : "";
           if (r.running) {
             const n = r.now;
-            out.innerHTML = !n ? "Bezig…" : n.volledig
+            out.innerHTML = !n ? "Bezig…" : n.scraper === "openbare productlijst"
+              ? `Bezig met de openbare productlijst van ${esc(r.winkel)} (gratis, duurt hooguit een minuut)…`
+              : n.volledig
               ? `Bezig met <code>${esc(n.scraper)}</code> (hele assortiment): ${Math.floor((n.seconden || 0) / 60)} min. Deze scraper levert pas aan het eind, reken op 15 à 30 minuten; je kunt intussen gewoon verder.`
                 + (n.log ? `<br><span class="meta">Laatst gemeld: ${esc(n.log)}</span>` : "") + tried
               : `Bezig met <code>${esc(n.scraper)}</code> (zoekwoorden): ${n.seconden || 0} seconden, ${n.gevonden || 0} van 5 producten…${tried}`;
@@ -1500,7 +1502,8 @@
           const x = r.result;
           out.innerHTML = x
             ? `✓ ${esc(r.winkel)} werkt met <code>${esc(x.scraper)}</code> (${x.volledig ? "<b>hele assortiment</b>" : "zoekt op woorden"}): ${fmt(x.gelezen)} producten, $${x.kosten_usd}.`
-              + (x.nulmeting ? " Dit telt meteen als nulmeting: vanaf de volgende keer valt elk nieuw product op." : "") + tried + `<ul>${x.voorbeelden.map(v =>
+              + (x.nulmeting ? " Dit telt meteen als nulmeting: vanaf de volgende keer valt elk nieuw product op." : "")
+              + (x.scraper === "openbare productlijst" ? " Kosten: niets, de tool vergelijkt deze lijst voortaan elke dag." : "") + tried + `<ul>${x.voorbeelden.map(v =>
               `<li>${esc(v.naam)}${v.prijs != null ? " · € " + String(v.prijs).replace(".", ",") : ""}</li>`).join("")}</ul>`
             : `✗ Geen scraper werkte voor ${esc(r.winkel || code)}.${tried}<br>Stuur deze melding naar Claude.`;
           break;

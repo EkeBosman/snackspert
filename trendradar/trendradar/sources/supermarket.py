@@ -50,12 +50,10 @@ def _price(value) -> float | None:
 # Per winkel de Apify-scrapers in volgorde van voorkeur. 'volledig': het hele assortiment, dan valt
 # elk nieuw product op (ook 'Kesbeke gember citroen'). Lukt geen enkele, dan zoekt de tool op
 # woorden met de scraper voor alle winkels: die mist alles zonder zo'n woord in de naam.
-FULL_SOURCES = {
-    # rashadansari: verzamelt eerst alles en levert pas aan het eind (AH ± 20 minuten).
-    "ah": [{"actor": "rashadansari~albert-heijn-scraper", "input": {}}],
-    "jumbo": [{"actor": "rashadansari~jumbo-scraper", "input": {}}],
-    "lidl": [{"actor": "rashadansari~lidl-scraper", "input": {}}],
-}
+# De rashadansari-scrapers (AH, Jumbo, Lidl) zijn op Apify verouderd en mislukten; scrapers die
+# het hele assortiment wél leveren kosten $2,50 tot $4 per 1.000 producten (AH: $75+ per keer).
+# Het hele assortiment komt daarom uit de gratis openbare productlijsten (sources/sitemaps.py).
+FULL_SOURCES: dict[str, list[dict]] = {}
 KEYWORD_ACTOR = "harvestedge~dutch-supermarkets-all-11"
 MIN_FULL = 500   # een volledig assortiment met minder producten is mislukt
 
