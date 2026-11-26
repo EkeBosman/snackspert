@@ -365,6 +365,7 @@ def api_supermarket_test():
                 return
             for src in supermarket.sources(code, settings):
                 body = (src.get("input") or {}) if src["volledig"] else \
+                    {"searchQuery": "kroket", "maxItems": 5, "includeRawData": True} if src.get("per_woord") else \
                     {"keyterms": ["kroket"], "supermarkets": [code], "maxResults": 5}
                 test["now"] = {"scraper": src["actor"], "volledig": src["volledig"], "seconden": 0, "gevonden": 0}
                 if src["volledig"]:

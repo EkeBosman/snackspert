@@ -80,7 +80,16 @@ DEFAULTS: dict = {
     "supermarkt_max_usd_volledig": 2.0,
     # Gratis: de openbare productlijsten (sitemaps) van deze winkels, dagelijks vergeleken.
     "supermarkt_sitemap_winkels": ["ah", "plus", "dirk", "aldi"],
-    "supermarkt_sitemap_uren": 24,   # plafond per winkel voor een heel assortiment (AH, Jumbo, Lidl)
+    "supermarkt_sitemap_uren": 24,
+    # AH: zoeken met de scraper die AH's eigen 'nieuw'-label meegeeft (± $2,50 per week).
+    "supermarkt_ah_zoekscraper": True,
+    "supermarkt_ah_per_woord": 25,
+    "supermarkt_ah_zoekwoorden": ["nieuw", "snack", "kroket", "frikandel", "bitterbal", "chips", "noten", "saus",
+                                  "dip", "mayonaise", "ketchup", "kaas", "worst", "kip", "vega", "pizza",
+                                  "loempia", "friet", "ijs", "chocolade", "koek", "snoep", "drop", "taart",
+                                  "dessert", "yoghurt", "drink", "frisdrank", "energy", "thee", "koffie",
+                                  "gember", "sap", "smoothie", "brood", "wrap", "maaltijd", "soep", "salade",
+                                  "kruiden", "limited"],   # plafond per winkel voor een heel assortiment (AH, Jumbo, Lidl)
     "alleen_nieuwe_posts": True,      # datumfilter: niet betalen voor posts die we al hebben
     "herhaalmeting_per_ronde": 15,    # snelste posts per platform opnieuw meten
     "nieuws_aan": True,

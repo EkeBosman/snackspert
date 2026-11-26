@@ -666,6 +666,13 @@ def _store_products(conn, store: str, products: list[dict], now: str, source: st
         "INSERT OR IGNORE INTO products(id, store, name, size, price, url, first_seen, "
         "last_seen, is_new, relevant) VALUES (?,?,?,?,?,?,?,?,?,?)", rows)
     conn.executemany("UPDATE products SET last_seen = ? WHERE id = ?", [(now, p["id"]) for p in products])
+    # De winkel noemt het zelf nieuw (AH-label 'nieuw'): dan is het nieuw, ook tijdens het inleren
+    # en ook als de tool het product al kende (zoals de Kesbeke-gember, al weken in het schap).
+    store_new = [p for p in products if p.get("store_new")]
+    for p in store_new:
+        conn.execute("UPDATE products SET first_seen = CASE WHEN is_new = 0 THEN ? ELSE first_seen END, "
+                     "is_new = 1, store_new = 1, relevant = ? WHERE id = ?",
+                     (now, int(is_snack_product(p["name"])), p["id"]))
     db.set_state(conn, f"nulmeting_{source}_{store}", True)
     what = "snackproducten bekeken" if partial else "producten"
     if not baseline_done:
@@ -840,6 +847,33 @@ FULL_TIMEOUT_S = 100 * 60
 SOURCE_RETRY_DAYS = 7
 
 
+def _search_per_word(run: Run, actor: str, settings: dict) -> tuple[list[dict], float]:
+    """AH: één korte run per zoekwoord (de scraper neemt één zoekterm). Mislukt alles, dan een fout."""
+    words = [w.strip() for w in settings.get("supermarkt_ah_zoekwoorden") or [] if w.strip()]
+    per = max(1, int(settings.get("supermarkt_ah_per_woord", 25) or 25))
+    items, cost, failed = [], 0.0, 0
+    for w in words:
+        try:
+            got, c = apify.run_actor("actor", actor, [], 0, per * 0.004 * 1.5 + 0.05, timeout_s=300,
+                                     extra_input={"searchQuery": w, "maxItems": per, "includeRawData": True},
+                                     max_items=per)
+        except apify.ApifyRunFailed as exc:
+            got, c = [], exc.max_usd
+            failed += 1
+        except Exception as exc:  # noqa: BLE001
+            got, c = [], 0.0
+            failed += 1
+            if failed == 1:
+                run.note(f"AH-zoekscraper ({w}): {exc}", "waarschuwing")
+            if "record-not-found" in str(exc):
+                raise
+        items += got
+        cost += c
+    if words and failed == len(words):
+        raise apify.ApifyError(f"{actor}: geen enkel zoekwoord lukte")
+    return items, cost
+
+
 def _shop_from_sources(run: Run, settings: dict, store: str, code: str, terms: list[str], per_term: int,
                        per_store: int, price: float, now: str) -> tuple[str, float]:
     """Eén winkel: probeer de scrapers voor het hele assortiment, anders zoeken op woorden.
@@ -860,6 +894,8 @@ def _shop_from_sources(run: Run, settings: dict, store: str, code: str, terms: l
                 cap = float(settings.get("supermarkt_max_usd_volledig", 2.0) or 2.0)
                 items, cost = apify.run_actor("actor", src["actor"], [], 0, cap, timeout_s=FULL_TIMEOUT_S,
                                               extra_input=src.get("input") or {}, max_items=80000)
+            elif src.get("per_woord"):
+                items, cost = _search_per_word(run, src["actor"], settings)
             else:
                 if not terms:
                     break
@@ -944,8 +980,9 @@ def unmark_relisted(conn) -> int:
         key = (r["store"], *_product_key(r["name"], r["size"]))
         if key not in older or r["first_seen"] < older[key]:
             older[key] = r["first_seen"]
+    # Wat de winkel zelf 'nieuw' noemt (store_new), blijft nieuw.
     ids = [r["id"] for r in conn.execute("SELECT id, store, name, size, first_seen FROM products "
-                                         "WHERE demo = 0 AND is_new = 1")
+                                         "WHERE demo = 0 AND is_new = 1 AND COALESCE(store_new, 0) = 0")
            if (first := older.get((r["store"], *_product_key(r["name"], r["size"])))) and first <= r["first_seen"]]
     conn.executemany("UPDATE products SET is_new = 0 WHERE id = ?", [(i,) for i in ids])
     return len(ids)

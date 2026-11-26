@@ -1777,7 +1777,7 @@ def test_supermarkets_via_apify(conn, monkeypatch):
            "Spar": [{"id": "spar:1", "store": "Spar", "name": "Spar Kroket", "size": "", "price": 1, "url": None}]}
     monkeypatch.setattr(supermarket, "fetch", lambda etag=None: (cjb, "e"))
     monkeypatch.setattr(supermarket, "FULL_SOURCES", {})          # hier alleen het zoeken op woorden
-    settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"]}
+    settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"], "supermarkt_ah_zoekscraper": False}
     collector.step_supermarkets(collector.Run("t"), settings, force=True)
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
     assert calls[0][:2] == ("supermarkt", "zoekterm") and calls[0][3]["supermarkets"] == ["ah"]
@@ -1945,7 +1945,7 @@ def test_broken_full_scraper_falls_back_and_waits_a_week(conn, monkeypatch):
             raise ap.ApifyError("404 record-not-found: Actor with this name was not found")
         return [{"name": "AH Kroket", "url": "https://www.ah.nl/p/1"}], 0.3
     monkeypatch.setattr(ap, "run_actor", fake)
-    settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"]}
+    settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"], "supermarkt_ah_zoekscraper": False}
     collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
     assert calls == ["x~ah-full", "zoekterm"]
     assert not db.get_state(conn, "supermarkt_status")["Albert Heijn"]["volledig"]
@@ -1994,6 +1994,8 @@ def test_shop_test_runs_in_background(conn, monkeypatch):
 
     ap = _apify_offline(monkeypatch)
     monkeypatch.setattr(supermarket, "FULL_SOURCES", {"ah": [{"actor": "x~ah-full", "input": {}}]})
+    db.set_settings(conn, {"supermarkt_ah_zoekscraper": False})
+    conn.commit()
     full = [{"type": "product", "external_id": str(i), "name": f"AH Product {i}", "current_price": 1} for i in range(600)]
     attempts = iter([ap.ApifyError("run eindigde met status FAILED"), None])
 
@@ -2090,3 +2092,36 @@ def test_product_list_patterns_and_index():
         assert sitemaps._urls("https://x/index.xml") == ["https://x/p/1"]           # index gevolgd, gzip uitgepakt
     finally:
         mp.undo()
+
+
+def test_ah_search_uses_ah_own_new_label(conn, monkeypatch):
+    """AH-zoekscraper per woord: wat AH zelf 'nieuw' noemt, staat meteen bij nieuw (ook tijdens inleren)."""
+    from trendradar import collector, products
+
+    ap = _apify_offline(monkeypatch)
+    conn.execute("INSERT INTO products(id, store, name, first_seen, last_seen, is_new, relevant) VALUES "
+                 "('ah:old1', 'Albert Heijn', 'Kesbeke Vers gesneden gember citroen', '2026-03-01T00:00:00Z', "
+                 "'2026-03-01T00:00:00Z', 0, 0)")
+    conn.commit()
+    calls = []
+
+    def fake(platform, kind, values, per_value, max_usd, extra_input=None, **kw):
+        calls.append((kind, extra_input.get("searchQuery")))
+        if extra_input.get("searchQuery") == "gember":
+            return [{"title": "Kesbeke Vers gesneden gember citroen", "webshopId": 617410, "price": 4.89,
+                     "productUrl": "https://www.ah.nl/producten/product/wi617410",
+                     "rawData": {"propertyIcons": ["vegan", "nieuw"]}},
+                    {"title": "AH Gemberthee", "webshopId": 123, "price": 1.0,
+                     "rawData": {"propertyIcons": []}}], 0.01
+        return [], 0.0
+    monkeypatch.setattr(ap, "run_actor", fake)
+    settings = {**config.DEFAULTS, "supermarkt_apify_winkels": ["ah"], "supermarkt_ah_zoekwoorden": ["kroket", "gember"]}
+    collector.step_supermarkets_apify(collector.Run("t"), settings, force=True)
+    assert calls == [("incognito_mode~albert-heijn-product-scraper", "kroket"),
+                     ("incognito_mode~albert-heijn-product-scraper", "gember")]
+    new = {r["id"]: r["name"] for r in conn.execute("SELECT id, name FROM products WHERE is_new = 1")}
+    assert new == {"ah:wi617410": "Kesbeke Vers gesneden gember citroen"}   # AH zegt nieuw, al kende de tool de naam
+    shown = [p["name"] for p in products.overview(conn, True, only_relevant=False)["products"]]
+    assert shown == ["Kesbeke Vers gesneden gember citroen"]
+    st = db.get_state(conn, "supermarkt_status")["Albert Heijn"]
+    assert st["scraper"] == "incognito_mode~albert-heijn-product-scraper"
